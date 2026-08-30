@@ -451,58 +451,6 @@ window.__ModuleLoader__.load({
 		* @param props.t - the browser root's locale seat.
 		* @returns the row element.
 		*/
-
-		/** Module-level git-status cache: one fetch per workspace path per TTL. */
-		const GIT_BADGE_CACHE = new Map();
-		const GIT_BADGE_TTL_MS = 5000;
-		/**
-		* Git badge for a workspace row: "[branch]" green when clean, orange with
-		* " *" when dirty; " ↑n" / " ↓n" show unpushed / unpulled commit counts
-		* when the branch has an upstream. Data comes from the host half's
-		* /api/workspace-git route (the browser cannot run git). Renders nothing
-		* while loading, for the ungrouped bucket, or when the path is not a git
-		* repository.
-		*/
-		function WorkspaceGitBadge({ cwd }) {
-			const hit = cwd === void 0 ? void 0 : GIT_BADGE_CACHE.get(cwd);
-			const fresh = hit !== void 0 && Date.now() - hit.at < GIT_BADGE_TTL_MS;
-			const [info, setInfo] = (0, react.useState)(fresh ? hit.data : void 0);
-			(0, react.useEffect)(() => {
-				if (cwd === void 0) return;
-				const cached = GIT_BADGE_CACHE.get(cwd);
-				if (cached !== void 0 && Date.now() - cached.at < GIT_BADGE_TTL_MS) {
-					setInfo(cached.data);
-					return;
-				}
-				let alive = true;
-				fetch("/api/workspace-git?path=" + encodeURIComponent(cwd))
-					.then((r) => r.json())
-					.then((data) => {
-						GIT_BADGE_CACHE.set(cwd, { at: Date.now(), data });
-						if (alive) setInfo(data);
-					})
-					.catch(() => {});
-				return () => {
-					alive = false;
-				};
-			}, [cwd]);
-			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
-			let sync = "";
-			if (info.ahead > 0) sync += " ↑" + info.ahead;
-			if (info.behind > 0) sync += " ↓" + info.behind;
-			return (0, react_jsx_runtime.jsx)("span", {
-				style: {
-					color: info.dirty ? "#d29922" : "#3fb950",
-					fontSize: "12px",
-					lineHeight: "20px",
-					flex: "none",
-					whiteSpace: "nowrap",
-					marginLeft: "6px"
-				},
-				children: "[" + info.branch + (info.dirty ? " *" : "") + sync + "]"
-			});
-		}
-
 		function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t }) {
 			const row = group;
 			const label = row.workspaceId === void 0 ? t("group.ungrouped") : row.label;
@@ -541,15 +489,9 @@ window.__ModuleLoader__.load({
 					}),
 					(0, react_jsx_runtime.jsx)("span", {
 						className: Rows_module_css_default.projectText,
-						children: (0, react_jsx_runtime.jsxs)("span", {
-							style: { display: "flex", alignItems: "center", minWidth: 0 },
-							children: [
-								(0, react_jsx_runtime.jsx)("span", {
-									className: Rows_module_css_default.title,
-									children: label
-								}),
-								(0, react_jsx_runtime.jsx)(WorkspaceGitBadge, { cwd: row.cwd })
-							]
+						children: (0, react_jsx_runtime.jsx)("span", {
+							className: Rows_module_css_default.title,
+							children: label
 						})
 					}),
 					(0, react_jsx_runtime.jsxs)("span", {
