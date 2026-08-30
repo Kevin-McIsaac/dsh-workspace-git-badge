@@ -489,18 +489,18 @@ window.__ModuleLoader__.load({
 			return info;
 		}
 		/**
-		* Row git line: a colored status dot, the workspace name, then the branch
-		* and sync counts in the row's muted tertiary color —
-		*   ● the_paragliding_app main ↑1 ↓2
+		* Row git line: a colored status dot, the branch, then sync counts in the
+		* row's muted tertiary color —   ● main ↑1 ↓2
+		* The workspace name is dropped when git info is available (the hover card
+		* still shows it); name-only fallback while loading, for the ungrouped
+		* bucket, and for non-git paths so those rows stay identifiable.
 		* Dot: warning alias when dirty, success alias when clean (hex fallbacks).
-		* Renders name-only while loading, for the ungrouped bucket, or for
-		* non-git paths. Sync detail wording lives in the hover card.
 		*/
 		const GIT_DOT_STYLE = (dirty) => ({
 			color: dirty
 				? "var(--dsw-alias-state-warning-primary, #d29922)"
 				: "var(--dsw-alias-state-success-primary, #3fb950)",
-			fontSize: "10px",
+			fontSize: "13px",
 			lineHeight: "20px",
 			flex: "none",
 			marginRight: "5px"
@@ -514,19 +514,20 @@ window.__ModuleLoader__.load({
 		};
 		function WorkspaceGitBadge({ label, cwd }) {
 			const info = useGitStatus(cwd);
-			const children = [
-				(0, react_jsx_runtime.jsx)("span", { className: Rows_module_css_default.title, children: label })
-			];
-			if (cwd !== void 0 && info !== void 0 && info.git === true) {
-				children.push(
-					(0, react_jsx_runtime.jsx)("span", { style: GIT_DOT_STYLE(info.dirty === true), children: "●" }),
-					(0, react_jsx_runtime.jsx)("span", { style: { ...GIT_META_STYLE, marginLeft: "5px" }, children: info.branch })
-				);
-				let sync = "";
-				if (info.ahead > 0) sync += " ↑" + info.ahead;
-				if (info.behind > 0) sync += " ↓" + info.behind;
-				if (sync !== "") children.push((0, react_jsx_runtime.jsx)("span", { style: { ...GIT_META_STYLE, marginLeft: "5px" }, children: sync }));
+			if (cwd === void 0 || info === void 0 || info.git !== true) {
+				return (0, react_jsx_runtime.jsx)("span", {
+					className: Rows_module_css_default.title,
+					children: label
+				});
 			}
+			const children = [
+				(0, react_jsx_runtime.jsx)("span", { style: GIT_DOT_STYLE(info.dirty === true), children: "●" }),
+				(0, react_jsx_runtime.jsx)("span", { style: { ...GIT_META_STYLE, marginLeft: "3px" }, children: info.branch })
+			];
+			let sync = "";
+			if (info.ahead > 0) sync += " ↑" + info.ahead;
+			if (info.behind > 0) sync += " ↓" + info.behind;
+			if (sync !== "") children.push((0, react_jsx_runtime.jsx)("span", { style: { ...GIT_META_STYLE, marginLeft: "5px" }, children: sync }));
 			return (0, react_jsx_runtime.jsx)("span", {
 				style: { display: "flex", alignItems: "center", minWidth: 0 },
 				children

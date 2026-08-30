@@ -489,20 +489,13 @@ window.__ModuleLoader__.load({
 			return info;
 		}
 		/**
-		* Row git line: a colored status dot, the branch, then sync counts in the
-		* row's muted tertiary color —   ● main ↑1 ↓2
-		* The workspace name is dropped when git info is available (the hover card
-		* still shows it); name-only fallback while loading, for the ungrouped
-		* bucket, and for non-git paths so those rows stay identifiable.
-		* Dot: warning alias when dirty, success alias when clean (hex fallbacks).
+		* Row git line, Claude Code statusline style:
+		*   the_paragliding_app  | 🟢 main ↑1 ↓2
+		* Workspace name (row title styling), muted pipe separator, colored
+		* status emoji (🟢 clean / 🟡 dirty), branch, then nonzero sync counts —
+		* all in the row's muted tertiary color. Name-only fallback while
+		* loading, for the ungrouped bucket, and for non-git paths.
 		*/
-		const GIT_DOT_STYLE = (dirty) => ({
-			display: "flex",
-			alignItems: "center",
-			flex: "none",
-			marginLeft: "6px",
-			marginRight: "4px"
-		});
 		const GIT_META_STYLE = {
 			color: "var(--dsw-alias-label-tertiary, #9ea7ad)",
 			fontSize: "12px",
@@ -510,26 +503,6 @@ window.__ModuleLoader__.load({
 			flex: "none",
 			whiteSpace: "nowrap"
 		};
-		/** 10px status circle as inline SVG: crisp and font-independent. */
-		function GitStatusDot({ dirty }) {
-			return (0, react_jsx_runtime.jsx)("span", {
-				style: GIT_DOT_STYLE(dirty),
-				children: (0, react_jsx_runtime.jsxs)("svg", {
-					width: "10",
-					height: "10",
-					viewBox: "0 0 10 10",
-					"aria-hidden": "true",
-					children: [(0, react_jsx_runtime.jsx)("circle", {
-						cx: "5",
-						cy: "5",
-						r: "5",
-						fill: dirty
-							? "var(--dsw-alias-state-warning-primary, #d29922)"
-							: "var(--dsw-alias-state-success-primary, #3fb950)"
-					})]
-				})
-			});
-		}
 		function WorkspaceGitBadge({ label, cwd }) {
 			const info = useGitStatus(cwd);
 			if (cwd === void 0 || info === void 0 || info.git !== true) {
@@ -539,7 +512,9 @@ window.__ModuleLoader__.load({
 				});
 			}
 			const children = [
-				(0, react_jsx_runtime.jsx)(GitStatusDot, { dirty: info.dirty === true }),
+				(0, react_jsx_runtime.jsx)("span", { className: Rows_module_css_default.title, style: { flex: "none" }, children: label }),
+				(0, react_jsx_runtime.jsx)("span", { style: { ...GIT_META_STYLE, margin: "0 7px" }, children: "|" }),
+				(0, react_jsx_runtime.jsx)("span", { style: { ...GIT_META_STYLE, marginRight: "4px" }, children: info.dirty ? "🟡" : "🟢" }),
 				(0, react_jsx_runtime.jsx)("span", { style: GIT_META_STYLE, children: info.branch })
 			];
 			let sync = "";
