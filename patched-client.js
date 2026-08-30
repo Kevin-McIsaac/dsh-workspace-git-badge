@@ -497,13 +497,11 @@ window.__ModuleLoader__.load({
 		* Dot: warning alias when dirty, success alias when clean (hex fallbacks).
 		*/
 		const GIT_DOT_STYLE = (dirty) => ({
-			color: dirty
-				? "var(--dsw-alias-state-warning-primary, #d29922)"
-				: "var(--dsw-alias-state-success-primary, #3fb950)",
-			fontSize: "13px",
-			lineHeight: "20px",
+			display: "flex",
+			alignItems: "center",
 			flex: "none",
-			marginRight: "5px"
+			marginLeft: "6px",
+			marginRight: "4px"
 		});
 		const GIT_META_STYLE = {
 			color: "var(--dsw-alias-label-tertiary, #9ea7ad)",
@@ -512,6 +510,26 @@ window.__ModuleLoader__.load({
 			flex: "none",
 			whiteSpace: "nowrap"
 		};
+		/** 10px status circle as inline SVG: crisp and font-independent. */
+		function GitStatusDot({ dirty }) {
+			return (0, react_jsx_runtime.jsx)("span", {
+				style: GIT_DOT_STYLE(dirty),
+				children: (0, react_jsx_runtime.jsxs)("svg", {
+					width: "10",
+					height: "10",
+					viewBox: "0 0 10 10",
+					"aria-hidden": "true",
+					children: [(0, react_jsx_runtime.jsx)("circle", {
+						cx: "5",
+						cy: "5",
+						r: "5",
+						fill: dirty
+							? "var(--dsw-alias-state-warning-primary, #d29922)"
+							: "var(--dsw-alias-state-success-primary, #3fb950)"
+					})]
+				})
+			});
+		}
 		function WorkspaceGitBadge({ label, cwd }) {
 			const info = useGitStatus(cwd);
 			if (cwd === void 0 || info === void 0 || info.git !== true) {
@@ -521,13 +539,13 @@ window.__ModuleLoader__.load({
 				});
 			}
 			const children = [
-				(0, react_jsx_runtime.jsx)("span", { style: GIT_DOT_STYLE(info.dirty === true), children: "●" }),
-				(0, react_jsx_runtime.jsx)("span", { style: { ...GIT_META_STYLE, marginLeft: "3px" }, children: info.branch })
+				(0, react_jsx_runtime.jsx)(GitStatusDot, { dirty: info.dirty === true }),
+				(0, react_jsx_runtime.jsx)("span", { style: GIT_META_STYLE, children: info.branch })
 			];
 			let sync = "";
 			if (info.ahead > 0) sync += " ↑" + info.ahead;
 			if (info.behind > 0) sync += " ↓" + info.behind;
-			if (sync !== "") children.push((0, react_jsx_runtime.jsx)("span", { style: { ...GIT_META_STYLE, marginLeft: "5px" }, children: sync }));
+			if (sync !== "") children.push((0, react_jsx_runtime.jsx)("span", { style: { ...GIT_META_STYLE, marginLeft: "6px" }, children: sync }));
 			return (0, react_jsx_runtime.jsx)("span", {
 				style: { display: "flex", alignItems: "center", minWidth: 0 },
 				children
