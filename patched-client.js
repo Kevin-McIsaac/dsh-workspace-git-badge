@@ -414,7 +414,7 @@ window.__ModuleLoader__.load({
 			})} ${pad2(d.getHours())}:${pad2(d.getMinutes())}` });
 		}
 		/** Hover-card body: workspace title, display directory path, absolute creation time. */
-		function WorkspaceHoverContent({ label, cwd, createdAt, t }) {
+		function WorkspaceHoverContent({ label, cwd, rawCwd, createdAt, t }) {
 			return (0, react_jsx_runtime.jsxs)("div", {
 				className: Rows_module_css_default.hoverContent,
 				children: [
@@ -430,7 +430,7 @@ window.__ModuleLoader__.load({
 						className: Rows_module_css_default.hoverTime,
 						children: createdLabel(createdAt, t)
 					}),
-					(0, react_jsx_runtime.jsx)(WorkspaceGitHover, { cwd })
+					(0, react_jsx_runtime.jsx)(WorkspaceGitHover, { cwd: rawCwd })
 				]
 			});
 		}
@@ -647,6 +647,7 @@ window.__ModuleLoader__.load({
 				content: (0, react_jsx_runtime.jsx)(WorkspaceHoverContent, {
 					label: row.label,
 					cwd: row.cwd === void 0 ? void 0 : (0, _deepseek_ai_dsh_client_runtime_client.abbreviateHomePath)(row.cwd, home),
+					rawCwd: row.cwd,
 					createdAt: row.createdAt,
 					t
 				}),
