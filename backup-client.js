@@ -457,9 +457,11 @@ window.__ModuleLoader__.load({
 		const GIT_BADGE_TTL_MS = 5000;
 		/**
 		* Git badge for a workspace row: "[branch]" green when clean, orange with
-		* " *" when dirty. Data comes from the host half's /api/workspace-git
-		* route (the browser cannot run git). Renders nothing while loading,
-		* for the ungrouped bucket, or when the path is not a git repository.
+		* " *" when dirty; " ↑n" / " ↓n" show unpushed / unpulled commit counts
+		* when the branch has an upstream. Data comes from the host half's
+		* /api/workspace-git route (the browser cannot run git). Renders nothing
+		* while loading, for the ungrouped bucket, or when the path is not a git
+		* repository.
 		*/
 		function WorkspaceGitBadge({ cwd }) {
 			const hit = cwd === void 0 ? void 0 : GIT_BADGE_CACHE.get(cwd);
@@ -485,6 +487,9 @@ window.__ModuleLoader__.load({
 				};
 			}, [cwd]);
 			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
+			let sync = "";
+			if (info.ahead > 0) sync += " ↑" + info.ahead;
+			if (info.behind > 0) sync += " ↓" + info.behind;
 			return (0, react_jsx_runtime.jsx)("span", {
 				style: {
 					color: info.dirty ? "#d29922" : "#3fb950",
@@ -494,7 +499,7 @@ window.__ModuleLoader__.load({
 					whiteSpace: "nowrap",
 					marginLeft: "6px"
 				},
-				children: "[" + info.branch + (info.dirty ? " *" : "") + "]"
+				children: "[" + info.branch + (info.dirty ? " *" : "") + sync + "]"
 			});
 		}
 

@@ -8,7 +8,8 @@
 *
 *   GET /api/workspace-git?path=<workspace path>
 *     -> { git: false }                            (not a repository)
-*     -> { git: true, branch, dirty }              (branch "" => detached HEAD)
+*     -> { git: true, branch, dirty, ahead, behind }
+*        (ahead/behind omitted when the branch has no upstream)
 *
 * The route runs `git` in the requested directory. It only ever reads git
 * metadata (rev-parse / branch / status --porcelain) — no checkout, no
@@ -31,20 +32,33 @@ function runGit(dir, args) {
 	});
 }
 
-/** Branch + dirty for dir; { git: false } when dir is not inside a repository. */
+/** Branch + dirty + sync counts for dir; { git: false } when dir is not inside a repository. */
 async function gitStatus(dir) {
 	const top = await runGit(dir, ["rev-parse", "--show-toplevel"]);
 	if (top === null || top.trim() === "") return { git: false };
 	const toplevel = top.trim();
-	const [branchOut, statusOut] = await Promise.all([
+	const [branchOut, statusOut, syncOut] = await Promise.all([
 		runGit(toplevel, ["branch", "--show-current"]),
-		runGit(toplevel, ["status", "--porcelain"])
+		runGit(toplevel, ["status", "--porcelain"]),
+		runGit(toplevel, ["rev-list", "--left-right", "--count", "@{u}...HEAD"])
 	]);
 	if (branchOut === null || statusOut === null) return { git: false };
+	// "@{u}...HEAD" left-right count is "<behind>\t<ahead>"; null when no upstream.
+	let ahead;
+	let behind;
+	if (syncOut !== null) {
+		const [left, right] = syncOut.trim().split(/\s+/).map((n) => Number.parseInt(n, 10));
+		if (Number.isFinite(left) && Number.isFinite(right)) {
+			behind = left;
+			ahead = right;
+		}
+	}
 	return {
 		git: true,
 		branch: branchOut.trim() || "HEAD (detached)",
-		dirty: statusOut.trim().length > 0
+		dirty: statusOut.trim().length > 0,
+		ahead,
+		behind
 	};
 }
 
