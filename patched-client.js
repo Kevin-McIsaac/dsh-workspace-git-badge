@@ -429,7 +429,8 @@ window.__ModuleLoader__.load({
 					(0, react_jsx_runtime.jsx)("div", {
 						className: Rows_module_css_default.hoverTime,
 						children: createdLabel(createdAt, t)
-					})
+					}),
+					(0, react_jsx_runtime.jsx)(WorkspaceGitHover, { cwd })
 				]
 			});
 		}
@@ -456,14 +457,13 @@ window.__ModuleLoader__.load({
 		const GIT_BADGE_CACHE = new Map();
 		const GIT_BADGE_TTL_MS = 5000;
 		/**
-		* Git badge for a workspace row: "[branch]" green when clean, orange with
-		* " *" when dirty; " ↑n" / " ↓n" show unpushed / unpulled commit counts
-		* when the branch has an upstream. Data comes from the host half's
-		* /api/workspace-git route (the browser cannot run git). Renders nothing
-		* while loading, for the ungrouped bucket, or when the path is not a git
-		* repository.
+		* Shared git-status hook for the row badge and the hover card. Data comes
+		* from the host half's /api/workspace-git route (the browser cannot run
+		* git); one fetch per workspace path per TTL, shared module-level.
+		* Returns undefined while loading, for the ungrouped bucket, and for
+		* paths that are not git repositories (the route answers git: false).
 		*/
-		function WorkspaceGitBadge({ cwd }) {
+		function useGitStatus(cwd) {
 			const hit = cwd === void 0 ? void 0 : GIT_BADGE_CACHE.get(cwd);
 			const fresh = hit !== void 0 && Date.now() - hit.at < GIT_BADGE_TTL_MS;
 			const [info, setInfo] = (0, react.useState)(fresh ? hit.data : void 0);
@@ -486,20 +486,46 @@ window.__ModuleLoader__.load({
 					alive = false;
 				};
 			}, [cwd]);
+			return info;
+		}
+		/**
+		* Row badge: "[branch]" in the row's muted tertiary label color; the dirty
+		* marker " *" is the one colored glyph (warning alias with hex fallback).
+		* Sync arrows live in the hover card, not the row. Renders nothing while
+		* loading, for the ungrouped bucket, or for non-git paths.
+		*/
+		function WorkspaceGitBadge({ cwd }) {
+			const info = useGitStatus(cwd);
 			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
-			let sync = "";
-			if (info.ahead > 0) sync += " ↑" + info.ahead;
-			if (info.behind > 0) sync += " ↓" + info.behind;
-			return (0, react_jsx_runtime.jsx)("span", {
+			return (0, react_jsx_runtime.jsxs)("span", {
 				style: {
-					color: info.dirty ? "#d29922" : "#3fb950",
+					color: "var(--dsw-alias-label-tertiary, #9ea7ad)",
 					fontSize: "12px",
 					lineHeight: "20px",
 					flex: "none",
 					whiteSpace: "nowrap",
 					marginLeft: "6px"
 				},
-				children: "[" + info.branch + (info.dirty ? " *" : "") + sync + "]"
+				children: [
+					"[" + info.branch,
+					info.dirty ? (0, react_jsx_runtime.jsx)("span", {
+						style: { color: "var(--dsw-alias-state-warning-primary, #d29922)" },
+						children: " *"
+					}) : null,
+					"]"
+				]
+			});
+		}
+		/** Hover-card git line: branch, dirty marker, and up/down sync counts. */
+		function WorkspaceGitHover({ cwd }) {
+			const info = useGitStatus(cwd);
+			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
+			const parts = [info.branch + (info.dirty ? " (dirty)" : "")];
+			if (info.ahead > 0) parts.push("↑ " + info.ahead + " unpushed");
+			if (info.behind > 0) parts.push("↓ " + info.behind + " unpulled");
+			return (0, react_jsx_runtime.jsx)("div", {
+				className: Rows_module_css_default.hoverStatus,
+				children: parts.join("  ·  ")
 			});
 		}
 
