@@ -32,15 +32,16 @@ function runGit(dir, args) {
 	});
 }
 
-/** Branch + dirty + sync counts for dir; { git: false } when dir is not inside a repository. */
+/** Branch + dirty + sync + last commit for dir; { git: false } when dir is not inside a repository. */
 async function gitStatus(dir) {
 	const top = await runGit(dir, ["rev-parse", "--show-toplevel"]);
 	if (top === null || top.trim() === "") return { git: false };
 	const toplevel = top.trim();
-	const [branchOut, statusOut, syncOut] = await Promise.all([
+	const [branchOut, statusOut, syncOut, logOut] = await Promise.all([
 		runGit(toplevel, ["branch", "--show-current"]),
 		runGit(toplevel, ["status", "--porcelain"]),
-		runGit(toplevel, ["rev-list", "--left-right", "--count", "@{u}...HEAD"])
+		runGit(toplevel, ["rev-list", "--left-right", "--count", "@{u}...HEAD"]),
+		runGit(toplevel, ["log", "-1", "--format=%h%x09%s%x09%cr"])
 	]);
 	if (branchOut === null || statusOut === null) return { git: false };
 	// "@{u}...HEAD" left-right count is "<behind>\t<ahead>"; null when no upstream.
@@ -53,12 +54,32 @@ async function gitStatus(dir) {
 			ahead = right;
 		}
 	}
+	// status --porcelain: one line per changed path; "??" marks untracked.
+	const lines = statusOut.split("\n").filter((line) => line.trim() !== "");
+	const untracked = lines.filter((line) => line.startsWith("??")).length;
+	// last commit "hash\tsubject\thuman-relative-time"; absent on an empty repo.
+	let lastCommitHash;
+	let lastCommitSubject;
+	let lastCommitWhen;
+	if (logOut !== null && logOut.trim() !== "") {
+		const [hash, subject, when] = logOut.trim().split("\t");
+		if (hash !== void 0 && subject !== void 0) {
+			lastCommitHash = hash;
+			lastCommitSubject = subject;
+			lastCommitWhen = when ?? "";
+		}
+	}
 	return {
 		git: true,
 		branch: branchOut.trim() || "HEAD (detached)",
-		dirty: statusOut.trim().length > 0,
+		dirty: lines.length > 0,
+		changedFiles: lines.length - untracked,
+		untrackedFiles: untracked,
 		ahead,
-		behind
+		behind,
+		lastCommitHash,
+		lastCommitSubject,
+		lastCommitWhen
 	};
 }
 

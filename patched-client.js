@@ -530,12 +530,34 @@ window.__ModuleLoader__.load({
 		function WorkspaceGitHover({ cwd }) {
 			const info = useGitStatus(cwd);
 			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
-			const parts = [info.branch + (info.dirty ? " (dirty)" : "")];
-			if (info.ahead > 0) parts.push("↑ " + info.ahead + " unpushed");
-			if (info.behind > 0) parts.push("↓ " + info.behind + " unpulled");
-			return (0, react_jsx_runtime.jsx)("div", {
-				className: Rows_module_css_default.hoverStatus,
-				children: parts.join("  ·  ")
+			const parts = [
+				(info.dirty ? "🟡" : "🟢") + " " + info.branch,
+				info.lastCommitHash
+			];
+			if (info.ahead > 0) parts.push("↑" + info.ahead);
+			if (info.behind > 0) parts.push("↓" + info.behind);
+			const summary = [];
+			if (info.changedFiles > 0) summary.push(info.changedFiles + " uncommitted file" + (info.changedFiles === 1 ? "" : "s"));
+			if (info.untrackedFiles > 0) summary.push(info.untrackedFiles + " untracked");
+			return (0, react_jsx_runtime.jsxs)("div", {
+				className: Rows_module_css_default.hoverContent,
+				children: [
+					(0, react_jsx_runtime.jsx)("div", {
+						className: Rows_module_css_default.hoverStatus,
+						children: parts.join("  ·  ")
+					}),
+					(0, react_jsx_runtime.jsx)("div", {
+						className: Rows_module_css_default.hoverStatus,
+						children: summary.length > 0 ? summary.join(" · ") : "working tree clean"
+					}),
+					info.lastCommitHash !== void 0 ? (0, react_jsx_runtime.jsxs)("div", {
+						className: Rows_module_css_default.hoverStatus,
+						children: [
+							"last commit: " + info.lastCommitHash + " “" + info.lastCommitSubject + "”",
+							info.lastCommitWhen ? " · " + info.lastCommitWhen : ""
+						]
+					}) : null
+				]
 			});
 		}
 
