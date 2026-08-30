@@ -577,16 +577,7 @@ window.__ModuleLoader__.load({
 					}),
 					(0, react_jsx_runtime.jsx)("span", {
 						className: Rows_module_css_default.projectText,
-						children: (0, react_jsx_runtime.jsxs)("span", {
-							style: { display: "flex", alignItems: "center", minWidth: 0 },
-							children: [
-								(0, react_jsx_runtime.jsx)("span", {
-									className: Rows_module_css_default.title,
-									children: label
-								}),
-								(0, react_jsx_runtime.jsx)(WorkspaceGitBadge, { label, cwd: row.cwd })
-							]
-						})
+						children: (0, react_jsx_runtime.jsx)(WorkspaceGitBadge, { label, cwd: row.cwd })
 					}),
 					(0, react_jsx_runtime.jsxs)("span", {
 						className: Rows_module_css_default.rowActions,
