@@ -459,7 +459,10 @@ window.__ModuleLoader__.load({
 		/**
 		* Shared git-status hook for the row badge and the hover card. Data comes
 		* from the host half's /api/workspace-git route (the browser cannot run
-		* git); one fetch per workspace path per TTL, shared module-level.
+		* git); one fetch per workspace path per TTL, shared module-level, and a
+		* poll each TTL while mounted so a row never outlives its data (without
+		* it, a row keeps the state from its mount fetch forever while a later
+		* hover remount shows fresh data — the mismatch this fixes).
 		* Returns undefined while loading, for the ungrouped bucket, and for
 		* paths that are not git repositories (the route answers git: false).
 		*/
@@ -469,21 +472,27 @@ window.__ModuleLoader__.load({
 			const [info, setInfo] = (0, react.useState)(fresh ? hit.data : void 0);
 			(0, react.useEffect)(() => {
 				if (cwd === void 0) return;
-				const cached = GIT_BADGE_CACHE.get(cwd);
-				if (cached !== void 0 && Date.now() - cached.at < GIT_BADGE_TTL_MS) {
-					setInfo(cached.data);
-					return;
-				}
 				let alive = true;
-				fetch("/api/workspace-git?path=" + encodeURIComponent(cwd))
-					.then((r) => r.json())
-					.then((data) => {
-						GIT_BADGE_CACHE.set(cwd, { at: Date.now(), data });
-						if (alive) setInfo(data);
-					})
-					.catch(() => {});
+				const apply = (data) => {
+					GIT_BADGE_CACHE.set(cwd, { at: Date.now(), data });
+					if (alive) setInfo(data);
+				};
+				const load = () => {
+					const cached = GIT_BADGE_CACHE.get(cwd);
+					if (cached !== void 0 && Date.now() - cached.at < GIT_BADGE_TTL_MS) {
+						setInfo(cached.data);
+						return;
+					}
+					fetch("/api/workspace-git?path=" + encodeURIComponent(cwd))
+						.then((r) => r.json())
+						.then(apply)
+						.catch(() => {});
+				};
+				load();
+				const timer = setInterval(load, GIT_BADGE_TTL_MS);
 				return () => {
 					alive = false;
+					clearInterval(timer);
 				};
 			}, [cwd]);
 			return info;
