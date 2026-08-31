@@ -1,6 +1,6 @@
 {
   "name": "dsh-git-badge",
-  "version": "0.5.0",
+  "version": "0.5.2",
   "description": "Git status badges for DeepSeek Harness: sidebar workspace rows (via the sidebar.workspaces.row seam) and an input-row chip showing the current conversation's workspace git state. Event-driven freshness over SSE.",
   "type": "module",
   "main": "lib/index.js",

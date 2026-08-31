@@ -111,7 +111,8 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Shared sync/dirty suffix for all surfaces. Rule set:
+		 * Sync/dirty suffix — INPUT CHIP ONLY. The sidebar row badge shows
+		 * status + branch alone; the chip is the detailed surface. Rule set:
 		 *  - dirty files render as ✎n (pencil = worktree files, distinct from
 		 *    the ↑/↓ commit-sync axis)
 		 *  - while dirty, BOTH sync counts render including zeros (↑0 ↓2 ✎3),
@@ -140,10 +141,11 @@ window.__ModuleLoader__.load({
 		};
 
 		/**
-		 * Row badge, Claude Code statusline style:
-		 *   the_paragliding_app  | 🟢 main ↑1 ↓2
+		 * Row badge — status + branch only (sync/dirty detail lives on the
+		 * input chip):
+		 *   the_paragliding_app  | 🟢 main
 		 * Always renders the workspace name (so the row keeps its identity);
-		 * appends the muted `| emoji branch sync` part only for git workspaces.
+		 * appends the muted `| emoji branch` part only for git workspaces.
 		 */
 		function WorkspaceGitBadge({ label, cwd }) {
 			const info = useGitStatus(cwd, false);
@@ -152,7 +154,7 @@ window.__ModuleLoader__.load({
 				children.push(
 					react_jsx_runtime.jsx("span", { style: { ...META_STYLE, margin: "0 7px" }, children: "|" }),
 					react_jsx_runtime.jsx("span", { style: { ...META_STYLE, marginRight: "4px" }, children: info.dirty ? "🟡" : "🟢" }),
-					react_jsx_runtime.jsx("span", { style: META_STYLE, children: info.branch + formatGitSuffix(info) })
+					react_jsx_runtime.jsx("span", { style: META_STYLE, children: info.branch })
 				);
 			}
 			return react_jsx_runtime.jsx("span", { style: { display: "flex", alignItems: "center", minWidth: 0 }, children });
