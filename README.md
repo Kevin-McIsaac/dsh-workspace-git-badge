@@ -1,21 +1,23 @@
 # dsh-git-badge
 
-Git status badges for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) workspaces — Claude Code statusline style:
-
-```
-the_paragliding_app           | 🟡 main ↑0 ↓2 ✎3
-paragliding-site-federation   | 🟢 main
-```
+Git status badges for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 
 ## What you get
 
-- **Input-row chip** (works on every install, no patching): compact `🟢 main` next to the access picker, showing the git state of the workspace the current conversation is attached to:
+The GitHub status for the current session as a chip (`🟡 main ↑0 ↓2 ✎3`) displayed in the input box next to the access picker.
 
-  ![input-row chip](docs/input-chip.svg)
+<img  alt="image" src="https://github.com/user-attachments/assets/a5a9a405-a515-491f-a21a-e53d7e52eca1" />
 
-- **Sidebar row badges** (full functionality — requires applying the [seam patch](#sidebar-row-badges-need-the-seam) below, which is a two-command local step): emoji (🟢 clean / 🟡 dirty), branch, `↑n`/`↓n` unpushed/unpulled commit counts, and `✎n` uncommitted files. On a dirty worktree both sync counts show including zeros (`↑0 ↓2 ✎3`) so every number is positionally attributable; clean workspaces stay quiet.
+A summary chip is displayed after each project name in the workspace. The workspace summary chip 
+requires applying the seam patch (below) to enable
+this functionality until a seam is provided upstream
 
-- **Event-driven freshness**: no polling. Each workspace's working tree is watched (`fs.watch`, recursive, 200 ms debounce) and updates push over SSE — badges flip within ~1 second of any commit, checkout, stage, or file edit. A 60s poll backs the SSE stream up in case it dies silently.
+```
+Project 1   | 🟡 main
+Project 2   | 🟢 main
+```
+
+The status is updated within seconds of any commit, checkout, stage, or file edit.
 
 ## Install
 
@@ -23,22 +25,11 @@ paragliding-site-federation   | 🟢 main
 dsh plugin --profile web add dsh-git-badge
 ```
 
-Then restart the web process and refresh the browser.
+Then restart the web process and refresh the browser. THis will activate the input status chip. 
 
-### Sidebar row badges need the seam
-
-The input chip works everywhere. The sidebar row badge additionally requires
-the `sidebar.workspaces.row` slot seam in
-`@deepseek-ai/dsh-client-ui-workspace` — a 32-line additive patch proposed
-upstream (discussion [#5092](https://github.com/deepseek-ai/deepseek-harness/discussions/5092)).
-Until it lands, the plugin detects its absence at boot and logs which
-surfaces are active to the browser console:
-
-```
-[dsh-git-badge] surfaces: input chip = on; sidebar rows = off (seam absent — sidebar badges need the sidebar.workspaces.row seam)
-```
-
-#### Quick path: apply the local patch
+Sidebar row badges need the proposed new seam `sidebar.workspaces.row` in
+`@deepseek-ai/dsh-client-ui-workspace`. If this is not available apply the patch 
+(discussion [#5092](https://github.com/deepseek-ai/deepseek-harness/discussions/5092)).
 
 From a clone of this repo:
 
