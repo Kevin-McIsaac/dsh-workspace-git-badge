@@ -1,0 +1,183 @@
+/**
+ * dsh-git-badge — client half.
+ *
+ * Registers into the `sidebar.workspaces.row` / `sidebar.workspaces.row.detail`
+ * list seams (declared + rendered by the workspace browser). The seam hands
+ * each entry the row owner share { workspaceId, cwd, label } as plain props —
+ * this file contains no internals knowledge of the workspace browser, so it
+ * ports to the upstream seam unchanged.
+ */
+window.__ModuleLoader__.load({
+	id: "dsh-git-badge",
+	factory: (require) => {
+		var module = { exports: {} };
+		var exports = module.exports;
+		Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
+		let react_jsx_runtime = require("react/jsx-runtime");
+		let react = require("react");
+
+		/** Module-level git-status cache. Entries are invalidated by SSE events, never by age. */
+		const GIT_CACHE = new Map();
+		/** Slow safety-net poll: refreshes even if the SSE stream is silently dead. */
+		const FALLBACK_POLL_MS = 60000;
+
+		//#region SSE change feed (one EventSource per page, ref-counted)
+		const eventListeners = new Set();
+		let eventSource = null;
+		let eventRefs = 0;
+
+		function subscribeGitEvents(onChange) {
+			eventListeners.add(onChange);
+			eventRefs += 1;
+			if (eventSource === null) {
+				eventSource = new EventSource("/api/git-badge/events");
+				eventSource.onmessage = (message) => {
+					let path;
+					try {
+						path = JSON.parse(message.data).path;
+					} catch {
+						return;
+					}
+					// invalidate every cache entry for this workspace, then refetch
+					for (const key of [...GIT_CACHE.keys()]) {
+						if (key === path || key.startsWith(path + "?d")) GIT_CACHE.delete(key);
+					}
+					for (const fn of [...eventListeners]) {
+						try {
+							fn(path);
+						} catch {
+							/* one bad subscriber must not starve the rest */
+						}
+					}
+				};
+			}
+			return () => {
+				eventListeners.delete(onChange);
+				eventRefs -= 1;
+				if (eventRefs === 0 && eventSource !== null) {
+					eventSource.close();
+					eventSource = null;
+				}
+			};
+		}
+		//#endregion
+
+		/**
+		 * Shared git-status hook. Fetches once on mount and then only when the
+		 * node half's watcher reports a change for this workspace (SSE), plus a
+		 * slow safety-net poll in case the stream dies silently. Returns
+		 * undefined while loading and for non-git paths.
+		 */
+		function useGitStatus(cwd, detail) {
+			const cacheKey = cwd === void 0 ? void 0 : cwd + (detail ? "?d" : "");
+			const hit = cacheKey === void 0 ? void 0 : GIT_CACHE.get(cacheKey);
+			const [info, setInfo] = react.useState(hit !== void 0 ? hit.data : void 0);
+			react.useEffect(() => {
+				if (cacheKey === void 0) return;
+				let alive = true;
+				const apply = (data) => {
+					GIT_CACHE.set(cacheKey, { at: Date.now(), data });
+					if (alive) setInfo(data);
+				};
+				const load = () => {
+					fetch("/api/git-badge?path=" + encodeURIComponent(cwd) + (detail ? "&detail=1" : ""))
+						.then((r) => r.json())
+						.then(apply)
+						.catch(() => {});
+				};
+				load();
+				// this workspace's watcher events → refetch the detail variant too
+				const unsubscribe = subscribeGitEvents((path) => {
+					if (path === cwd) load();
+				});
+				const fallback = setInterval(load, FALLBACK_POLL_MS);
+				return () => {
+					alive = false;
+					unsubscribe();
+					clearInterval(fallback);
+				};
+			}, [cacheKey]);
+			return info;
+		}
+
+		const META_STYLE = {
+			color: "var(--dsw-alias-label-tertiary, #9ea7ad)",
+			fontSize: "12px",
+			lineHeight: "20px",
+			flex: "none",
+			whiteSpace: "nowrap"
+		};
+
+		/**
+		 * Row badge, Claude Code statusline style:
+		 *   the_paragliding_app  | 🟢 main ↑1 ↓2
+		 * Always renders the workspace name (so the row keeps its identity);
+		 * appends the muted `| emoji branch sync` part only for git workspaces.
+		 */
+		function WorkspaceGitBadge({ label, cwd }) {
+			const info = useGitStatus(cwd, false);
+			const children = [react_jsx_runtime.jsx("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }, children: label })];
+			if (cwd !== void 0 && info !== void 0 && info.git === true) {
+				let sync = "";
+				if (info.ahead > 0) sync += " ↑" + info.ahead;
+				if (info.behind > 0) sync += " ↓" + info.behind;
+				children.push(
+					react_jsx_runtime.jsx("span", { style: { ...META_STYLE, margin: "0 7px" }, children: "|" }),
+					react_jsx_runtime.jsx("span", { style: { ...META_STYLE, marginRight: "4px" }, children: info.dirty ? "🟡" : "🟢" }),
+					react_jsx_runtime.jsx("span", { style: META_STYLE, children: info.branch })
+				);
+				if (sync !== "") children.push(react_jsx_runtime.jsx("span", { style: { ...META_STYLE, marginLeft: "6px" }, children: sync }));
+			}
+			return react_jsx_runtime.jsx("span", { style: { display: "flex", alignItems: "center", minWidth: 0 }, children });
+		}
+
+		/** Hover-card detail: branch + sync line, dirty summary, last commit. */
+		function WorkspaceGitHoverDetail({ cwd }) {
+			const info = useGitStatus(cwd, true);
+			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
+			const parts = [(info.dirty ? "🟡" : "🟢") + " " + info.branch];
+			if (info.lastCommitHash !== void 0) parts.push(info.lastCommitHash);
+			if (info.ahead > 0) parts.push("↑" + info.ahead);
+			if (info.behind > 0) parts.push("↓" + info.behind);
+			const summary = [];
+			if (info.changedFiles > 0) summary.push(info.changedFiles + " uncommitted file" + (info.changedFiles === 1 ? "" : "s"));
+			if (info.untrackedFiles > 0) summary.push(info.untrackedFiles + " untracked");
+			return react_jsx_runtime.jsxs(react.Fragment, {
+				children: [
+					react_jsx_runtime.jsx("div", { children: parts.join("  ·  ") }),
+					react_jsx_runtime.jsx("div", { children: summary.length > 0 ? summary.join(" · ") : "working tree clean" }),
+					info.lastCommitHash !== void 0 ? react_jsx_runtime.jsxs("div", {
+						children: [
+							"last commit: " + info.lastCommitHash + " \u201C" + info.lastCommitSubject + "\u201D",
+							info.lastCommitWhen ? " · " + info.lastCommitWhen : ""
+						]
+					}) : null
+				]
+			});
+		}
+
+		const inject = ["slots"];
+
+		/**
+		 * Register the badge into both seams. The seam owner hands each entry the
+		 * row owner share as props; the badge destructures { workspaceId, cwd,
+		 * label } from it.
+		 */
+		function apply(ctx) {
+			// inject() re-evaluates when the seam's declaration appears, so boot
+			// order relative to the workspace browser does not matter.
+			ctx.slots.inject("sidebar.workspaces.row", () => ctx.slots.register({
+				name: "sidebar.workspaces.row",
+				id: "git-badge"
+			}, WorkspaceGitBadge));
+			ctx.slots.inject("sidebar.workspaces.row.detail", () => ctx.slots.register({
+				name: "sidebar.workspaces.row.detail",
+				id: "git-badge-detail"
+			}, WorkspaceGitHoverDetail));
+		}
+
+		exports.apply = apply;
+		exports.inject = inject;
+		return module.exports;
+	}
+});

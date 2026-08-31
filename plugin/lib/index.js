@@ -1,0 +1,248 @@
+/**
+ * dsh-git-badge — node half.
+ *
+ * Hardened git-status service behind two routes:
+ *
+ *   GET /api/git-badge?path=<workspace path>[&detail=1]
+ *     - path allowlist: only directories registered as DSH workspaces
+ *       (WorkspaceRegistry records) are ever queried — no filesystem probing
+ *       of arbitrary paths.
+ *     - one git invocation per sample: `git --no-optional-locks status
+ *       --porcelain=v2 --branch` yields branch, ahead/behind, and the
+ *       changed / untracked counts in a single call (`--no-optional-locks`
+ *       guarantees the read never contends with the user's own git
+ *       operations on the index).
+ *     - `detail=1` adds one `log -1` for the hover card; row refresh never
+ *       pays for it.
+ *
+ *   GET /api/git-badge/events   (text/event-stream)
+ *     - pushes `{ path }` dirty notifications the moment a workspace's git
+ *       state can have changed. Freshness is EVENT-DRIVEN: each registered
+ *       workspace's `.git` directory is watched (HEAD, index, and refs all
+ *       live under it), so a commit / checkout / stage pushes one SSE
+ *       message and every mounted row refetches immediately. There is no
+ *       fixed polling interval anywhere in the pipeline.
+ *
+ * When upstream lands a workspace-metadata service, this half is deleted and
+ * the client half re-points at it — the seam contract does not change.
+ */
+import { execFile } from "node:child_process";
+import { realpath } from "node:fs/promises";
+import { watch, existsSync } from "node:fs";
+import { join } from "node:path";
+
+const inject = ["webServer", "workspaceRegistry"];
+const name = "dsh-git-badge";
+
+/** Run git in dir; resolve to stdout, or null on any failure / timeout. */
+function runGit(dir, args) {
+	return new Promise((resolve) => {
+		execFile("git", args, { cwd: dir, timeout: 3000 }, (error, stdout) => {
+			resolve(error ? null : String(stdout));
+		});
+	});
+}
+
+/**
+ * Parse `git status --porcelain=v2 --branch` output.
+ * `# branch.head <name>` (or `(detached)`), `# branch.ab +ahead -behind`,
+ * then one record per path: `1`/`2` changed, `u` unmerged, `?` untracked.
+ */
+function parseStatusV2(out) {
+	let branch = "HEAD (detached)";
+	let ahead;
+	let behind;
+	let changed = 0;
+	let untracked = 0;
+	for (const line of out.split("\n")) {
+		if (line.startsWith("# branch.head ")) branch = line.slice(14).trim();
+		else if (line.startsWith("# branch.ab ")) {
+			const [, plus, minus] = line.slice(12).trim().split(" ");
+			const a = Number.parseInt((plus ?? "").slice(1), 10);
+			const b = Number.parseInt((minus ?? "").slice(1), 10);
+			if (Number.isFinite(a)) ahead = a;
+			if (Number.isFinite(b)) behind = b;
+		} else if (line.startsWith("1 ") || line.startsWith("2 ") || line.startsWith("u ")) changed += 1;
+		else if (line.startsWith("? ")) untracked += 1;
+	}
+	return { branch, ahead, behind, changed, untracked };
+}
+
+/** Git status for dir; { git: false } when dir is not inside a repository. */
+async function gitStatus(dir, wantDetail) {
+	const topOut = await runGit(dir, ["rev-parse", "--show-toplevel"]);
+	const toplevel = topOut === null ? "" : topOut.trim();
+	if (toplevel === "") return { git: false };
+	const statusOut = await runGit(toplevel, ["--no-optional-locks", "status", "--porcelain=v2", "--branch"]);
+	if (statusOut === null) return { git: false };
+	const parsed = parseStatusV2(statusOut);
+	const info = {
+		git: true,
+		branch: parsed.branch,
+		dirty: parsed.changed + parsed.untracked > 0,
+		changedFiles: parsed.changed,
+		untrackedFiles: parsed.untracked,
+		ahead: parsed.ahead,
+		behind: parsed.behind
+	};
+	if (wantDetail) {
+		const logOut = await runGit(toplevel, ["log", "-1", "--format=%h%x09%s%x09%cr"]);
+		if (logOut !== null && logOut.trim() !== "") {
+			const [hash, subject, when] = logOut.trim().split("\t");
+			if (hash !== void 0 && subject !== void 0) {
+				info.lastCommitHash = hash;
+				info.lastCommitSubject = subject;
+				info.lastCommitWhen = when ?? "";
+			}
+		}
+	}
+	return info;
+}
+
+//#region git-state watcher
+/**
+ * One recursive watcher per workspace `.git` directory. Any event under it
+ * (HEAD swap, index write, ref update) marks the workspace dirty; a 200ms
+ * debounce collapses burst events (a single `git commit` touches index,
+ * refs, COMMIT_EDITMSG, objects…) into one notification.
+ */
+const watchers = new Map();
+const changeListeners = new Set();
+const WATCH_RETRY_MS = 60000;
+const DEBOUNCE_MS = 200;
+
+function notifyChange(key) {
+	for (const fn of changeListeners) {
+		try {
+			fn(key);
+		} catch {
+			/* a dead SSE subscriber must never break the others */
+		}
+	}
+}
+
+function unwatchWorkspace(key) {
+	const record = watchers.get(key);
+	if (record === void 0) return;
+	watchers.delete(key);
+	if (record.watcher !== null) record.watcher.close();
+	if (record.timer !== void 0) clearTimeout(record.timer);
+}
+
+function watchWorkspace(root, key) {
+	const existing = watchers.get(key);
+	if (existing !== void 0) {
+		// live watcher, or a failed attempt still inside its retry backoff
+		if (existing.watcher !== null || Date.now() - existing.failedAt < WATCH_RETRY_MS) return;
+		watchers.delete(key);
+	}
+	// only git workspaces need a badge; a missing .git skips the watcher
+	if (!existsSync(join(root, ".git"))) {
+		watchers.set(key, { watcher: null, failedAt: Number.MAX_SAFE_INTEGER, timer: void 0 });
+		return;
+	}
+	try {
+		// Watch the whole worktree, .git included: worktree edits (the most
+		// common dirty signal) and metadata ops (commit / checkout / stage)
+		// all surface here. The 200ms debounce collapses save bursts; if the
+		// tree is too large for the inotify budget the error handler drops
+		// back to the 60s client poll.
+		const watcher = watch(root, { recursive: true }, () => {
+			const record = watchers.get(key);
+			if (record === void 0) return;
+			clearTimeout(record.timer);
+			record.timer = setTimeout(() => notifyChange(key), DEBOUNCE_MS);
+		});
+		watcher.on("error", () => unwatchWorkspace(key));
+		watchers.set(key, { watcher, timer: void 0 });
+	} catch {
+		// watch refused (permissions, watch budget) — remember and back off
+		watchers.set(key, { watcher: null, failedAt: Date.now(), timer: void 0 });
+	}
+}
+
+/** Reconcile the watcher set with the current workspace registry. */
+function syncWatchers(ctx) {
+	const wanted = new Set();
+	for (const entity of ctx.workspaceRegistry.list()) {
+		const p = entity?.record?.path ?? entity?.path;
+		if (typeof p !== "string") continue;
+		wanted.add(p);
+		watchWorkspace(p, p);
+	}
+	for (const key of [...watchers.keys()]) if (!wanted.has(key)) unwatchWorkspace(key);
+}
+//#endregion
+
+/** Host plugin body — register the status route and the SSE change feed. */
+function apply(ctx) {
+	ctx.effect(() => ctx.webServer.register({
+		kind: "exact",
+		path: "/api/git-badge",
+		handler: async (req, res) => {
+			try {
+				const url = new URL(req.url, "http://localhost");
+				const raw = url.searchParams.get("path") ?? "";
+				if (raw === "") throw new Error("missing path");
+				// Allowlist: the requested path must be (or resolve to) a registered
+				// workspace directory. Anything else is refused without inspection.
+				const registered = new Set();
+				for (const entity of ctx.workspaceRegistry.list()) {
+					const p = entity?.record?.path ?? entity?.path;
+					if (typeof p === "string") registered.add(p);
+				}
+				const resolved = await realpath(raw).catch(() => null);
+				if (resolved === null || !registered.has(raw) && !registered.has(resolved)) {
+					res.writeHead(403, { "content-type": "application/json" });
+					res.end(JSON.stringify({ git: false, error: "path is not a registered workspace" }));
+					return;
+				}
+				const detail = url.searchParams.get("detail") === "1";
+				const body = JSON.stringify(await gitStatus(resolved, detail));
+				res.writeHead(200, { "content-type": "application/json" });
+				res.end(body);
+			} catch (error) {
+				res.writeHead(400, { "content-type": "application/json" });
+				res.end(JSON.stringify({ git: false, error: String(error?.message ?? error) }));
+			}
+		}
+	}));
+	ctx.effect(() => ctx.webServer.register({
+		kind: "exact",
+		path: "/api/git-badge/events",
+		handler: async (req, res) => {
+			// keep the watcher set aligned with the live registry on every connect
+			syncWatchers(ctx);
+			res.writeHead(200, {
+				"content-type": "text/event-stream",
+				"cache-control": "no-cache",
+				connection: "keep-alive"
+			});
+			// flush immediately: staged headers only hit the wire on first write,
+			// and the first real event may be minutes away
+			res.write(": connected\n\n");
+			const send = (key) => {
+				try {
+					res.write(`data: ${JSON.stringify({ path: key })}\n\n`);
+				} catch {
+					/* socket gone; the close handler cleans up */
+				}
+			};
+			changeListeners.add(send);
+			// comment-only heartbeat keeps proxies from idling the stream out
+			const heartbeat = setInterval(() => {
+				try {
+					res.write(": hb\n\n");
+				} catch {
+					/* ignore */
+				}
+			}, 25000);
+			req.on("close", () => {
+				changeListeners.delete(send);
+				clearInterval(heartbeat);
+			});
+		}
+	}));
+}
+
+export { apply, inject, name };

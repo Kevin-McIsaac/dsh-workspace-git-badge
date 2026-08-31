@@ -1,0 +1,4 @@
+# dsh-git-badge bundle patch: mount the node half into the host plugin tree.
+- insert:
+    - id: git-badge
+      name: 'dsh-git-badge'

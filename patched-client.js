@@ -414,7 +414,7 @@ window.__ModuleLoader__.load({
 			})} ${pad2(d.getHours())}:${pad2(d.getMinutes())}` });
 		}
 		/** Hover-card body: workspace title, display directory path, absolute creation time. */
-		function WorkspaceHoverContent({ label, cwd, rawCwd, createdAt, t }) {
+		function WorkspaceHoverContent({ label, cwd, workspaceId, createdAt, t, renderSlot }) {
 			return (0, react_jsx_runtime.jsxs)("div", {
 				className: Rows_module_css_default.hoverContent,
 				children: [
@@ -429,8 +429,10 @@ window.__ModuleLoader__.load({
 					(0, react_jsx_runtime.jsx)("div", {
 						className: Rows_module_css_default.hoverTime,
 						children: createdLabel(createdAt, t)
-					}),
-					(0, react_jsx_runtime.jsx)(WorkspaceGitHover, { cwd: rawCwd })
+					}), workspaceId !== void 0 && renderSlot !== void 0 ? (0, react_jsx_runtime.jsx)("div", {
+						className: Rows_module_css_default.hoverStatus,
+						children: renderSlot("sidebar.workspaces.row.detail", { workspaceId, cwd, label })
+					}) : null
 				]
 			});
 		}
@@ -438,6 +440,20 @@ window.__ModuleLoader__.load({
 		function rowHalf(e) {
 			const rect = e.currentTarget.getBoundingClientRect();
 			return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+		}
+		/**
+		* Row-title seam (sidebar.workspaces.row): renders the additive list-slot
+		* entries for this workspace row with the row owner share
+		* ({ workspaceId, cwd, label }). Falls back to the plain title span when no
+		* plugin occupies the seam, so a pristine install is visually unchanged.
+		*/
+		function renderWorkspaceRowSeam(renderSlot, row, label) {
+			const fallback = (0, react_jsx_runtime.jsx)("span", {
+				className: Rows_module_css_default.title,
+				children: label
+			});
+			if (renderSlot === void 0) return fallback;
+			return renderSlot("sidebar.workspaces.row", { workspaceId: row.workspaceId, cwd: row.cwd, label }, { fallback });
 		}
 		/**
 		* Project (workspace) header row: folder + title;
@@ -452,125 +468,7 @@ window.__ModuleLoader__.load({
 		* @param props.t - the browser root's locale seat.
 		* @returns the row element.
 		*/
-
-		/** Module-level git-status cache: one fetch per workspace path per TTL. */
-		const GIT_BADGE_CACHE = new Map();
-		const GIT_BADGE_TTL_MS = 5000;
-		/**
-		* Shared git-status hook for the row badge and the hover card. Data comes
-		* from the host half's /api/workspace-git route (the browser cannot run
-		* git); one fetch per workspace path per TTL, shared module-level, and a
-		* poll each TTL while mounted so a row never outlives its data (without
-		* it, a row keeps the state from its mount fetch forever while a later
-		* hover remount shows fresh data — the mismatch this fixes).
-		* Returns undefined while loading, for the ungrouped bucket, and for
-		* paths that are not git repositories (the route answers git: false).
-		*/
-		function useGitStatus(cwd) {
-			const hit = cwd === void 0 ? void 0 : GIT_BADGE_CACHE.get(cwd);
-			const fresh = hit !== void 0 && Date.now() - hit.at < GIT_BADGE_TTL_MS;
-			const [info, setInfo] = (0, react.useState)(fresh ? hit.data : void 0);
-			(0, react.useEffect)(() => {
-				if (cwd === void 0) return;
-				let alive = true;
-				const apply = (data) => {
-					GIT_BADGE_CACHE.set(cwd, { at: Date.now(), data });
-					if (alive) setInfo(data);
-				};
-				const load = () => {
-					const cached = GIT_BADGE_CACHE.get(cwd);
-					if (cached !== void 0 && Date.now() - cached.at < GIT_BADGE_TTL_MS) {
-						setInfo(cached.data);
-						return;
-					}
-					fetch("/api/workspace-git?path=" + encodeURIComponent(cwd))
-						.then((r) => r.json())
-						.then(apply)
-						.catch(() => {});
-				};
-				load();
-				const timer = setInterval(load, GIT_BADGE_TTL_MS);
-				return () => {
-					alive = false;
-					clearInterval(timer);
-				};
-			}, [cwd]);
-			return info;
-		}
-		/**
-		* Row git line, Claude Code statusline style:
-		*   the_paragliding_app  | 🟢 main ↑1 ↓2
-		* Workspace name (row title styling), muted pipe separator, colored
-		* status emoji (🟢 clean / 🟡 dirty), branch, then nonzero sync counts —
-		* all in the row's muted tertiary color. Name-only fallback while
-		* loading, for the ungrouped bucket, and for non-git paths.
-		*/
-		const GIT_META_STYLE = {
-			color: "var(--dsw-alias-label-tertiary, #9ea7ad)",
-			fontSize: "12px",
-			lineHeight: "20px",
-			flex: "none",
-			whiteSpace: "nowrap"
-		};
-		function WorkspaceGitBadge({ label, cwd }) {
-			const info = useGitStatus(cwd);
-			if (cwd === void 0 || info === void 0 || info.git !== true) {
-				return (0, react_jsx_runtime.jsx)("span", {
-					className: Rows_module_css_default.title,
-					children: label
-				});
-			}
-			const children = [
-				(0, react_jsx_runtime.jsx)("span", { className: Rows_module_css_default.title, style: { flex: "none" }, children: label }),
-				(0, react_jsx_runtime.jsx)("span", { style: { ...GIT_META_STYLE, margin: "0 7px" }, children: "|" }),
-				(0, react_jsx_runtime.jsx)("span", { style: { ...GIT_META_STYLE, marginRight: "4px" }, children: info.dirty ? "🟡" : "🟢" }),
-				(0, react_jsx_runtime.jsx)("span", { style: GIT_META_STYLE, children: info.branch })
-			];
-			let sync = "";
-			if (info.ahead > 0) sync += " ↑" + info.ahead;
-			if (info.behind > 0) sync += " ↓" + info.behind;
-			if (sync !== "") children.push((0, react_jsx_runtime.jsx)("span", { style: { ...GIT_META_STYLE, marginLeft: "6px" }, children: sync }));
-			return (0, react_jsx_runtime.jsx)("span", {
-				style: { display: "flex", alignItems: "center", minWidth: 0 },
-				children
-			});
-		}
-		/** Hover-card git line: branch, dirty marker, and up/down sync counts. */
-		function WorkspaceGitHover({ cwd }) {
-			const info = useGitStatus(cwd);
-			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
-			const parts = [
-				(info.dirty ? "🟡" : "🟢") + " " + info.branch,
-				info.lastCommitHash
-			];
-			if (info.ahead > 0) parts.push("↑" + info.ahead);
-			if (info.behind > 0) parts.push("↓" + info.behind);
-			const summary = [];
-			if (info.changedFiles > 0) summary.push(info.changedFiles + " uncommitted file" + (info.changedFiles === 1 ? "" : "s"));
-			if (info.untrackedFiles > 0) summary.push(info.untrackedFiles + " untracked");
-			return (0, react_jsx_runtime.jsxs)("div", {
-				className: Rows_module_css_default.hoverContent,
-				children: [
-					(0, react_jsx_runtime.jsx)("div", {
-						className: Rows_module_css_default.hoverStatus,
-						children: parts.join("  ·  ")
-					}),
-					(0, react_jsx_runtime.jsx)("div", {
-						className: Rows_module_css_default.hoverStatus,
-						children: summary.length > 0 ? summary.join(" · ") : "working tree clean"
-					}),
-					info.lastCommitHash !== void 0 ? (0, react_jsx_runtime.jsxs)("div", {
-						className: Rows_module_css_default.hoverStatus,
-						children: [
-							"last commit: " + info.lastCommitHash + " “" + info.lastCommitSubject + "”",
-							info.lastCommitWhen ? " · " + info.lastCommitWhen : ""
-						]
-					}) : null
-				]
-			});
-		}
-
-		function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t }) {
+		function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t, renderSlot }) {
 			const row = group;
 			const label = row.workspaceId === void 0 ? t("group.ungrouped") : row.label;
 			const active = group.expanded && group.containsCurrent;
@@ -608,7 +506,7 @@ window.__ModuleLoader__.load({
 					}),
 					(0, react_jsx_runtime.jsx)("span", {
 						className: Rows_module_css_default.projectText,
-						children: (0, react_jsx_runtime.jsx)(WorkspaceGitBadge, { label, cwd: row.cwd })
+						children: renderWorkspaceRowSeam(renderSlot, row, label)
 					}),
 					(0, react_jsx_runtime.jsxs)("span", {
 						className: Rows_module_css_default.rowActions,
@@ -655,8 +553,9 @@ window.__ModuleLoader__.load({
 				anchor: ownRow,
 				content: (0, react_jsx_runtime.jsx)(WorkspaceHoverContent, {
 					label: row.label,
+					workspaceId: row.workspaceId,
+					renderSlot,
 					cwd: row.cwd === void 0 ? void 0 : (0, _deepseek_ai_dsh_client_runtime_client.abbreviateHomePath)(row.cwd, home),
-					rawCwd: row.cwd,
 					createdAt: row.createdAt,
 					t
 				}),
@@ -1314,7 +1213,7 @@ window.__ModuleLoader__.load({
 			return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
 		}
 		/** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
-		function SessionTree({ useSessions, startSession, open, forkSession, workspaces, archivedSessionIds, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t }) {
+		function SessionTree({ useSessions, startSession, open, forkSession, workspaces, archivedSessionIds, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t, renderSlot }) {
 			const list = useSessions((s) => s);
 			const current = list.current;
 			const [expandedSessionGroups, setExpandedSessionGroups] = (0, react.useState)([]);
@@ -1494,6 +1393,7 @@ window.__ModuleLoader__.load({
 								children: [
 									(0, react_jsx_runtime.jsx)(ProjectRowItem, {
 										group,
+										renderSlot,
 										home,
 										t,
 										onToggle: () => {
@@ -2152,6 +2052,7 @@ window.__ModuleLoader__.load({
 							setSessionOrder: actions.setSessionOrder,
 							t
 						}) : (0, react_jsx_runtime.jsx)(SessionTree, {
+							renderSlot,
 							useSessions,
 							onSessionRename,
 							onSessionArchive,
@@ -2552,6 +2453,12 @@ window.__ModuleLoader__.load({
 				name: "sidebar.workspaces",
 				children: { "sidebar.workspaces.directoryFlow": {
 					kind: "single",
+					scope: "root"
+				}, "sidebar.workspaces.row": {
+					kind: "list",
+					scope: "root"
+				}, "sidebar.workspaces.row.detail": {
+					kind: "list",
 					scope: "root"
 				} },
 				store: createWorkspaceViewStore(),
