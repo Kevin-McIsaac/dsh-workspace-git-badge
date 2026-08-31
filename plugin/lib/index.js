@@ -57,27 +57,37 @@ const GIT_DEGRADED = { git: false, error: "git unavailable (timeout or failure)"
 
 /**
  * Parse `git status --porcelain=v2 --branch` output.
- * `# branch.head <name>` (or `(detached)`), `# branch.ab +ahead -behind`,
- * then one record per path: `1`/`2` changed, `u` unmerged, `?` untracked.
+ * Headers: `# branch.head <name>` (or `(detached)`), `# branch.upstream
+ * <name>`, `# branch.ab +ahead -behind`. Records per path: `1`/`2` carry the
+ * two-column XY status (X = index/staged, Y = worktree), `u` unmerged,
+ * `?` untracked.
  */
 function parseStatusV2(out) {
 	let branch = "HEAD (detached)";
+	let upstream;
 	let ahead;
 	let behind;
-	let changed = 0;
+	let staged = 0;
+	let unstaged = 0;
+	let unmerged = 0;
 	let untracked = 0;
 	for (const line of out.split("\n")) {
 		if (line.startsWith("# branch.head ")) branch = line.slice(14).trim();
+		else if (line.startsWith("# branch.upstream ")) upstream = line.slice(18).trim();
 		else if (line.startsWith("# branch.ab ")) {
 			const [, plus, minus] = line.slice(12).trim().split(" ");
 			const a = Number.parseInt((plus ?? "").slice(1), 10);
 			const b = Number.parseInt((minus ?? "").slice(1), 10);
 			if (Number.isFinite(a)) ahead = a;
 			if (Number.isFinite(b)) behind = b;
-		} else if (line.startsWith("1 ") || line.startsWith("2 ") || line.startsWith("u ")) changed += 1;
+		} else if (line.startsWith("1 ") || line.startsWith("2 ")) {
+			// XY columns: X = index (staged), Y = worktree (unstaged)
+			if (line[2] !== ".") staged += 1;
+			if (line[3] !== ".") unstaged += 1;
+		} else if (line.startsWith("u ")) unmerged += 1;
 		else if (line.startsWith("? ")) untracked += 1;
 	}
-	return { branch, ahead, behind, changed, untracked };
+	return { branch, upstream, ahead, behind, staged, unstaged, unmerged, untracked };
 }
 
 /**
@@ -101,24 +111,34 @@ async function gitStatus(dir, wantDetail) {
 	const statusOut = await runGit(toplevel, ["--no-optional-locks", "status", "--porcelain=v2", "--branch"]);
 	if (statusOut.stdout === null) return GIT_DEGRADED;
 	const parsed = parseStatusV2(statusOut.stdout);
+	const dirtyFiles = parsed.staged + parsed.unstaged + parsed.unmerged + parsed.untracked;
 	const info = {
 		git: true,
 		branch: parsed.branch,
-		dirty: parsed.changed + parsed.untracked > 0,
-		changedFiles: parsed.changed,
+		upstream: parsed.upstream,
+		dirty: dirtyFiles > 0,
+		changedFiles: parsed.staged + parsed.unstaged,
+		stagedFiles: parsed.staged,
+		unstagedFiles: parsed.unstaged,
+		unmergedFiles: parsed.unmerged,
 		untrackedFiles: parsed.untracked,
 		ahead: parsed.ahead,
 		behind: parsed.behind
 	};
 	if (wantDetail) {
-		const logOut = await runGit(toplevel, ["log", "-1", "--format=%h%x09%s%x09%cr"]);
+		// last 3 commits (subject + relative age) for the hover card
+		const logOut = await runGit(toplevel, ["log", "-3", "--format=%h%x09%s%x09%cr"]);
 		if (logOut.stdout !== null && logOut.stdout.trim() !== "") {
-			const [hash, subject, when] = logOut.stdout.trim().split("\t");
-			if (hash !== void 0 && subject !== void 0) {
-				info.lastCommitHash = hash;
-				info.lastCommitSubject = subject;
-				info.lastCommitWhen = when ?? "";
-			}
+			info.lastCommits = logOut.stdout.trim().split("\n").map((line) => {
+				const [hash, subject, when] = line.split("\t");
+				return { hash, subject: subject ?? "", when: when ?? "" };
+			}).filter((c) => c.hash !== void 0);
+		}
+		// stash count, only surfaced when nonzero
+		const stashOut = await runGit(toplevel, ["stash", "list"]);
+		if (stashOut.stdout !== null) {
+			const count = stashOut.stdout.split("\n").filter((l) => l.trim() !== "").length;
+			if (count > 0) info.stashCount = count;
 		}
 	}
 	return info;

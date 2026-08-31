@@ -159,26 +159,36 @@ window.__ModuleLoader__.load({
 			return react_jsx_runtime.jsx("span", { style: { display: "flex", alignItems: "center", minWidth: 0 }, children });
 		}
 
-		/** Hover-card detail: branch + sync line, dirty summary, last commit. */
+		/**
+		 * The full detail view, shared by the hover card and the chip tooltip:
+		 * line 1 branch + upstream + sync, line 2 per-bucket file counts,
+		 * then last 3 commits, then stash warning when nonzero.
+		 */
+		function detailLines(info) {
+			const line1 = (info.dirty ? "🟡" : "🟢") + " " + info.branch + (info.upstream ? " · tracking " + info.upstream : "") + formatGitSuffix(info);
+			const buckets = [];
+			if (info.stagedFiles > 0) buckets.push(info.stagedFiles + " staged");
+			if (info.unstagedFiles > 0) buckets.push(info.unstagedFiles + " modified");
+			if (info.unmergedFiles > 0) buckets.push(info.unmergedFiles + " unmerged");
+			if (info.untrackedFiles > 0) buckets.push(info.untrackedFiles + " untracked");
+			const lines = [line1, buckets.length > 0 ? buckets.join(" · ") : "working tree clean"];
+			for (const [i, c] of (info.lastCommits ?? []).entries()) {
+				lines.push((i === 0 ? "last: " : "      ") + c.hash + " \u201C" + c.subject + "\u201D" + (c.when ? " · " + c.when : ""));
+			}
+			if (info.stashCount > 0) lines.push("\u26A0 " + info.stashCount + " stash" + (info.stashCount === 1 ? "" : "es"));
+			return lines;
+		}
+
+		function formatDetailTooltip(cwd, info) {
+			return cwd + "\n" + detailLines(info).join("\n");
+		}
+
+		/** Hover-card detail: renders detailLines() as rows. */
 		function WorkspaceGitHoverDetail({ cwd }) {
 			const info = useGitStatus(cwd, true);
 			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
-			const parts = [(info.dirty ? "🟡" : "🟢") + " " + info.branch + formatGitSuffix(info)];
-			if (info.lastCommitHash !== void 0) parts.push(info.lastCommitHash);
-			const summary = [];
-			if (info.changedFiles > 0) summary.push(info.changedFiles + " uncommitted file" + (info.changedFiles === 1 ? "" : "s"));
-			if (info.untrackedFiles > 0) summary.push(info.untrackedFiles + " untracked");
-			return react_jsx_runtime.jsxs(react.Fragment, {
-				children: [
-					react_jsx_runtime.jsx("div", { children: parts.join("  ·  ") }),
-					react_jsx_runtime.jsx("div", { children: summary.length > 0 ? summary.join(" · ") : "working tree clean" }),
-					info.lastCommitHash !== void 0 ? react_jsx_runtime.jsxs("div", {
-						children: [
-							"last commit: " + info.lastCommitHash + " \u201C" + info.lastCommitSubject + "\u201D",
-							info.lastCommitWhen ? " · " + info.lastCommitWhen : ""
-						]
-					}) : null
-				]
+			return react_jsx_runtime.jsx(react.Fragment, {
+				children: detailLines(info).map((line, i) => react_jsx_runtime.jsx("div", { children: line }, i))
 			});
 		}
 
@@ -218,7 +228,7 @@ window.__ModuleLoader__.load({
 		 */
 		function ComposerGitChip({ sessionId }) {
 			const cwd = useSessionWorkspaceCwd(sessionId);
-			const info = useGitStatus(cwd, false);
+			const info = useGitStatus(cwd, true);
 			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
 			const text = (info.dirty ? "\uD83D\uDFE1 " : "\uD83D\uDFE2 ") + info.branch + formatGitSuffix(info);
 			return react_jsx_runtime.jsx("span", {
@@ -233,7 +243,7 @@ window.__ModuleLoader__.load({
 					whiteSpace: "nowrap",
 					cursor: "default"
 				},
-				title: cwd,
+				title: formatDetailTooltip(cwd, info),
 				children: text
 			});
 		}
