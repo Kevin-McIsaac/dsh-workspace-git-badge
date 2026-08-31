@@ -23,7 +23,7 @@ Project 2   | 🟢 main
 ```
   </li>
 </ul>
-Github status is updated within seconds of any commit, checkout, stage, or file edit.
+Git status is updated within seconds of any commit, checkout, stage, or file edit.
 
 ## Install
 
