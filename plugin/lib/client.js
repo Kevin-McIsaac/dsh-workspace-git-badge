@@ -1,10 +1,11 @@
 /**
  * dsh-git-badge — client half.
  *
- * Surfaces:
- *  - sidebar.workspaces.row (seam): full row badge — emoji, branch, sync, ✎files
- *  - conversation.input.left (upstream): compact chip — emoji + branch only
- * The hover card is intentionally untouched; no detail fetches are issued.
+ * Registers into the `sidebar.workspaces.row` / `sidebar.workspaces.row.detail`
+ * list seams (declared + rendered by the workspace browser). The seam hands
+ * each entry the row owner share { workspaceId, cwd, label } as plain props —
+ * this file contains no internals knowledge of the workspace browser, so it
+ * ports to the upstream seam unchanged.
  */
 window.__ModuleLoader__.load({
 	id: "dsh-git-badge",
@@ -158,6 +159,96 @@ window.__ModuleLoader__.load({
 			return react_jsx_runtime.jsx("span", { style: { display: "flex", alignItems: "center", minWidth: 0 }, children });
 		}
 
+		/**
+		 * The full detail view, shared by the hover card and the chip tooltip:
+		 * line 1 branch + upstream + sync, line 2 per-bucket file counts,
+		 * then last 3 commits, then stash warning when nonzero.
+		 */
+		function detailLines(info) {
+			const line1 = (info.dirty ? "🟡" : "🟢") + " " + info.branch + (info.upstream ? " · tracking " + info.upstream : "") + formatGitSuffix(info);
+			const buckets = [];
+			if (info.stagedFiles > 0) buckets.push(info.stagedFiles + " staged");
+			if (info.unstagedFiles > 0) buckets.push(info.unstagedFiles + " modified");
+			if (info.unmergedFiles > 0) buckets.push(info.unmergedFiles + " unmerged");
+			if (info.untrackedFiles > 0) buckets.push(info.untrackedFiles + " untracked");
+			const lines = [line1, buckets.length > 0 ? buckets.join(" · ") : "working tree clean"];
+			for (const [i, c] of (info.lastCommits ?? []).entries()) {
+				lines.push((i === 0 ? "last: " : "      ") + c.hash + " \u201C" + c.subject + "\u201D" + (c.when ? " · " + c.when : ""));
+			}
+			if (info.stashCount > 0) lines.push("\u26A0 " + info.stashCount + " stash" + (info.stashCount === 1 ? "" : "es"));
+			return lines;
+		}
+
+		function formatDetailTooltip(cwd, info) {
+			return cwd + "\n" + detailLines(info).join("\n");
+		}
+
+		/** Hover-card detail: renders detailLines() as rows. */
+		function WorkspaceGitHoverDetail({ cwd }) {
+			const info = useGitStatus(cwd, true);
+			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
+			return react_jsx_runtime.jsx(react.Fragment, {
+				children: detailLines(info).map((line, i) => react_jsx_runtime.jsx("div", { children: line }, i))
+			});
+		}
+
+		//#region composer chip (fallback + companion surface: conversation.composer.dock)
+		/** Client root ctx, captured at apply() for the chip's service lookups. */
+		let clientCtx = null;
+
+		/**
+		 * Resolve the workspace cwd attached to a session: projects the
+		 * workspaces service's snapshot store (items carry path + sessionIds)
+		 * and re-resolves on change. Returns undefined while unknown.
+		 */
+		function useSessionWorkspaceCwd(sessionId) {
+			const workspaces = clientCtx === null ? null : clientCtx.get("workspaces");
+			const resolve = () => {
+				if (sessionId === void 0 || workspaces === void 0) return void 0;
+				const item = workspaces.list.getSnapshot().items.find((w) => w.sessionIds !== void 0 && w.sessionIds.includes(sessionId));
+				return item === void 0 ? void 0 : item.path;
+			};
+			const [cwd, setCwd] = react.useState(resolve);
+			react.useEffect(() => {
+				if (sessionId === void 0 || workspaces === void 0) return;
+				setCwd(resolve());
+				return workspaces.list.subscribe(() => {
+					setCwd(resolve());
+				});
+			}, [sessionId, workspaces]);
+			return cwd;
+		}
+
+		/**
+		 * Chip line docked at the composer: git state of the workspace the
+		 * CURRENT conversation is attached to. Works on unpatched installs
+		 * (conversation.composer.dock is an upstream additive slot), and stays
+		 * useful next to the sidebar rows on patched/upstream-seam installs
+		 * because it is context-anchored ("where am I") rather than surveying.
+		 */
+		function ComposerGitChip({ sessionId }) {
+			const cwd = useSessionWorkspaceCwd(sessionId);
+			const info = useGitStatus(cwd, true);
+			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
+			const text = (info.dirty ? "\uD83D\uDFE1 " : "\uD83D\uDFE2 ") + info.branch + formatGitSuffix(info);
+			return react_jsx_runtime.jsx("span", {
+				style: {
+					display: "inline-flex",
+					alignItems: "center",
+					flex: "none",
+					gap: "4px",
+					color: "var(--dsw-alias-label-secondary, #5b6570)",
+					fontSize: "12px",
+					lineHeight: "24px",
+					whiteSpace: "nowrap",
+					cursor: "default"
+				},
+				title: formatDetailTooltip(cwd, info),
+				children: text
+			});
+		}
+		//#endregion
+
 		const inject = ["slots", "workspaces"];
 
 		/**
@@ -175,6 +266,10 @@ window.__ModuleLoader__.load({
 				name: "sidebar.workspaces.row",
 				id: "git-badge"
 			}, WorkspaceGitBadge));
+			ctx.slots.inject("sidebar.workspaces.row.detail", () => ctx.slots.register({
+				name: "sidebar.workspaces.row.detail",
+				id: "git-badge-detail"
+			}, WorkspaceGitHoverDetail));
 			// Input-row chip: upstream additive slot rendered in the input bar's
 			// leading cluster, right after the access picker — the git state sits
 			// with the controls that govern the conversation. Present on every
