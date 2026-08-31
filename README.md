@@ -35,7 +35,28 @@ surfaces are active to the browser console:
 [dsh-git-badge] surfaces: input chip = on; sidebar rows = off (seam absent — sidebar badges need the sidebar.workspaces.row seam)
 ```
 
-Applying the seam patch is described in [`SEAM.md`](SEAM.md).
+#### Quick path: apply the local patch
+
+From a clone of this repo:
+
+```bash
+./apply.sh apply     # patch the installed DSH (hash-guarded), then restart dsh web
+./apply.sh revert    # restore pristine at any time
+```
+
+Notes:
+
+- The patch lives in `node_modules`, so a DSH reinstall/update reverts it —
+  re-run `./apply.sh apply` afterwards.
+- The hash-guard **refuses** to patch if the installed file doesn't match the
+  pinned upstream build (it never blind-overwrites an update). Rebuild the
+  patch with `make-patch.sh` + `stamp-hash.sh` after a DSH release changes
+  the file.
+- Once upstream ships the seam itself, `apply` becomes a no-op and the
+  npm-installed plugin picks it up with no changes on your side.
+
+Details, safety rails, and the upstream proposal are in
+[`SEAM.md`](SEAM.md) / [`PR.md`](PR.md).
 
 ## Requirements
 
