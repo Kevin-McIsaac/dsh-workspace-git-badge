@@ -6,7 +6,7 @@ Git status badges for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek
 
 ## What you get
 
-Display the Git status for a project in the: 
+The Git status badge for a project in the: 
 <ul>
   <li>
   input box after the access picker.
