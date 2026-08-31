@@ -63,24 +63,3 @@ hard-refresh. DevTools console confirms which code is live via the
   real repo (staged/unstaged/untracked, stash, detached HEAD, no-upstream).
 - **Client half only** → usually a browser refresh suffices; after patch or
   bundle-graph changes, restart first (see above).
-
-## Known gotchas (each cost us a debugging session once)
-
-- **Hover-card paths are abbreviated** (`~/...` display strings). Any seam
-  entry that fetches must get the RAW path (`row.cwd`), not the hover card's
-  display path — abbreviated paths 403 on the registry allowlist.
-- **`git --no-optional-locks` is a global flag** — it goes BEFORE the
-  subcommand.
-- **The `exports` map in plugin/package.json must include `"./package.json"`**
-  or the client-module scanner silently ignores the package (no error).
-- **SSE must flush immediately** — write `": connected\n\n"` right after
-  headers or clients see a dead stream until the first heartbeat.
-- **Stage explicit paths in git, never `git add -A`** — a test artifact
-  (`touch newfile.txt`) once rode a commit and forced a history rewrite.
-
-## Parser / e2e tests without booting
-
-Evaluate the extracted watcher region and helpers via `new Function` against
-a temp git repo (staged + unstaged + untracked + stash), e.g. see the
-`gitStatus` region in `plugin/lib/index.js` (`//#region git-state watcher`).
-Keep such a scratch script in `/tmp` — do not commit test repos.
