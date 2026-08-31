@@ -1,60 +1,18 @@
-# PR: `sidebar.workspaces.row` — a per-row additive slot for the workspace browser
-
-Proposal following [discussion #5092](https://github.com/deepseek-ai/deepseek-harness/discussions/5092)
-(git status badge on sidebar workspace rows) and the review confirming there
-is no per-row seam today.
-
 ## Summary
 
-Adds one `list`-kind child to the existing `sidebar.workspaces` slot
-registration and renders it inside `ProjectRowItem`'s title area. Mirrors the
-`conversation.composer.dock` additive pattern exactly: declarative child,
-props-face `renderSlot`, empty-list fallback.
+Adds a per-row additive slot to the sidebar workspace browser, following [discussion #5092](https://github.com/deepseek-ai/deepseek-harness/discussions/5092) (git status badge on workspace rows) and the review there confirming no per-row seam exists today.
 
-```js
-children: { "sidebar.workspaces.directoryFlow": { kind: "single", scope: "root" },
-            "sidebar.workspaces.row":            { kind: "list",   scope: "root" } }
-```
+- Declares `'sidebar.workspaces.row': { kind: 'list'; scope: 'root' }` as a second child of the `WorkspaceBrowser` entry, mirroring the `conversation.composer.dock` additive pattern.
+- Renders it inside `ProjectRowItem`'s title area via the props-face `renderSlot`, with the dispatch `fallback` set to the exact upstream title span — a plugin-less install renders byte-identically, and occupancy swaps fallback → entry reactively (the outlet's `useSyncExternalStore` pairing).
+- Entries receive a row owner share as plain props: `{ workspaceId?, cwd?, label }`. **`cwd` is the raw host path** — the hover card's abbreviated `~/...` stays display-only — so occupants can query workspace-scoped services without re-resolving.
+- `renderSlot` threads `WorkspaceBrowser → SessionTree → ProjectRowItem` (three props, no new state); the hover card is untouched.
 
-Entries receive a row owner share as plain props:
+## Reference implementation
 
-```ts
-{ workspaceId: string | undefined, cwd: string | undefined, label: string }
-```
+[`dsh-git-badge`](https://github.com/Kevin-McIsaac/dsh-workspace-git-badge) — published npm bundle that renders Claude-Code-statusline-style git badges (`| 🟡 main ↑0 ↓2 ✎3`) through this seam, with graceful degradation to name-only rows when the seam is absent. `PR.md`/`SEAM.md` in that repo document the seam contract from the occupant's perspective.
 
-- `cwd` is the **raw** workspace path (the hover card's abbreviated display
-  path stays display-only) — entries need the real path to query
-  workspace-scoped services.
-- Rendering falls back to the exact upstream title span when the slot has no
-  entries, so a plugin-less install is visually unchanged, and late
-  registration swaps fallback → entry reactively (the outlet's
-  `useSyncExternalStore` pairing).
+## Notes for reviewers
 
-## Why a seam
-
-The composer already proved the pattern: `conversation.composer.dock` is an
-open additive list slot, which is why composer-adjacent contributions (todo
-dock, goal entry, git chips) ship as independent plugins. The sidebar has no
-equivalent: `sidebar.workspaces` is `kind: "single"`, occupied by the browser
-itself, so a second plugin registering there shadows the whole session tree.
-A per-row list slot is the minimal additive opening for row annotations — git
-status being the motivating case ([reference implementation](https://github.com/Kevin-McIsaac/dsh-workspace-git-badge):
-`dsh-git-badge`, which renders branch/emoji/sync badges through this seam and
-degrades to name-only rows without it).
-
-## Scope notes for reviewers
-
-- `renderSlot` is threaded `WorkspaceBrowser → SessionTree → ProjectRowItem`
-  (three props, no new state).
-- `SlotOutlet` anchors entries as a `<div style="display:contents">` inside
-  `span.projectText` — invalid HTML nesting strictly speaking, but
-  `display:contents` keeps the anchor out of layout; browsers accept it and
-  the flex row is unaffected.
-- No hover-card changes; a detail slot can follow the same pattern later if
-  wanted.
-
-## Diff
-
-32 lines against `packages/client/ui-workspace` — see
-`pristine-client.js → patched-client.js` in the reference repo, or the
-`make-patch.sh` builder that asserts every anchor.
+- `SlotOutlet` anchors entries as a `<div style="display:contents">` inside `span.projectText` — invalid HTML nesting strictly speaking, but `display:contents` keeps the anchor out of layout and browsers accept it; the flex row is unaffected.
+- The ungrouped bucket row also exposes the seam (`workspaceId`/`cwd` undefined, `label` = dictionary copy) — occupants filter on `workspaceId`.
+- No new state, stores, or locale keys; the diff is 3 files, +38/−5.
