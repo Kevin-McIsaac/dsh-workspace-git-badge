@@ -18,10 +18,10 @@
  *   GET /api/git-badge/events   (text/event-stream)
  *     - pushes `{ path }` dirty notifications the moment a workspace's git
  *       state can have changed. Freshness is EVENT-DRIVEN: each registered
- *       workspace's `.git` directory is watched (HEAD, index, and refs all
- *       live under it), so a commit / checkout / stage pushes one SSE
- *       message and every mounted row refetches immediately. There is no
- *       fixed polling interval anywhere in the pipeline.
+ *       workspace root is watched recursively (.git included), so a commit /
+ *       checkout / stage / worktree edit pushes one SSE message and every
+ *       mounted row refetches immediately. There is no fixed polling
+ *       interval anywhere in the pipeline.
  *
  * When upstream lands a workspace-metadata service, this half is deleted and
  * the client half re-points at it — the seam contract does not change.
@@ -34,14 +34,26 @@ import { join } from "node:path";
 const inject = ["webServer", "workspaceRegistry"];
 const name = "dsh-git-badge";
 
-/** Run git in dir; resolve to stdout, or null on any failure / timeout. */
+/**
+ * Run git in dir. Resolves { stdout } on success; on failure { stdout: null }
+ * plus exactly one of: timeout (execFile timeout kill), missing (no git
+ * binary), or exitCode (git ran and rejected — e.g. "not a repository").
+ * The exitCode/timeout distinction separates a definitive answer (non-repo)
+ * from a transient one (degraded).
+ */
 function runGit(dir, args) {
 	return new Promise((resolve) => {
 		execFile("git", args, { cwd: dir, timeout: 3000 }, (error, stdout) => {
-			resolve(error ? null : String(stdout));
+			if (error === void 0 || error === null) resolve({ stdout: String(stdout) });
+			else if (error.killed) resolve({ stdout: null, timeout: true });
+			else if (error.code === "ENOENT") resolve({ stdout: null, missing: true });
+			else resolve({ stdout: null, exitCode: error.code });
 		});
 	});
 }
+
+/** Marker response for a git invocation that failed or timed out (transient). */
+const GIT_DEGRADED = { git: false, error: "git unavailable (timeout or failure)" };
 
 /**
  * Parse `git status --porcelain=v2 --branch` output.
@@ -68,14 +80,19 @@ function parseStatusV2(out) {
 	return { branch, ahead, behind, changed, untracked };
 }
 
-/** Git status for dir; { git: false } when dir is not inside a repository. */
+/** Git status for dir; { git: false } when dir is not a repository, GIT_DEGRADED on transient git failure. */
 async function gitStatus(dir, wantDetail) {
-	const topOut = await runGit(dir, ["rev-parse", "--show-toplevel"]);
-	const toplevel = topOut === null ? "" : topOut.trim();
+	const top = await runGit(dir, ["rev-parse", "--show-toplevel"]);
+	if (top.stdout === null) {
+		// git ran and rejected ("not a repository") is a definitive answer;
+		// timeout / missing binary is transient
+		return top.exitCode !== void 0 ? { git: false } : GIT_DEGRADED;
+	}
+	const toplevel = top.stdout.trim();
 	if (toplevel === "") return { git: false };
 	const statusOut = await runGit(toplevel, ["--no-optional-locks", "status", "--porcelain=v2", "--branch"]);
-	if (statusOut === null) return { git: false };
-	const parsed = parseStatusV2(statusOut);
+	if (statusOut.stdout === null) return GIT_DEGRADED;
+	const parsed = parseStatusV2(statusOut.stdout);
 	const info = {
 		git: true,
 		branch: parsed.branch,
@@ -87,8 +104,8 @@ async function gitStatus(dir, wantDetail) {
 	};
 	if (wantDetail) {
 		const logOut = await runGit(toplevel, ["log", "-1", "--format=%h%x09%s%x09%cr"]);
-		if (logOut !== null && logOut.trim() !== "") {
-			const [hash, subject, when] = logOut.trim().split("\t");
+		if (logOut.stdout !== null && logOut.stdout.trim() !== "") {
+			const [hash, subject, when] = logOut.stdout.trim().split("\t");
 			if (hash !== void 0 && subject !== void 0) {
 				info.lastCommitHash = hash;
 				info.lastCommitSubject = subject;
@@ -136,9 +153,11 @@ function watchWorkspace(root, key) {
 		if (existing.watcher !== null || Date.now() - existing.failedAt < WATCH_RETRY_MS) return;
 		watchers.delete(key);
 	}
-	// only git workspaces need a badge; a missing .git skips the watcher
+	// only git workspaces need a badge; a missing .git skips the watcher but
+	// retries on the normal backoff (cheap existsSync) so a later `git init`
+	// in the workspace is picked up
 	if (!existsSync(join(root, ".git"))) {
-		watchers.set(key, { watcher: null, failedAt: Number.MAX_SAFE_INTEGER, timer: void 0 });
+		watchers.set(key, { watcher: null, failedAt: Date.now(), timer: void 0 });
 		return;
 	}
 	try {

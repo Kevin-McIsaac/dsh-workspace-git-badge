@@ -18,6 +18,8 @@ window.__ModuleLoader__.load({
 
 		/** Module-level git-status cache. Entries are invalidated by SSE events, never by age. */
 		const GIT_CACHE = new Map();
+		/** In-flight fetches per cacheKey: bursts collapse into one request. */
+		const GIT_INFLIGHT = new Map();
 		/** Slow safety-net poll: refreshes even if the SSE stream is silently dead. */
 		const FALLBACK_POLL_MS = 60000;
 
@@ -73,30 +75,39 @@ window.__ModuleLoader__.load({
 			const hit = cacheKey === void 0 ? void 0 : GIT_CACHE.get(cacheKey);
 			const [info, setInfo] = react.useState(hit !== void 0 ? hit.data : void 0);
 			react.useEffect(() => {
-				if (cacheKey === void 0) return;
-				let alive = true;
-				const apply = (data) => {
-					GIT_CACHE.set(cacheKey, { at: Date.now(), data });
-					if (alive) setInfo(data);
-				};
-				const load = () => {
-					fetch("/api/git-badge?path=" + encodeURIComponent(cwd) + (detail ? "&detail=1" : ""))
+			if (cacheKey === void 0) return;
+			let alive = true;
+			const apply = (data) => {
+				// A degraded response (git timeout/failure) must never clobber a
+				// good cached badge — keep the last-known state until a real
+				// event or the fallback poll succeeds.
+				if (data !== null && data.error !== void 0 && GIT_CACHE.has(cacheKey)) return;
+				GIT_CACHE.set(cacheKey, { at: Date.now(), data });
+				if (alive) setInfo(data);
+			};
+			const load = () => {
+				// dedupe: an in-flight fetch for this key serves all callers
+				let pending = GIT_INFLIGHT.get(cacheKey);
+				if (pending === void 0) {
+					pending = fetch("/api/git-badge?path=" + encodeURIComponent(cwd) + (detail ? "&detail=1" : ""))
 						.then((r) => r.json())
-						.then(apply)
-						.catch(() => {});
-				};
-				load();
-				// this workspace's watcher events → refetch the detail variant too
-				const unsubscribe = subscribeGitEvents((path) => {
-					if (path === cwd) load();
-				});
-				const fallback = setInterval(load, FALLBACK_POLL_MS);
-				return () => {
-					alive = false;
-					unsubscribe();
-					clearInterval(fallback);
-				};
-			}, [cacheKey]);
+						.finally(() => GIT_INFLIGHT.delete(cacheKey));
+					GIT_INFLIGHT.set(cacheKey, pending);
+				}
+				pending.then(apply).catch(() => {});
+			};
+			load();
+			// this workspace's watcher events → refetch the detail variant too
+			const unsubscribe = subscribeGitEvents((path) => {
+				if (path === cwd) load();
+			});
+			const fallback = setInterval(load, FALLBACK_POLL_MS);
+			return () => {
+				alive = false;
+				unsubscribe();
+				clearInterval(fallback);
+			};
+		}, [cacheKey]);
 			return info;
 		}
 
