@@ -12,6 +12,11 @@
  *       changed / untracked counts in a single call (`--no-optional-locks`
  *       guarantees the read never contends with the user's own git
  *       operations on the index).
+ *     - ahead/behind compare against the LOCAL remote-tracking ref, which
+ *       only moves on fetch — so a TTL-bounded background fetch (60s per
+ *       toplevel) runs before status when the ref can be stale. `GIT_TERMINAL_PROMPT=0`
+ *       and the shared timeout keep an offline/slow remote from stalling the
+ *       route; on fetch failure the stale-ref answer is served as-is.
  *     - `detail=1` adds one `log -1` for the hover card; row refresh never
  *       pays for it.
  *
@@ -41,9 +46,13 @@ const name = "dsh-git-badge";
  * The exitCode/timeout distinction separates a definitive answer (non-repo)
  * from a transient one (degraded).
  */
-function runGit(dir, args) {
+function runGit(dir, args, opts) {
+	const { env, timeout = 3000 } = opts ?? {};
+	// env is a full replacement for execFile; overlay onto process.env so
+	// PATH/HOME (credential helpers, global config) survive
+	const fullEnv = env === void 0 ? void 0 : { ...process.env, ...env };
 	return new Promise((resolve) => {
-		execFile("git", args, { cwd: dir, timeout: 3000 }, (error, stdout) => {
+		execFile("git", args, { cwd: dir, timeout, env: fullEnv }, (error, stdout) => {
 			if (error === void 0 || error === null) resolve({ stdout: String(stdout) });
 			else if (error.killed) resolve({ stdout: null, timeout: true });
 			else if (error.code === "ENOENT") resolve({ stdout: null, missing: true });
@@ -54,6 +63,57 @@ function runGit(dir, args) {
 
 /** Marker response for a git invocation that failed or timed out (transient). */
 const GIT_DEGRADED = { git: false, error: "git unavailable (timeout or failure)" };
+
+//#region TTL-bounded background fetch
+/**
+ * ahead/behind come from the local remote-tracking ref, which only moves on
+ * `git fetch` — without one, a remote update (push from elsewhere, GitHub
+ * edit) is invisible to the badge until the user happens to fetch. A
+ * TTL-bounded fetch closes that gap: at most one network round trip per
+ * FETCH_TTL_MS per repository, regardless of how often the route is hit
+ * (watcher bursts included). Mirrors what IDEs do (VS Code's throttled
+ * auto-fetch), with a TTL rather than a timer: fetch only happens when
+ * someone is actually looking at the badge.
+ */
+const FETCH_TTL_MS = 60000;
+/** lastFetchAt per toplevel; in-flight promise per toplevel collapses races. */
+const fetchState = new Map();
+
+/**
+ * Refresh the remote-tracking refs for toplevel, bounded by TTL. Resolves
+ * true only when a fetch actually ran and succeeded; every failure mode
+ * (TTL fresh, no upstream configured, git failure, timeout) resolves false
+ * and the caller just serves the status it already has. The in-flight map
+ * means concurrent requests share one fetch instead of stampeding.
+ */
+async function maybeFetch(toplevel) {
+	const now = Date.now();
+	const state = fetchState.get(toplevel);
+	if (state !== void 0) {
+		if (state.inFlight !== null) return state.inFlight;
+		if (now - state.lastAttemptAt < FETCH_TTL_MS) return false;
+	}
+	const inFlight = (async () => {
+		// --no-tags --prune: refs-only refresh, cheapest correct form.
+		// No remote name: `git fetch` uses the branch's configured upstream,
+		// and a bare `fetch --all` would probe every remote for every badge.
+		// GIT_TERMINAL_PROMPT=0: a credential prompt must never hang the route.
+		const out = await runGit(toplevel, ["fetch", "--quiet", "--no-tags", "--prune"], {
+			env: { GIT_TERMINAL_PROMPT: "0" },
+			// measured real-world fetch is ~3s on SSH; the status-call 3s budget
+			// would kill healthy fetches on a slow link. 8s is the worst-case
+			// route latency, paid at most once per FETCH_TTL_MS per workspace.
+			timeout: 8000
+		});
+		const ok = out.stdout !== null;
+		fetchState.set(toplevel, { lastAttemptAt: Date.now(), inFlight: null });
+		return ok;
+	})();
+	if (state === void 0) fetchState.set(toplevel, { lastAttemptAt: now, inFlight });
+	else state.inFlight = inFlight;
+	return inFlight;
+}
+//#endregion
 
 /**
  * Parse `git status --porcelain=v2 --branch` output.
@@ -108,9 +168,22 @@ async function gitStatus(dir, wantDetail) {
 	}
 	const toplevel = top.stdout.trim();
 	if (toplevel === "") return { git: false };
-	const statusOut = await runGit(toplevel, ["--no-optional-locks", "status", "--porcelain=v2", "--branch"]);
+	const sample = () => runGit(toplevel, ["--no-optional-locks", "status", "--porcelain=v2", "--branch"]);
+	let statusOut = await sample();
 	if (statusOut.stdout === null) return GIT_DEGRADED;
-	const parsed = parseStatusV2(statusOut.stdout);
+	let parsed = parseStatusV2(statusOut.stdout);
+	// The upstream header is the cheap gate: no upstream configured → the
+	// fetch would be a no-op probe, skip it entirely. When it fires and the
+	// fetch succeeds, re-sample so this very response already carries the
+	// fresh ahead/behind instead of lagging one cycle behind.
+	if (parsed.upstream !== void 0) {
+		const fetched = await maybeFetch(toplevel);
+		if (fetched) {
+			statusOut = await sample();
+			if (statusOut.stdout === null) return GIT_DEGRADED;
+			parsed = parseStatusV2(statusOut.stdout);
+		}
+	}
 	const dirtyFiles = parsed.staged + parsed.unstaged + parsed.unmerged + parsed.untracked;
 	const info = {
 		git: true,
