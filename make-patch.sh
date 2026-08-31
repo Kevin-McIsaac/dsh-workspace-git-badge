@@ -39,6 +39,10 @@ rep(
 \t\t\t\tchildren: label
 \t\t\t});
 \t\t\tif (renderSlot === void 0) return fallback;
+\t\t\t// SlotOutlet anchors seam entries as a <div style="display:contents">
+\t\t\t// inside this span: invalid HTML nesting strictly speaking, but
+\t\t\t// display:contents keeps the anchor out of layout, so flex/grid
+\t\t\t// parents only see the seam's own children. Accepted by browsers.
 \t\t\treturn renderSlot("sidebar.workspaces.row", { workspaceId: row.workspaceId, cwd: row.cwd, label }, { fallback });
 \t\t}
 \t\t/**
@@ -69,6 +73,9 @@ rep(
 """\t\t\t\t\t\tchildren: createdLabel(createdAt, t)
 \t\t\t\t\t}), workspaceId !== void 0 && renderSlot !== void 0 ? (0, react_jsx_runtime.jsx)("div", {
 \t\t\t\t\t\tclassName: Rows_module_css_default.hoverStatus,
+\t\t\t\t\t\t// cwd is deliberately the RAW path here (the card displays the
+\t\t\t\t\t\t// abbreviated one separately): seam entries need the real path
+\t\t\t\t\t\t// to query workspace-scoped services.
 \t\t\t\t\t\tchildren: renderSlot("sidebar.workspaces.row.detail", { workspaceId, cwd, label })
 \t\t\t\t\t}) : null
 \t\t\t\t]

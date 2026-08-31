@@ -431,6 +431,9 @@ window.__ModuleLoader__.load({
 						children: createdLabel(createdAt, t)
 					}), workspaceId !== void 0 && renderSlot !== void 0 ? (0, react_jsx_runtime.jsx)("div", {
 						className: Rows_module_css_default.hoverStatus,
+						// cwd is deliberately the RAW path here (the card displays the
+						// abbreviated one separately): seam entries need the real path
+						// to query workspace-scoped services.
 						children: renderSlot("sidebar.workspaces.row.detail", { workspaceId, cwd, label })
 					}) : null
 				]
@@ -453,6 +456,10 @@ window.__ModuleLoader__.load({
 				children: label
 			});
 			if (renderSlot === void 0) return fallback;
+			// SlotOutlet anchors seam entries as a <div style="display:contents">
+			// inside this span: invalid HTML nesting strictly speaking, but
+			// display:contents keeps the anchor out of layout, so flex/grid
+			// parents only see the seam's own children. Accepted by browsers.
 			return renderSlot("sidebar.workspaces.row", { workspaceId: row.workspaceId, cwd: row.cwd, label }, { fallback });
 		}
 		/**

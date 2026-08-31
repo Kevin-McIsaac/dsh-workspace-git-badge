@@ -80,7 +80,15 @@ function parseStatusV2(out) {
 	return { branch, ahead, behind, changed, untracked };
 }
 
-/** Git status for dir; { git: false } when dir is not a repository, GIT_DEGRADED on transient git failure. */
+/**
+ * Git status for dir; { git: false } when dir is not a repository,
+ * GIT_DEGRADED on transient git failure.
+ *
+ * Subdirectory workspaces: status is computed from `--show-toplevel`, so a
+ * workspace pointing INSIDE a larger repository reports that repository's
+ * branch, dirty state, and ahead/behind counts (what git itself considers
+ * dirty), not the subdirectory in isolation. Intentional.
+ */
 async function gitStatus(dir, wantDetail) {
 	const top = await runGit(dir, ["rev-parse", "--show-toplevel"]);
 	if (top.stdout === null) {
