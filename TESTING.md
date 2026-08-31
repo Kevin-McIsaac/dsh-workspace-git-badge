@@ -63,3 +63,22 @@ hard-refresh. DevTools console confirms which code is live via the
   real repo (staged/unstaged/untracked, stash, detached HEAD, no-upstream).
 - **Client half only** → usually a browser refresh suffices; after patch or
   bundle-graph changes, restart first (see above).
+
+## Publishing a new version (the 2026-07 npm reality)
+
+1. Land the change on `main` and make sure `plugin/package.json` carries the
+   new version (`npm version patch|minor` in `plugin/`).
+2. `cd plugin && npm publish` — run it **in your own terminal, not the agent
+   sandbox**. The account has 2FA "Authorization and writes", so every
+   publish prompts for an authenticator OTP; enter the 6 digits interactively.
+   (npm masks a dead/missing token as `404 Not Found` on PUT and
+   `EOTP` otherwise — check `npm whoami` first if it fails.)
+3. Do NOT try to mint a 2FA-bypass granular token to skip the OTP: npm
+   deprecated bypass-2FA GATs in July 2026
+   (https://github.blog/changelog/2026-07-31-restricting-npm-bypass-2fa-granular-access-tokens/).
+   If publishing ever becomes frequent, the sanctioned replacement is a
+   GitHub Actions release workflow with **trusted publishing** (OIDC, no
+   token, no OTP).
+4. Update the profile(s): bump `"dsh-git-badge"` in
+   `~/.dsh/profiles/<name>/package.json` and `pnpm install`, then **restart
+   the dsh web process** (node-half rule) and hard-refresh.
