@@ -243,7 +243,6 @@ window.__ModuleLoader__.load({
 					whiteSpace: "nowrap",
 					cursor: "default"
 				},
-				title: formatDetailTooltip(cwd, info),
 				children: text
 			});
 		}
