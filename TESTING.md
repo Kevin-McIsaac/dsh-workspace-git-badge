@@ -15,6 +15,15 @@ The feature has three independently testable layers:
 
 ## Clean-profile test (customer simulation)
 
+**Automated**: `./test-profile.sh [version]` performs the whole procedure —
+removes the old profile, stops any server running it, installs from npm
+(optionally pinned to `[version]`), adds the web bundle, verifies the exports
+map and both lib halves on disk, boots headless, then checks the client.js
+route and the allowlist 403 over HTTP. Leaves the server running and prints
+the cleanup command. Env overrides: `PROFILE=`, `PORT=`, `NO_BOOT=1`.
+
+Manual procedure (what the script automates), for reference:
+
 A DSH profile is just a bundle stack under `~/.dsh/profiles/<name>`:
 `package.json` → `dsh.profile.bundles` plus its own config. Fresh profiles
 boot **headless** by default — the plugin's node half waits for
@@ -32,8 +41,9 @@ dsh --profile test --port 3100 --no-open      # NOTE: `dsh web` hardcodes the we
 Verify server-side:
 
 ```bash
-curl -s http://127.0.0.1:3100/ | grep -o 'dsh-git-badge[^"]*'      # in boot graph
-curl -s "http://127.0.0.1:3100/api/git-badge?path=/tmp"            # → {"git":false,"error":"path is not a registered workspace"}
+# NOTE: the homepage HTML does NOT list plugins — check client.js instead.
+curl -s http://127.0.0.1:3100/plugins/dsh-git-badge/client.js | grep -o 'dsh-git-badge' | head -1
+curl -s "http://127.0.0.1:3100/api/git-badge?path=/tmp"            # 403 {"git":false,"error":"path is not a registered workspace"} — 403 is expected, don't use curl -f
 curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3100/plugins/dsh-git-badge/client.js  # 200
 ```
 
