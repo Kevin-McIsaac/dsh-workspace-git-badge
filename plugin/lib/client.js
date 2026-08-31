@@ -167,7 +167,54 @@ window.__ModuleLoader__.load({
 			});
 		}
 
-		const inject = ["slots"];
+		//#region composer chip (fallback + companion surface: conversation.composer.dock)
+		/** Client root ctx, captured at apply() for the chip's service lookups. */
+		let clientCtx = null;
+
+		/**
+		 * Resolve the workspace cwd attached to a session: projects the
+		 * workspaces service's snapshot store (items carry path + sessionIds)
+		 * and re-resolves on change. Returns undefined while unknown.
+		 */
+		function useSessionWorkspaceCwd(sessionId) {
+			const workspaces = clientCtx === null ? null : clientCtx.get("workspaces");
+			const resolve = () => {
+				if (sessionId === void 0 || workspaces === void 0) return void 0;
+				const item = workspaces.list.getSnapshot().items.find((w) => w.sessionIds !== void 0 && w.sessionIds.includes(sessionId));
+				return item === void 0 ? void 0 : item.path;
+			};
+			const [cwd, setCwd] = react.useState(resolve);
+			react.useEffect(() => {
+				if (sessionId === void 0 || workspaces === void 0) return;
+				setCwd(resolve());
+				return workspaces.list.subscribe(() => {
+					setCwd(resolve());
+				});
+			}, [sessionId, workspaces]);
+			return cwd;
+		}
+
+		/**
+		 * Chip line docked at the composer: git state of the workspace the
+		 * CURRENT conversation is attached to. Works on unpatched installs
+		 * (conversation.composer.dock is an upstream additive slot), and stays
+		 * useful next to the sidebar rows on patched/upstream-seam installs
+		 * because it is context-anchored ("where am I") rather than surveying.
+		 */
+		function ComposerGitChip({ sessionId }) {
+			const cwd = useSessionWorkspaceCwd(sessionId);
+			const info = useGitStatus(cwd, false);
+			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
+			let text = (info.dirty ? "\uD83D\uDFE1 " : "\uD83D\uDFE2 ") + info.branch;
+			if (info.ahead > 0) text += " \u2191" + info.ahead;
+			if (info.behind > 0) text += " \u2193" + info.behind;
+			const files = info.changedFiles + info.untrackedFiles;
+			if (files > 0) text += " \u25CF" + files;
+			return react_jsx_runtime.jsx("span", { style: { ...META_STYLE, cursor: "default" }, title: cwd, children: text });
+		}
+		//#endregion
+
+		const inject = ["slots", "workspaces"];
 
 		/**
 		 * Register the badge into both seams. The seam owner hands each entry the
@@ -175,8 +222,11 @@ window.__ModuleLoader__.load({
 		 * label } from it.
 		 */
 		function apply(ctx) {
-			// inject() re-evaluates when the seam's declaration appears, so boot
-			// order relative to the workspace browser does not matter.
+			clientCtx = ctx;
+			// inject() re-evaluates when a seam's declaration appears, so boot
+			// order relative to the workspace browser does not matter. On an
+			// unpatched install the row seams never get declared, so those two
+			// registrations simply never render anything.
 			ctx.slots.inject("sidebar.workspaces.row", () => ctx.slots.register({
 				name: "sidebar.workspaces.row",
 				id: "git-badge"
@@ -185,6 +235,15 @@ window.__ModuleLoader__.load({
 				name: "sidebar.workspaces.row.detail",
 				id: "git-badge-detail"
 			}, WorkspaceGitHoverDetail));
+			// Composer chip: upstream additive slot, present on every install.
+			ctx.slots.inject("conversation.composer.dock", () => ctx.slots.register({
+				name: "conversation.composer.dock",
+				id: "git-badge-chip",
+				order: 100,
+				inject: (sessionId) => ({ sessionId })
+			}, ComposerGitChip));
+			const seamDeclared = ctx.slots.spec("sidebar.workspaces.row") !== void 0;
+			console.info("[dsh-git-badge] surfaces: composer chip = on; sidebar rows = " + (seamDeclared ? "on (seam present)" : "off (seam absent — sidebar badges need the sidebar.workspaces.row seam)") + ".");
 		}
 
 		exports.apply = apply;
