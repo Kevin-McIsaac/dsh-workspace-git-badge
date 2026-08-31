@@ -210,7 +210,25 @@ window.__ModuleLoader__.load({
 			if (info.behind > 0) text += " \u2193" + info.behind;
 			const files = info.changedFiles + info.untrackedFiles;
 			if (files > 0) text += " \u25CF" + files;
-			return react_jsx_runtime.jsx("span", { style: { ...META_STYLE, cursor: "default" }, title: cwd, children: text });
+			return react_jsx_runtime.jsx("span", {
+				style: {
+					display: "inline-flex",
+					alignItems: "center",
+					flex: "none",
+					gap: "6px",
+					padding: "2px 10px",
+					borderRadius: "999px",
+					border: "1px solid var(--dsw-alias-border-l2, #e2e6ea)",
+					background: "var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))",
+					color: "var(--dsw-alias-label-secondary, #5b6570)",
+					fontSize: "12px",
+					lineHeight: "18px",
+					whiteSpace: "nowrap",
+					cursor: "default"
+				},
+				title: cwd,
+				children: text
+			});
 		}
 		//#endregion
 
@@ -239,7 +257,9 @@ window.__ModuleLoader__.load({
 			ctx.slots.inject("conversation.composer.dock", () => ctx.slots.register({
 				name: "conversation.composer.dock",
 				id: "git-badge-chip",
-				order: 100,
+				// low order floats the chip to the top of the dock (above the
+				// usage-stats footer row)
+				order: -100,
 				inject: (sessionId) => ({ sessionId })
 			}, ComposerGitChip));
 			const seamDeclared = ctx.slots.spec("sidebar.workspaces.row") !== void 0;
