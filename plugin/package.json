@@ -1,7 +1,7 @@
 {
   "name": "dsh-git-badge",
-  "version": "0.4.2",
-  "description": "Git status badge on sidebar workspace rows via the sidebar.workspaces.row seam",
+  "version": "0.5.0",
+  "description": "Git status badges for DeepSeek Harness: sidebar workspace rows (via the sidebar.workspaces.row seam) and an input-row chip showing the current conversation's workspace git state. Event-driven freshness over SSE.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -19,5 +19,37 @@
       ],
       "platform": "web"
     }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "git",
+    "status",
+    "badge",
+    "sidebar"
+  ],
+  "author": "Kevin McIsaac",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kevin-McIsaac/dsh-workspace-git-badge.git",
+    "directory": "plugin"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "cordis.patch.yml",
+    "package.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4",
+    "@deepseek-ai/dsh-client-runtime": ">=0.1",
+    "react": ">=18"
   }
 }
