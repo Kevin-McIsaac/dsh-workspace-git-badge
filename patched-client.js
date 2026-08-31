@@ -414,7 +414,7 @@ window.__ModuleLoader__.load({
 			})} ${pad2(d.getHours())}:${pad2(d.getMinutes())}` });
 		}
 		/** Hover-card body: workspace title, display directory path, absolute creation time. */
-		function WorkspaceHoverContent({ label, cwd, workspaceId, createdAt, t, renderSlot }) {
+		function WorkspaceHoverContent({ label, cwd, rawCwd, workspaceId, createdAt, t, renderSlot }) {
 			return (0, react_jsx_runtime.jsxs)("div", {
 				className: Rows_module_css_default.hoverContent,
 				children: [
@@ -431,10 +431,10 @@ window.__ModuleLoader__.load({
 						children: createdLabel(createdAt, t)
 					}), workspaceId !== void 0 && renderSlot !== void 0 ? (0, react_jsx_runtime.jsx)("div", {
 						className: Rows_module_css_default.hoverStatus,
-						// cwd is deliberately the RAW path here (the card displays the
-						// abbreviated one separately): seam entries need the real path
+						// RAW path (rawCwd): cwd in this scope is the abbreviated DISPLAY
+						// path (~/...) and is useless for API calls — a wrong path here yields
 						// to query workspace-scoped services.
-						children: renderSlot("sidebar.workspaces.row.detail", { workspaceId, cwd, label })
+						children: renderSlot("sidebar.workspaces.row.detail", { workspaceId, cwd: rawCwd !== void 0 ? rawCwd : cwd, label })
 					}) : null
 				]
 			});
@@ -561,6 +561,7 @@ window.__ModuleLoader__.load({
 				content: (0, react_jsx_runtime.jsx)(WorkspaceHoverContent, {
 					label: row.label,
 					workspaceId: row.workspaceId,
+					rawCwd: row.cwd,
 					renderSlot,
 					cwd: row.cwd === void 0 ? void 0 : (0, _deepseek_ai_dsh_client_runtime_client.abbreviateHomePath)(row.cwd, home),
 					createdAt: row.createdAt,
