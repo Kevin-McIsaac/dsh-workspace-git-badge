@@ -52,6 +52,11 @@ Notes:
 Details, safety rails, and the upstream proposal are in
 [`SEAM.md`](SEAM.md) / [`PR.md`](PR.md).
 
+## Testing
+
+See [`TESTING.md`](TESTING.md) — clean-profile boot (customer simulation),
+seam apply/revert procedure, and the gotchas list.
+
 ## Requirements
 
 - Node.js ≥ 20, `git` on PATH
