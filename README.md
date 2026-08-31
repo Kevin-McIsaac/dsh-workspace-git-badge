@@ -2,22 +2,28 @@
 
 Git status badges for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 
+`🟡 main ↑0 ↓2 ✎3`
+
 ## What you get
 
-The GitHub status for the current session as a chip (`🟡 main ↑0 ↓2 ✎3`) displayed in the input box next to the access picker.
+Display the Git status for a project in the: 
+<ul>
+  <li>
+  input box after the access picker.
 
-<img  alt="image" src="https://github.com/user-attachments/assets/a5a9a405-a515-491f-a21a-e53d7e52eca1" />
+  <img  alt="image" src="https://github.com/user-attachments/assets/a5a9a405-a515-491f-a21a-e53d7e52eca1" />
+  </li>
 
-A summary chip is displayed after each project name in the workspace. The workspace summary chip 
-requires applying the seam patch (below) to enable
-this functionality until a seam is provided upstream
+<li>
+  workspace after each project name. (May require the seam patch to enable)
 
 ```
 Project 1   | 🟡 main
 Project 2   | 🟢 main
 ```
-
-The status is updated within seconds of any commit, checkout, stage, or file edit.
+  </li>
+</ul>
+Github status is updated within seconds of any commit, checkout, stage, or file edit.
 
 ## Install
 
