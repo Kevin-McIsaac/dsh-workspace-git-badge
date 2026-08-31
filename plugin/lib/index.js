@@ -135,7 +135,8 @@ function parseStatusV2(out) {
 		if (line.startsWith("# branch.head ")) branch = line.slice(14).trim();
 		else if (line.startsWith("# branch.upstream ")) upstream = line.slice(18).trim();
 		else if (line.startsWith("# branch.ab ")) {
-			const [, plus, minus] = line.slice(12).trim().split(" ");
+			// no elision comma: element 0 IS "+ahead", element 1 is "-behind"
+			const [plus, minus] = line.slice(12).trim().split(" ");
 			const a = Number.parseInt((plus ?? "").slice(1), 10);
 			const b = Number.parseInt((minus ?? "").slice(1), 10);
 			if (Number.isFinite(a)) ahead = a;
