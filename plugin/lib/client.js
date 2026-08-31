@@ -215,14 +215,14 @@ window.__ModuleLoader__.load({
 					display: "inline-flex",
 					alignItems: "center",
 					flex: "none",
-					gap: "6px",
-					padding: "2px 10px",
+					gap: "4px",
+					padding: "1px 8px",
 					borderRadius: "999px",
 					border: "1px solid var(--dsw-alias-border-l2, #e2e6ea)",
 					background: "var(--dsw-alias-interactive-bg-hover, rgba(0,0,0,0.04))",
 					color: "var(--dsw-alias-label-secondary, #5b6570)",
-					fontSize: "12px",
-					lineHeight: "18px",
+					fontSize: "11px",
+					lineHeight: "16px",
 					whiteSpace: "nowrap",
 					cursor: "default"
 				},
@@ -253,17 +253,19 @@ window.__ModuleLoader__.load({
 				name: "sidebar.workspaces.row.detail",
 				id: "git-badge-detail"
 			}, WorkspaceGitHoverDetail));
-			// Composer chip: upstream additive slot, present on every install.
-			ctx.slots.inject("conversation.composer.dock", () => ctx.slots.register({
-				name: "conversation.composer.dock",
+			// Input-row chip: upstream additive slot rendered in the input bar's
+			// leading cluster, right after the access picker — the git state sits
+			// with the controls that govern the conversation. Present on every
+			// install. (Alternative surface if ever needed:
+			// conversation.input.dock = the row below the input, shared with the
+			// usage-stats entry.)
+			ctx.slots.inject("conversation.input.left", () => ctx.slots.register({
+				name: "conversation.input.left",
 				id: "git-badge-chip",
-				// low order floats the chip to the top of the dock (above the
-				// usage-stats footer row)
-				order: -100,
 				inject: (sessionId) => ({ sessionId })
 			}, ComposerGitChip));
 			const seamDeclared = ctx.slots.spec("sidebar.workspaces.row") !== void 0;
-			console.info("[dsh-git-badge] surfaces: composer chip = on; sidebar rows = " + (seamDeclared ? "on (seam present)" : "off (seam absent — sidebar badges need the sidebar.workspaces.row seam)") + ".");
+			console.info("[dsh-git-badge] surfaces: input chip = on; sidebar rows = " + (seamDeclared ? "on (seam present)" : "off (seam absent — sidebar badges need the sidebar.workspaces.row seam)") + ".");
 		}
 
 		exports.apply = apply;
