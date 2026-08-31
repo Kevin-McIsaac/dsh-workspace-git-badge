@@ -1,6 +1,6 @@
 {
   "name": "dsh-git-badge",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Git status badge on sidebar workspace rows via the sidebar.workspaces.row seam",
   "type": "module",
   "main": "lib/index.js",

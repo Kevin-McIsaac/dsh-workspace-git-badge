@@ -61,34 +61,14 @@ rep(
 \t\t\t\t\t\t})""",
 "\t\t\t\t\t\tchildren: renderWorkspaceRowSeam(renderSlot, row, label)")
 
-# --- 4. Hover card gains the detail seam ---
-rep(
-"function WorkspaceHoverContent({ label, cwd, createdAt, t }) {",
-"function WorkspaceHoverContent({ label, cwd, rawCwd, workspaceId, createdAt, t, renderSlot }) {")
-rep(
-"""\t\t\t\t\t\tchildren: createdLabel(createdAt, t)
-\t\t\t\t\t})
-\t\t\t\t]
-\t\t\t});""",
-"""\t\t\t\t\t\tchildren: createdLabel(createdAt, t)
-\t\t\t\t\t}), workspaceId !== void 0 && renderSlot !== void 0 ? (0, react_jsx_runtime.jsx)("div", {
-\t\t\t\t\t\tclassName: Rows_module_css_default.hoverStatus,
-\t\t\t\t\t\t// RAW path (rawCwd): cwd in this scope is the abbreviated DISPLAY
-\t\t\t\t\t\t// path (~/...) and is useless for API calls — a wrong path here yields
-\t\t\t\t\t\t// to query workspace-scoped services.
-\t\t\t\t\t\tchildren: renderSlot("sidebar.workspaces.row.detail", { workspaceId, cwd: rawCwd !== void 0 ? rawCwd : cwd, label })
-\t\t\t\t\t}) : null
-\t\t\t\t]
-\t\t\t});""")
-# hover call site: pass workspaceId + renderSlot through
+# --- 4. Hover card: intentionally untouched (detail seam removed) ---
+
+# (hover call site left untouched)
 rep(
 """\t\t\t\tcontent: (0, react_jsx_runtime.jsx)(WorkspaceHoverContent, {
 \t\t\t\t\tlabel: row.label,""",
 """\t\t\t\tcontent: (0, react_jsx_runtime.jsx)(WorkspaceHoverContent, {
-\t\t\t\t\tlabel: row.label,
-\t\t\t\t\tworkspaceId: row.workspaceId,
-\t\t\t\t\trawCwd: row.cwd,
-\t\t\t\t\trenderSlot,""")
+\t\t\t\t\tlabel: row.label,""")
 
 # --- 5. Thread renderSlot: WorkspaceBrowser -> SessionTree -> ProjectRowItem ---
 rep(
@@ -119,9 +99,6 @@ rep(
 \t\t\t\t\tkind: "single",
 \t\t\t\t\tscope: "root"
 \t\t\t\t}, "sidebar.workspaces.row": {
-\t\t\t\t\tkind: "list",
-\t\t\t\t\tscope: "root"
-\t\t\t\t}, "sidebar.workspaces.row.detail": {
 \t\t\t\t\tkind: "list",
 \t\t\t\t\tscope: "root"
 \t\t\t\t} },""")
