@@ -38,7 +38,7 @@ apply)
 		cp "$HERE/pristine-index.js" "$INDEX"
 		echo "applied seam patch. restart the dsh web process to pick it up."
 	fi
-	echo "now install the plugin:  dsh plugin --profile web add $HERE/plugin"
+	echo "now install the plugin:  dsh plugin --profile web add \"$HERE/../plugin\""
 	;;
 revert)
 	if [ -f "$HERE/backup-client.js" ]; then

@@ -34,17 +34,17 @@ Sidebar row badges need the proposed new seam `sidebar.workspaces.row` in
 From a clone of this repo:
 
 ```bash
-./apply.sh apply     # patch the installed DSH (hash-guarded), then restart dsh web
-./apply.sh revert    # restore pristine at any time
+seam/apply.sh apply     # patch the installed DSH (hash-guarded), then restart dsh web
+seam/apply.sh revert    # restore pristine at any time
 ```
 
 Notes:
 
 - The patch lives in `node_modules`, so a DSH reinstall/update reverts it —
-  re-run `./apply.sh apply` afterwards.
+  re-run `seam/apply.sh apply` afterwards.
 - The hash-guard **refuses** to patch if the installed file doesn't match the
   pinned upstream build (it never blind-overwrites an update). Rebuild the
-  patch with `make-patch.sh` + `stamp-hash.sh` after a DSH release changes
+  patch with `seam/make-patch.sh` + `seam/stamp-hash.sh` after a DSH release changes
   the file.
 - Once upstream ships the seam itself, `apply` becomes a no-op and the
   npm-installed plugin picks it up with no changes on your side.

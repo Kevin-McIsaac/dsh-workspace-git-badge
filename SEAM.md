@@ -5,7 +5,7 @@ This file documents what the patch does, how to apply it, and why it is safe.
 
 ## What the patch is
 
-`diff pristine-client.js patched-client.js` — 32 lines against
+`diff seam/pristine-client.js seam/patched-client.js` — 32 lines against
 `@deepseek-ai/dsh-client-ui-workspace/lib/client.js`:
 
 1. Declares one child on the existing `sidebar.workspaces` slot registration:
@@ -27,25 +27,25 @@ full write-up for maintainers is in [`PR.md`](PR.md).
 
 ## Applying it locally
 
-`apply.sh` patches the installed package in place:
+`seam/apply.sh` patches the installed package in place:
 
 ```bash
-./apply.sh apply     # patch + install hints
-./apply.sh revert    # restore the pristine files from backup
+seam/apply.sh apply     # patch + install hints
+seam/apply.sh revert    # restore the pristine files from backup
 ```
 
 Safety rails:
 
 - **Hash-guard**: refuses to patch unless the installed `lib/client.js`
-  matches the sha256 pinned in the script (`stamp-hash.sh` re-pins it after a
+  matches the sha256 pinned in the script (`seam/stamp-hash.sh` re-pins it after a
   rebuild). An upstream update is never blind-overwritten.
 - **Seam detection**: once upstream declares the seam itself, `apply` becomes
   a no-op and the plugin keeps working unchanged.
 - **Reversible**: `revert` restores the exact pre-patch bytes from the backup
   taken at apply time. The upstream host half is a no-op stub
-  (`pristine-index.js`).
+  (`seam/pristine-index.js`).
 
-`make-patch.sh` regenerates `patched-client.js` from `pristine-client.js`
+`seam/make-patch.sh` regenerates `patched-client.js` from `pristine-client.js`
 (anchor-asserted, so upstream drift fails loudly instead of mispatching).
 
 ## Why it should be upstream
