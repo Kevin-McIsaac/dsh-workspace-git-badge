@@ -127,7 +127,7 @@ window.__ModuleLoader__.load({
 		 */
 		function WorkspaceGitBadge({ label, cwd }) {
 			const info = useGitStatus(cwd, false);
-			const children = [react_jsx_runtime.jsx("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }, children: label })];
+			const children = [react_jsx_runtime.jsx("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: label })];
 			if (cwd !== void 0 && info !== void 0 && info.git === true) {
 				let sync = "";
 				if (info.ahead > 0) sync += " ↑" + info.ahead;
