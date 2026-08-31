@@ -111,6 +111,27 @@ window.__ModuleLoader__.load({
 			return info;
 		}
 
+		/**
+		 * Shared sync/dirty suffix for all surfaces. Rule set:
+		 *  - dirty files render as ✎n (pencil = worktree files, distinct from
+		 *    the ↑/↓ commit-sync axis)
+		 *  - while dirty, BOTH sync counts render including zeros (↑0 ↓2 ✎3),
+		 *    so every number is positionally attributable
+		 *  - clean workspaces stay quiet: arrows only when nonzero, no ✎ at 0
+		 *  - no upstream: arrows omitted entirely
+		 */
+		function formatGitSuffix(info) {
+			const parts = [];
+			const hasUpstream = info.ahead !== void 0 || info.behind !== void 0;
+			const files = (info.changedFiles || 0) + (info.untrackedFiles || 0);
+			if (hasUpstream && (files > 0 || info.ahead > 0 || info.behind > 0)) {
+				parts.push("\u2191" + (info.ahead || 0));
+				parts.push("\u2193" + (info.behind || 0));
+			}
+			if (files > 0) parts.push("\u270E" + files);
+			return parts.length > 0 ? " " + parts.join(" ") : "";
+		}
+
 		const META_STYLE = {
 			color: "var(--dsw-alias-label-tertiary, #9ea7ad)",
 			fontSize: "12px",
@@ -129,15 +150,11 @@ window.__ModuleLoader__.load({
 			const info = useGitStatus(cwd, false);
 			const children = [react_jsx_runtime.jsx("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: label })];
 			if (cwd !== void 0 && info !== void 0 && info.git === true) {
-				let sync = "";
-				if (info.ahead > 0) sync += " ↑" + info.ahead;
-				if (info.behind > 0) sync += " ↓" + info.behind;
 				children.push(
 					react_jsx_runtime.jsx("span", { style: { ...META_STYLE, margin: "0 7px" }, children: "|" }),
 					react_jsx_runtime.jsx("span", { style: { ...META_STYLE, marginRight: "4px" }, children: info.dirty ? "🟡" : "🟢" }),
-					react_jsx_runtime.jsx("span", { style: META_STYLE, children: info.branch })
+					react_jsx_runtime.jsx("span", { style: META_STYLE, children: info.branch + formatGitSuffix(info) })
 				);
-				if (sync !== "") children.push(react_jsx_runtime.jsx("span", { style: { ...META_STYLE, marginLeft: "6px" }, children: sync }));
 			}
 			return react_jsx_runtime.jsx("span", { style: { display: "flex", alignItems: "center", minWidth: 0 }, children });
 		}
@@ -146,10 +163,8 @@ window.__ModuleLoader__.load({
 		function WorkspaceGitHoverDetail({ cwd }) {
 			const info = useGitStatus(cwd, true);
 			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
-			const parts = [(info.dirty ? "🟡" : "🟢") + " " + info.branch];
+			const parts = [(info.dirty ? "🟡" : "🟢") + " " + info.branch + formatGitSuffix(info)];
 			if (info.lastCommitHash !== void 0) parts.push(info.lastCommitHash);
-			if (info.ahead > 0) parts.push("↑" + info.ahead);
-			if (info.behind > 0) parts.push("↓" + info.behind);
 			const summary = [];
 			if (info.changedFiles > 0) summary.push(info.changedFiles + " uncommitted file" + (info.changedFiles === 1 ? "" : "s"));
 			if (info.untrackedFiles > 0) summary.push(info.untrackedFiles + " untracked");
@@ -205,11 +220,7 @@ window.__ModuleLoader__.load({
 			const cwd = useSessionWorkspaceCwd(sessionId);
 			const info = useGitStatus(cwd, false);
 			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
-			let text = (info.dirty ? "\uD83D\uDFE1 " : "\uD83D\uDFE2 ") + info.branch;
-			if (info.ahead > 0) text += " \u2191" + info.ahead;
-			if (info.behind > 0) text += " \u2193" + info.behind;
-			const files = info.changedFiles + info.untrackedFiles;
-			if (files > 0) text += " \u25CF" + files;
+			const text = (info.dirty ? "\uD83D\uDFE1 " : "\uD83D\uDFE2 ") + info.branch + formatGitSuffix(info);
 			return react_jsx_runtime.jsx("span", {
 				style: {
 					display: "inline-flex",
