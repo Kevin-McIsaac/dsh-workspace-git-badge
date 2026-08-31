@@ -9,10 +9,13 @@ paragliding-site-federation   | 🟢 main
 
 ## What you get
 
-- **Sidebar row badges** (requires the `sidebar.workspaces.row` seam — see below): emoji (🟢 clean / 🟡 dirty), branch, `↑n`/`↓n` unpushed/unpulled commit counts, and `✎n` uncommitted files. On a dirty worktree both sync counts show including zeros (`↑0 ↓2 ✎3`) so every number is positionally attributable; clean workspaces stay quiet.
-- **Input-row chip** (works on every install): compact `🟢 main` next to the access picker, showing the git state of the workspace the current conversation is attached to.
+- **Input-row chip** (works on every install, no patching): compact `🟢 main` next to the access picker, showing the git state of the workspace the current conversation is attached to:
+
+  ![input-row chip](docs/input-chip.svg)
+
+- **Sidebar row badges** (full functionality — requires applying the [seam patch](#sidebar-row-badges-need-the-seam) below, which is a two-command local step): emoji (🟢 clean / 🟡 dirty), branch, `↑n`/`↓n` unpushed/unpulled commit counts, and `✎n` uncommitted files. On a dirty worktree both sync counts show including zeros (`↑0 ↓2 ✎3`) so every number is positionally attributable; clean workspaces stay quiet.
+
 - **Event-driven freshness**: no polling. Each workspace's working tree is watched (`fs.watch`, recursive, 200 ms debounce) and updates push over SSE — badges flip within ~1 second of any commit, checkout, stage, or file edit. A 60s poll backs the SSE stream up in case it dies silently.
-- **Cheap and safe**: one `git --no-optional-locks status --porcelain=v2 --branch` per sample; the API only answers paths that are registered Harness workspaces; a git timeout degrades to keeping the last-known badge rather than flashing it away.
 
 ## Install
 
