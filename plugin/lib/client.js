@@ -111,6 +111,28 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * Three-state dot color, shared by the sidebar row badge and the
+		 * composer chip. Checked top-down, first match wins:
+		 *  - RED: unmerged files (mid-conflict, git is blocked) — or a dirty
+		 *    tree that is ALSO behind upstream (unsaved edits on an outdated
+		 *    base: commit-then-pull friction ahead).
+		 *  - YELLOW: dirty files, or any ahead/behind (routine work or sync
+		 *    pending — including the previously "quiet" green-but-↓1 case).
+		 *  - GREEN: clean and in sync.
+		 * Red never means merely "behind": a clean tree one commit behind is
+		 * normal between pulls, not an alarm.
+		 */
+		function badgeDot(info) {
+			const dirty = info.dirty === true;
+			const behind = (info.behind || 0) > 0;
+			const ahead = (info.ahead || 0) > 0;
+			const conflict = (info.unmergedFiles || 0) > 0;
+			if (conflict || (dirty && behind)) return "\uD83D\uDD34";
+			if (dirty || ahead || behind) return "\uD83D\uDFE1";
+			return "\uD83D\uDFE2";
+		}
+
+		/**
 		 * Sync/dirty suffix — INPUT CHIP ONLY. The sidebar row badge shows
 		 * status + branch alone; the chip is the detailed surface. Rule set:
 		 *  - dirty files render as ✎n (pencil = worktree files, distinct from
@@ -141,9 +163,11 @@ window.__ModuleLoader__.load({
 		};
 
 		/**
-		 * Row badge — status + branch only (sync/dirty detail lives on the
-		 * input chip):
+		 * Row badge — three-state dot + branch (sync/dirty detail lives on
+		 * the input chip):
 		 *   the_paragliding_app  | 🟢 main
+		 * Dot color via badgeDot(): green clean+synced, yellow dirty or
+		 * out-of-sync, red conflict or dirty-and-behind.
 		 * Always renders the workspace name (so the row keeps its identity);
 		 * appends the muted `| emoji branch` part only for git workspaces.
 		 */
@@ -153,7 +177,7 @@ window.__ModuleLoader__.load({
 			if (cwd !== void 0 && info !== void 0 && info.git === true) {
 				children.push(
 					react_jsx_runtime.jsx("span", { style: { ...META_STYLE, margin: "0 7px" }, children: "|" }),
-					react_jsx_runtime.jsx("span", { style: { ...META_STYLE, marginRight: "4px" }, children: info.dirty ? "🟡" : "🟢" }),
+					react_jsx_runtime.jsx("span", { style: { ...META_STYLE, marginRight: "4px" }, children: badgeDot(info) }),
 					react_jsx_runtime.jsx("span", { style: META_STYLE, children: info.branch })
 				);
 			}
@@ -198,7 +222,7 @@ window.__ModuleLoader__.load({
 			const cwd = useSessionWorkspaceCwd(sessionId);
 			const info = useGitStatus(cwd, true);
 			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
-			const text = (info.dirty ? "\uD83D\uDFE1 " : "\uD83D\uDFE2 ") + info.branch + formatGitSuffix(info);
+			const text = badgeDot(info) + " " + info.branch + formatGitSuffix(info);
 			return react_jsx_runtime.jsx("span", {
 				style: {
 					display: "inline-flex",
