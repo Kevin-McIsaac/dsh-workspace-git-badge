@@ -9,9 +9,9 @@
 #  - Refuses to run off `main`, with a dirty tree, or while unpushed commits exist.
 #  - Uses a workspace-local npm cache (system cache dirs can be read-only under
 #    the harness sandbox).
-#  - Confirms npm auth BEFORE bumping anything (npm whoami), and confirms the
-#    version we're about to publish doesn't already exist on the registry
-#    (npm rejects re-publishing a version, but only after the bump is committed).
+#  - Confirms npm auth BEFORE bumping anything (npm whoami), and refuses a
+#    re-publish by comparing the registry version against the NEW (post-bump)
+#    version before any commit or push.
 #  - Bump via `npm version` (updates package.json + package-lock, creates the
 #    git tag), then commit the bump, push, THEN publish — so a publish failure
 #    never leaves an unpushed version bump behind.
@@ -66,10 +66,7 @@ WHOAMI="$(npm whoami 2>/dev/null)" || die "not logged in to npm. Run: npm login 
 say "logged in as: $WHOAMI"
 
 REG_VERSION="$(npm view "$PKG_NAME" version 2>/dev/null || echo "")"
-if [ -n "$REG_VERSION" ]; then
-	say "registry latest: $REG_VERSION"
-	[ "$REG_VERSION" != "$CURRENT_VERSION" ] || die "$CURRENT_VERSION is already the latest on the registry — nothing to publish? (If it IS published but local is stale, git pull first.)"
-else
+if [ -z "$REG_VERSION" ]; then
 	say "WARNING: could not read registry version (first publish, or transient error) — continuing"
 fi
 
@@ -79,6 +76,20 @@ cd "$PLUGIN_DIR"
 NEW_VERSION="$(npm version "$BUMP" --no-git-tag-version | sed 's/^v//')" \
 	|| die "npm version failed"
 say "bumped: $CURRENT_VERSION -> $NEW_VERSION"
+
+# Re-publish guard: checked against the NEW (target) version, not the current
+# one — a check against the current version would fire on every in-sync repo.
+# Runs after the bump (which is local-only) but before any commit/push, and
+# restores the old version if it fires.
+if [ "$REG_VERSION" = "$NEW_VERSION" ]; then
+	node -e "
+		const fs = require('fs');
+		const f = 'package.json';
+		fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('\"version\": \"$NEW_VERSION\"', '\"version\": \"$CURRENT_VERSION\"'));
+	"
+	cd "$REPO_DIR"
+	die "$NEW_VERSION already exists on the registry — nothing to publish. (Local version restored to $CURRENT_VERSION.)"
+fi
 
 # ---- sanity: new version syntax-check + exports rule ------------------------
 node --check "$PLUGIN_DIR/lib/index.js" || die "lib/index.js fails node --check"
