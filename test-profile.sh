@@ -143,16 +143,21 @@ if [[ "${NO_BOOT:-0}" == "1" ]]; then
 	exit 0
 fi
 
+CLEANUP_ON_EXIT=1   # flipped to 0 once boot verification has passed
 cleanup() {
-	if [[ -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
+	if [[ "${CLEANUP_ON_EXIT:-1}" == "1" && -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then
 		kill "$SERVER_PID" 2>/dev/null || true
 	fi
 }
 trap cleanup EXIT
 
 log "booting headless on port ${PORT} (log: ${LOG_FILE})…"
-"$DSH_BIN" --profile "$PROFILE" --port "$PORT" --no-open >"$LOG_FILE" 2>&1 &
+# nohup + disown: the server must survive the terminal that ran this script —
+# as a plain child it dies by SIGHUP when the shell exits, leaving a browser
+# stuck on the loading progress bar with every plugin fetch failing.
+nohup "$DSH_BIN" --profile "$PROFILE" --port "$PORT" --no-open >"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
+disown 2>/dev/null || true
 
 # Wait up to 60s for the server to answer at all.
 UP=0
@@ -182,6 +187,7 @@ BODY="$(cat /tmp/gb-allowlist.json)"
 	|| fail "allowlist check unexpected (HTTP ${CODE}): ${BODY}"
 rm -f /tmp/gb-allowlist.json
 
+CLEANUP_ON_EXIT=0
 log "OK — all checks passed:"
 log "  /plugins/dsh-git-badge/client.js → 200 (module served)"
 log "  /api/git-badge allowlist 403 behavior confirmed"
