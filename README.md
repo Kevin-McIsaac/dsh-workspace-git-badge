@@ -31,10 +31,9 @@ Git status is updated within seconds of any commit, checkout, stage, or file edi
 dsh plugin --profile web add dsh-git-badge
 ```
 
-Then restart the web process and refresh the browser. THis will activate the input status chip. 
+Then restart the web process and refresh the browser. This will activate the input status chip. 
 
-Sidebar row badges need the proposed new seam `sidebar.workspaces.row` in
-`@deepseek-ai/dsh-client-ui-workspace`. If this is not available apply the patch 
+Sidebar row badges need the proposed new workspace seam. If this is not available apply the patch 
 (discussion [#5092](https://github.com/deepseek-ai/deepseek-harness/discussions/5092)).
 
 From a clone of this repo:
