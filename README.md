@@ -25,6 +25,20 @@ Project 2   | 🟢 main
 </ul>
 Git status is updated within seconds of any commit, checkout, stage, or file edit.
 
+## Dot colors
+
+The dot encodes a three-state summary (checked top-down, first match wins):
+
+| Dot | When | What to do |
+|-----|------|------------|
+| 🔴 red | Unmerged files (merge/rebase conflict in progress), **or** a dirty tree that is also behind upstream | Resolve conflicts, or commit your edits before pulling |
+| 🟡 yellow | Dirty files, or any ahead/behind (sync pending) | Commit (✎), push (↑), or pull (↓) when convenient |
+| 🟢 green | Clean and in sync with the upstream | Nothing |
+
+Red never means merely "behind" — a clean tree one commit behind is a normal
+between-pulls state. See [`docs/badge-explainer.md`](docs/badge-explainer.md)
+for a beginner-friendly walkthrough.
+
 ## Install
 
 ```bash
