@@ -83,6 +83,11 @@ log "creating profile via ${DSH_BIN} plugin add (installs from npm)…"
 "$DSH_BIN" plugin --profile "$PROFILE" add dsh-git-badge \
 	|| fail "dsh plugin add failed — check npm reachability (npm view dsh-git-badge version)"
 
+# The plugin market (same install path as the live web profile) so the
+# clean-profile simulation can browse/install from the registry.
+"$DSH_BIN" plugin --profile "$PROFILE" add dshmarket \
+	|| fail "dsh plugin add dshmarket failed"
+
 [[ -f "$PROFILE_DIR/package.json" ]] || fail "profile package.json missing after add — unexpected dsh CLI behavior"
 # ---
 
@@ -98,6 +103,7 @@ pkg.dsh.profile.bundles ??= [];
 const b = pkg.dsh.profile.bundles;
 if (!b.includes("@deepseek-ai/dsh-base")) b.unshift("@deepseek-ai/dsh-base");
 if (!b.includes("@deepseek-ai/dsh-web-app")) b.splice(b.indexOf("@deepseek-ai/dsh-base") + 1, 0, "@deepseek-ai/dsh-web-app");
+if (!b.includes("dshmarket")) b.splice(b.indexOf("@deepseek-ai/dsh-web-app") + 1, 0, "dshmarket");
 fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
 NODE
 
