@@ -180,8 +180,16 @@ CODE="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/plugins
 # (c) the node half answers and the allowlist rejects unregistered paths.
 #     The handler answers 403 with a JSON body for unregistered paths — don't
 #     use curl -f here, the 403 is the EXPECTED outcome.
-CODE="$(curl -s -o /tmp/gb-allowlist.json -w '%{http_code}' "http://127.0.0.1:${PORT}/api/git-badge?path=/tmp")"
-BODY="$(cat /tmp/gb-allowlist.json)"
+#     Retry: server answering / does not mean the plugin's node half has
+#     registered its route yet (boot race — observed as a transient 404).
+BODY=""
+for _ in $(seq 1 15); do
+	CODE="$(curl -s -o /tmp/gb-allowlist.json -w '%{http_code}' "http://127.0.0.1:${PORT}/api/git-badge?path=/tmp")"
+	BODY="$(cat /tmp/gb-allowlist.json)"
+	[[ "$CODE" == "403" || "$CODE" == "200" ]] && [[ "$BODY" == *'"git":false'* && "$BODY" == *'not a registered workspace'* ]] && break
+	kill -0 "$SERVER_PID" 2>/dev/null || fail "server process died — see ${LOG_FILE}"
+	sleep 1
+done
 [[ "$CODE" == "403" || "$CODE" == "200" ]] || fail "allowlist probe returned HTTP ${CODE}, expected 403 (or 200 with git:false)"
 [[ "$BODY" == *'"git":false'* && "$BODY" == *'not a registered workspace'* ]] \
 	|| fail "allowlist check unexpected (HTTP ${CODE}): ${BODY}"
