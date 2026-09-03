@@ -20,7 +20,7 @@ seam (a local 32-line patch in `seam/`, proposed upstream — see `PR.md`).
 
 ## Hard rules learned in development
 
-1. Changing the **node half** (`plugin/lib/index.js`) requires restarting the
+1. Changing the **node half** (`dsh-git-badge/lib/index.js`) requires restarting the
    user's dsh web process — it ends your session; tell the user to restart
    and report back. Client-half changes usually need only a browser refresh,
    but any patch/bundle-graph change requires a restart before refreshing
@@ -32,7 +32,7 @@ seam (a local 32-line patch in `seam/`, proposed upstream — see `PR.md`).
    Re-apply with `seam/apply.sh apply` after any DSH update.
 3. The user's instance runs the **patched** setup; a clean-profile customer
    simulation is `TESTING.md` § "Clean-profile test".
-4. `plugin/package.json` exports must keep `"./package.json"` — the client
+4. `dsh-git-badge/package.json` exports must keep `"./package.json"` — the client
    scanner silently ignores the package without it.
 5. When committing: stage explicit paths. Never `git add -A` (test artifacts).
 6. The registry allowlist 403s anything that isn't a registered workspace;

@@ -22,7 +22,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PLUGIN_DIR="$REPO_DIR/plugin"
+PLUGIN_DIR="$REPO_DIR/dsh-git-badge"
 NPM_CACHE="$REPO_DIR/.npm-cache"
 PKG_NAME="dsh-git-badge"
 BRANCH="main"
@@ -53,7 +53,7 @@ CURRENT_BRANCH="$(git branch --show-current)"
 git fetch --quiet origin
 [ -z "$(git rev-list origin/$BRANCH..$BRANCH)" ] || die "local $BRANCH has unpushed commits. Run: git push"
 
-[ -f "$PLUGIN_DIR/package.json" ] || die "plugin/package.json not found"
+[ -f "$PLUGIN_DIR/package.json" ] || die "dsh-git-badge/package.json not found"
 
 command -v npm >/dev/null || die "npm not found in PATH"
 
@@ -101,7 +101,7 @@ node -p "JSON.parse(require('fs').readFileSync('$PLUGIN_DIR/package.json','utf8'
 # ---- commit + push ----------------------------------------------------------
 say "Committing version bump"
 cd "$REPO_DIR"
-git add "plugin/package.json" "plugin/package-lock.json" 2>/dev/null || git add "plugin/package.json"
+git add "dsh-git-badge/package.json" "dsh-git-badge/package-lock.json" 2>/dev/null || git add "dsh-git-badge/package.json"
 git commit -m "chore(release): $PKG_NAME@$NEW_VERSION"
 git push origin "$BRANCH"
 

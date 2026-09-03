@@ -6,7 +6,7 @@ Verified procedures from development. Read this before testing changes.
 
 The feature has three independently testable layers:
 
-1. **Node half** (`plugin/lib/index.js`) — pure functions and git plumbing;
+1. **Node half** (`dsh-git-badge/lib/index.js`) — pure functions and git plumbing;
    test without booting DSH (see "Parser/e2e tests" below).
 2. **Published plugin** (`dsh-git-badge` from npm) — the customer experience;
    test in a **clean profile**.
@@ -76,9 +76,9 @@ hard-refresh. DevTools console confirms which code is live via the
 
 ## Publishing a new version (the 2026-07 npm reality)
 
-1. Land the change on `main` and make sure `plugin/package.json` carries the
-   new version (`npm version patch|minor` in `plugin/`).
-2. `cd plugin && npm publish` — run it **in your own terminal, not the agent
+1. Land the change on `main` and make sure `dsh-git-badge/package.json` carries the
+   new version (`npm version patch|minor` in `dsh-git-badge/`).
+2. `cd dsh-git-badge && npm publish` — run it **in your own terminal, not the agent
    sandbox**. The account has 2FA "Authorization and writes", so every
    publish prompts for an authenticator OTP; enter the 6 digits interactively.
    (npm masks a dead/missing token as `404 Not Found` on PUT and
