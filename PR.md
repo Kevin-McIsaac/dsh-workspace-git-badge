@@ -17,4 +17,4 @@ Adds a per-row additive slot to the sidebar workspace browser, following [discus
 
 - `SlotOutlet` anchors entries as a `<div style="display:contents">` inside `span.projectText` — invalid HTML nesting strictly speaking, but `display:contents` keeps the anchor out of layout and browsers accept it; the flex row is unaffected.
 - The ungrouped bucket row also exposes the seam (`workspaceId`/`cwd` undefined, `label` = dictionary copy) — occupants filter on `workspaceId`.
-- No new state, stores, or locale keys; the diff is 3 files, +38/−5.
+- No new state, stores, or locale keys; the change is purely additive — one declared list slot, one prop threaded through two components, and the title span swapped for the seam with the same span as its empty-list fallback.

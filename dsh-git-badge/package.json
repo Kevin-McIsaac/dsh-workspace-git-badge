@@ -34,7 +34,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Kevin-McIsaac/dsh-workspace-git-badge.git",
-    "directory": "plugin"
+    "directory": "dsh-git-badge"
   },
   "engines": {
     "node": ">=20"
