@@ -89,6 +89,15 @@ hard-refresh. DevTools console confirms which code is live via the
    If publishing ever becomes frequent, the sanctioned replacement is a
    GitHub Actions release workflow with **trusted publishing** (OIDC, no
    token, no OTP).
-4. Update the profile(s): bump `"dsh-git-badge"` in
-   `~/.dsh/profiles/<name>/package.json` and `pnpm install`, then **restart
-   the dsh web process** (node-half rule) and hard-refresh.
+4. Update the profile(s) and restart. A plain `pnpm install` will **not** move
+   past the lockfile pin (it re-installs the pinned version), and
+   `rm -rf node_modules/dsh-git-badge` followed by `pnpm install` can no-op on
+   a stale `node_modules/.modules.yaml` — update explicitly instead:
+
+   ```bash
+   cd ~/.dsh/profiles/<name> && pnpm update dsh-git-badge
+   # fallback if that does not take:
+   pnpm install --force
+   ```
+
+   Then **restart the dsh web process** (node-half rule) and hard-refresh.
