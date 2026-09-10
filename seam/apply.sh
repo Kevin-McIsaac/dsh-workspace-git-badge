@@ -16,7 +16,7 @@ PKG="$DSH/node_modules/@deepseek-ai/dsh-client-ui-workspace"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 # sha256 of the known upstream lib/client.js this patch was built against.
-PRISTINE_HASH="75d8a09a43a820e0ff8470e7b9c87b6dced523764ee650a8382317f6ef7a314b"
+PRISTINE_HASH="383b9ef779366c13d818500b6488896328b189f156addbaa480c835e902edd5f"
 CLIENT="$PKG/lib/client.js"
 INDEX="$PKG/lib/index.js"
 

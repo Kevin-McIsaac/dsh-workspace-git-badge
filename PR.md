@@ -7,6 +7,8 @@ Adds a per-row additive slot to the sidebar workspace browser, following [discus
 - Entries receive a row owner share as plain props: `{ workspaceId?, cwd?, label }`. **`cwd` is the raw host path** — the hover card's abbreviated `~/...` stays display-only — so occupants can query workspace-scoped services without re-resolving.
 - `renderSlot` threads `WorkspaceBrowser → SessionTree → ProjectRowItem` (three props, no new state); the hover card is untouched.
 
+> **Local extension — not part of this proposal.** The reference repo's `seam/` patch additionally declares and renders `'sidebar.workspaces.row.detail': { kind: 'list'; scope: 'root' }` in the workspace hover card, wired to the node half's `?detail=1` response (last commits + stash). It is deliberately kept out of the upstream ask so the row slot can land on its own; the detail slot can be proposed once the hover design settles. Its owner share matches the row slot — `cwd` is the raw host path.
+
 ## Reference implementation
 
 [`dsh-git-badge`](https://github.com/Kevin-McIsaac/dsh-workspace-git-badge) — published npm bundle that renders Claude-Code-statusline-style git badges (`| 🟡 main ↑0 ↓2 ✎3`) through this seam, with graceful degradation to name-only rows when the seam is absent. `PR.md`/`SEAM.md` in that repo document the seam contract from the occupant's perspective.
