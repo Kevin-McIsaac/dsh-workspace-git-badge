@@ -111,19 +111,34 @@ cd "$PLUGIN_DIR"
 npm publish --access public || die "npm publish failed. The version bump commit IS pushed — fix the publish problem and re-run (npm will reject a re-publish of $NEW_VERSION; bump again with '$BUMP' or git reset the bump commit first)."
 
 # ---- verify -----------------------------------------------------------------
-say "Verifying on registry"
-sleep 3
-PUBLISHED="$(npm view "$PKG_NAME" version)"
-[ "$PUBLISHED" = "$NEW_VERSION" ] || die "registry reports $PUBLISHED, expected $NEW_VERSION — check https://www.npmjs.com/package/$PKG_NAME"
+# The registry lags the publish by seconds to minutes, so a single read is a
+# false-failure generator (observed: publish accepted, the immediate read still
+# returned the old version, and the script exited non-zero). Poll a bounded
+# number of times, forcing revalidation (--prefer-online) so a cached metadata
+# entry cannot pin us to the previous version.
+say "Verifying on registry (propagation can lag)"
+ATTEMPTS=24
+PUBLISHED=""
+for attempt in $(seq 1 "$ATTEMPTS"); do
+	PUBLISHED="$(npm view "$PKG_NAME" version --prefer-online 2>/dev/null \
+		| tr -d '\r' \
+		| grep -oE '[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?' \
+		| tail -1 || true)"
+	[ "$PUBLISHED" = "$NEW_VERSION" ] && break
+	say "  attempt $attempt/$ATTEMPTS: registry reports '${PUBLISHED:-<none>}'"
+	sleep 10
+done
+[ "$PUBLISHED" = "$NEW_VERSION" ] || die "registry reports '${PUBLISHED:-<none>}', expected $NEW_VERSION after $ATTEMPTS attempts (~$((ATTEMPTS * 10))s) — check https://www.npmjs.com/package/$PKG_NAME"
 say "OK: $PKG_NAME@$NEW_VERSION is live on npm"
 
 cat <<EOF
 
 Next steps (to see it in your GUI):
-  1. In the web profile, force-replace the installed package
-     (pnpm re-adds of the same version can be a no-op — AGENTS.md gotcha):
-       rm -rf ~/.dsh/profiles/web/node_modules/dsh-git-badge
-       cd ~/.dsh/profiles/web && pnpm install
+  1. Update the web profile to the new version. A plain 'pnpm install' does
+     NOT move past the lockfile pin, and removing the package dir then running
+     'pnpm install' can no-op on a stale .modules.yaml (AGENTS.md gotcha):
+       cd ~/.dsh/profiles/web && pnpm update $PKG_NAME
+     fallback if that does not take: pnpm install --force
   2. Restart your dsh web process (profile node half runs in-memory code
      from boot) — NOTE: this ends any running harness session.
   3. Refresh the browser.
