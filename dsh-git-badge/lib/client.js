@@ -1,13 +1,16 @@
 /**
  * dsh-git-badge — client half.
  *
+ * Both surfaces show the SAME status mark — a circle, or a tree for a linked
+ * worktree, filled with the status colour — so status and worktree-ness read
+ * identically wherever they appear.
+ *
  * Surfaces:
- *  - sidebar.workspaces.row (seam): row badge — workspace name, then a status
- *    tree whose crown colour is the status, then `⑂<name>` for a linked
- *    worktree. Deliberately shows NO branch: the chip is the surface that
- *    names it.
- *  - conversation.input.left (upstream): chip — dot + branch + linked-worktree
- *    token + in-progress operation token + sync/dirty suffix
+ *  - sidebar.workspaces.row (seam): row badge — workspace name, the status mark
+ *    floated right, and a worktree's name beside it. Deliberately shows NO
+ *    branch: the chip is the surface that names it.
+ *  - conversation.input.left (upstream): chip — status mark + branch + a
+ *    worktree's name + in-progress operation token + sync/dirty suffix
  * The hover card is intentionally untouched.
  */
 window.__ModuleLoader__.load({
@@ -161,8 +164,9 @@ window.__ModuleLoader__.load({
 		 * Red never means merely "behind": a clean tree one commit behind is
 		 * normal between pulls, not an alarm.
 		 *
-		 * The single source of truth for that summary. The chip renders it as a
-		 * dot emoji; the sidebar row renders it as the tree crown's colour.
+		 * The single source of truth for that summary. BOTH surfaces render it the
+		 * same way (see StatusMark): a circle, or a tree in a linked worktree,
+		 * filled with the colour below.
 		 */
 		function badgeStatus(info) {
 			const dirty = info.dirty === true;
@@ -174,30 +178,26 @@ window.__ModuleLoader__.load({
 			return "ok";
 		}
 
-		/** Three-state dot — INPUT CHIP ONLY; the sidebar row shows the tree. */
-		function badgeDot(info) {
-			const status = badgeStatus(info);
-			if (status === "error") return "\uD83D\uDD34";
-			if (status === "warn") return "\uD83D\uDFE1";
-			return "\uD83D\uDFE2";
-		}
-
 		/**
-		 * Crown colour per status, from the app's own semantic tokens so the row
-		 * follows light/dark and custom themes — which the chip's hardcoded dot
-		 * emoji cannot do. The literals are only fallbacks for use outside DSH.
+		 * Mark fill per status, from the app's own semantic tokens so BOTH surfaces
+		 * follow light/dark and custom themes — which a hardcoded emoji cannot do.
+		 * The literals are only fallbacks for use outside DSH.
 		 */
-		const CROWN_COLOR = {
+		const MARK_FILL = {
 			error: "var(--dsw-alias-state-error-primary, #e5484d)",
 			warn: "var(--dsw-alias-state-warn-primary, #d29922)",
 			ok: "var(--dsw-alias-state-success-primary, #30a46c)"
 		};
 
-		/** Accessible name per status: the crown colour must not be the only channel. */
+		/**
+		 * Accessible name per status, WITHOUT the "git" prefix — the mark adds
+		 * "git: " or "git worktree: ", so shape and colour are never the only
+		 * channel for either fact.
+		 */
 		const STATUS_LABEL = {
-			error: "git: conflict, or uncommitted changes on an outdated base",
-			warn: "git: uncommitted changes, or out of sync with upstream",
-			ok: "git: clean and in sync"
+			error: "conflict, or uncommitted changes on an outdated base",
+			warn: "uncommitted changes, or out of sync with upstream",
+			ok: "clean and in sync"
 		};
 
 		/**
@@ -246,21 +246,19 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Linked-worktree token — INPUT CHIP ONLY (the row marks a worktree its own
-		 * way: `⑂<name>` after the status tree). The chip carries no workspace
-		 * identity at all, so several worktrees of one repository all render the
-		 * same `🟡 main` and there is no way to tell which checkout a conversation
-		 * is in. The node half reports whether this is a linked worktree plus its
-		 * directory NAME (never a path).
+		 * Linked-worktree NAME token — INPUT CHIP ONLY, and only the name: worktree-
+		 * ness itself is carried by the status mark's shape (a tree instead of a
+		 * circle) on both surfaces. The chip has no other workspace identity, so
+		 * several worktrees of one repository would otherwise render identical chips
+		 * with no way to tell which checkout a conversation is in. The node half
+		 * reports whether this is a linked worktree plus its directory NAME (never a
+		 * path).
 		 *
-		 * The glyph always shows for a linked worktree — that fact is worth knowing
-		 * on its own — and the name is appended only when it says something the
-		 * branch does not. The usual `repo-feat-x` directory sitting on branch
-		 * `feat-x` would otherwise read as stutter. (The ROW needs no such rule:
-		 * it shows the name instead of the branch, so there is nothing to stutter
-		 * against.)
+		 * The name is appended only when it says something the branch does not: the
+		 * usual `repo-feat-x` directory sitting on branch `feat-x` would otherwise
+		 * read as stutter. (The ROW needs no such rule — it shows the name instead
+		 * of the branch, so there is nothing to stutter against.)
 		 */
-		const WORKTREE_GLYPH = "\u2442";
 
 		/**
 		 * True when the worktree name is already implied by the branch name, so
@@ -279,11 +277,11 @@ window.__ModuleLoader__.load({
 				|| normalizedBranch.endsWith("-" + normalizedName);
 		}
 
-		/** ` ⑂name` for a linked worktree, ` ⑂` when the name would be stutter, else "". */
+		/** ` name` for a worktree whose name the branch does not already say, else "". */
 		function formatWorktreeToken(info) {
 			if (info.isWorktree !== true) return "";
 			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
-			return " " + WORKTREE_GLYPH + (worktreeNameIsRedundant(name, info.branch) ? "" : name);
+			return worktreeNameIsRedundant(name, info.branch) ? "" : " " + name;
 		}
 
 		const META_STYLE = {
@@ -295,57 +293,78 @@ window.__ModuleLoader__.load({
 		};
 
 		/**
-		 * Sidebar-row status tree: a 12px tree whose crown is filled with the
-		 * status token and whose trunk inherits the surrounding muted row colour.
+		 * Status mark, SHARED BY BOTH SURFACES: the same 12px shape in the same fill
+		 * wherever it appears, so the sidebar row and the input chip read
+		 * identically. The FILL is the status colour; the SHAPE carries
+		 * worktree-ness — a circle for a main checkout, a tree for a linked
+		 * worktree — so the two facts never compete for the same channel.
 		 *
-		 * Drawn rather than typed because 🌳 is a COLOUR EMOJI — CSS cannot tint
-		 * its leaves, so a tree that carries the status has to be an SVG. Three
-		 * overlapping crown lobes plus a trunk stay legible at 12px, where a
-		 * single circle would just read as the status dot it replaces. Colour is
-		 * not the only channel: the accessible name states the status.
+		 * Drawn rather than typed because 🌳 is a COLOUR EMOJI: CSS cannot tint
+		 * its leaves, and a mark that carries the status has to be paintable.
+		 * Three overlapping crown lobes plus a trunk stay legible at this size.
+		 *
+		 * Neither colour nor shape is the only channel: the accessible name
+		 * states both.
 		 */
-		function StatusTree({ info }) {
+		function StatusMark({ info }) {
 			const status = badgeStatus(info);
-			const crown = CROWN_COLOR[status];
-			return react_jsx_runtime.jsxs("svg", {
-				width: 12,
-				height: 12,
+			const fill = MARK_FILL[status];
+			const isWorktree = info.isWorktree === true;
+			const svg = {
+				// 14px, NOT 12px: a colour emoji draws well above its nominal size — the
+				// 🔴/🟡/🟢 dot this replaces put down ~13-14px of ink at the surfaces'
+				// 12px font-size, so a 12px box read as a shrunken dot.
+				width: 14,
+				height: 14,
 				viewBox: "0 0 12 12",
 				role: "img",
-				"aria-label": STATUS_LABEL[status],
+				"aria-label": (isWorktree ? "git worktree: " : "git: ") + STATUS_LABEL[status],
 				focusable: "false",
-				style: { flex: "none", display: "block", marginRight: "4px", color: META_STYLE.color },
+				style: { flex: "none", display: "block", color: META_STYLE.color }
+			};
+			if (!isWorktree) {
+				// a plain filled disc: this is a main checkout. It fills its box so the
+				// ink lands at the size the emoji dot used to.
+				return react_jsx_runtime.jsx("svg", { ...svg, children: react_jsx_runtime.jsx("circle", { cx: 6, cy: 6, r: 5.5, fill }) });
+			}
+			return react_jsx_runtime.jsxs("svg", {
+				...svg,
 				children: [
-					// trunk first, so the crown's lobes overlap and join it
-					react_jsx_runtime.jsx("rect", { key: "trunk", x: 5.35, y: 7.1, width: 1.3, height: 3.6, rx: 0.55, fill: "currentColor" }),
-					react_jsx_runtime.jsx("circle", { key: "crown-1", cx: 6, cy: 3.9, r: 3.1, fill: crown }),
-					react_jsx_runtime.jsx("circle", { key: "crown-2", cx: 3.6, cy: 5.5, r: 2.2, fill: crown }),
-					react_jsx_runtime.jsx("circle", { key: "crown-3", cx: 8.4, cy: 5.5, r: 2.2, fill: crown })
+					// trunk first, so the crown's lobes overlap and join it. These are the
+					// 12px-era coordinates scaled 1.15 about the tree's centre, so its ink
+					// stays comparable to the disc's instead of reading small beside it.
+					react_jsx_runtime.jsx("rect", { key: "trunk", x: 5.25, y: 7.3, width: 1.5, height: 4.14, rx: 0.63, fill: "currentColor" }),
+					react_jsx_runtime.jsx("circle", { key: "crown-1", cx: 6, cy: 3.62, r: 3.57, fill }),
+					react_jsx_runtime.jsx("circle", { key: "crown-2", cx: 3.24, cy: 5.46, r: 2.53, fill }),
+					react_jsx_runtime.jsx("circle", { key: "crown-3", cx: 8.76, cy: 5.46, r: 2.53, fill })
 				]
 			});
 		}
 
 		/**
-		 * Text after the status tree. A main checkout shows NOTHING — the row is a
-		 * survey of status, and the branch lives on the input chip — while a linked
-		 * worktree shows `⑂<name>`: the one thing the row's own label (the worktree
-		 * directory by default) cannot be trusted to say once a workspace is renamed.
+		 * A linked worktree's directory name, or null when there is nothing to
+		 * show. A main checkout shows NO text: the row surveys status and identity,
+		 * and the branch lives on the input chip — which is why the branch is never
+		 * rendered here. The name is the one thing the row's own label (the
+		 * worktree directory by default) cannot be trusted to say once a workspace
+		 * has been renamed.
 		 */
-		function rowLabel(info) {
-			if (info.isWorktree !== true) return "";
+		function rowName(info) {
+			if (info.isWorktree !== true) return null;
 			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
-			return WORKTREE_GLYPH + name;
+			return name === "" ? null : name;
 		}
 
 		/**
-		 * Row badge — workspace name, then the status tree, plus a linked
-		 * worktree's name (never the branch):
-		 *   the_paragliding_app  | 🌳
-		 *   worktree_thing       | 🌳 ⑂hotfix-tree
-		 * Crown colour via badgeStatus(): green clean+synced, amber dirty or
-		 * out-of-sync, red conflict or dirty-and-behind.
-		 * Always renders the workspace name (so the row keeps its identity);
-		 * appends the muted `| tree [name]` part only for git workspaces.
+		 * Row badge — workspace name on the left, the status mark floated right:
+		 *   the_paragliding_app                       ●
+		 *   worktree_thing                  hotfix-tree 🌳
+		 * Fill colour via badgeStatus(): green clean+synced, amber dirty or
+		 * out-of-sync, red conflict or dirty-and-behind. Shape via the node half's
+		 * isWorktree: circle = main checkout, tree = linked worktree.
+		 * Always renders the workspace name (so the row keeps its identity) and
+		 * appends the right-hand mark only for git workspaces. No branch, and no
+		 * `|` separator.
 		 *
 		 * Targets the row's `workspaceId`. The seam also passes `cwd`, which is
 		 * deliberately ignored: the node half resolves the directory itself, so
@@ -359,12 +378,16 @@ window.__ModuleLoader__.load({
 			const info = useGitStatus(workspaceId === void 0 ? void 0 : { kind: "workspace", id: workspaceId });
 			const children = [react_jsx_runtime.jsx("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: label })];
 			if (workspaceId !== void 0 && info !== void 0 && info.git === true) {
-				children.push(react_jsx_runtime.jsx("span", { style: { ...META_STYLE, margin: "0 7px" }, children: "|" }));
-				children.push(react_jsx_runtime.jsx(StatusTree, { info }));
-				const worktree = rowLabel(info);
-				if (worktree !== "") children.push(react_jsx_runtime.jsx("span", { style: META_STYLE, children: worktree }));
+				// marginLeft:auto floats the mark to the right edge, so the status
+				// shape holds a fixed right-hand column and a worktree's name grows
+				// leftwards from it instead of shoving the shape around.
+				const meta = [];
+				const name = rowName(info);
+				if (name !== null) meta.push(react_jsx_runtime.jsx("span", { key: "name", style: META_STYLE, children: name }));
+				meta.push(react_jsx_runtime.jsx(StatusMark, { key: "mark", info }));
+				children.push(react_jsx_runtime.jsx("span", { style: { display: "inline-flex", alignItems: "center", gap: "6px", flex: "none", marginLeft: "auto", paddingLeft: "8px" }, children: meta }));
 			}
-			return react_jsx_runtime.jsx("span", { style: { display: "flex", alignItems: "center", minWidth: 0 }, children });
+			return react_jsx_runtime.jsx("span", { style: { display: "flex", alignItems: "center", minWidth: 0, width: "100%" }, children });
 		}
 
 		//#region composer chip (upstream additive surface: conversation.input.left)
@@ -382,7 +405,10 @@ window.__ModuleLoader__.load({
 			// for them would add a log -3 plus a stash list to every refresh
 			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId });
 			if (info === void 0 || info.git !== true) return null;
-			const text = badgeDot(info) + " " + info.branch + formatWorktreeToken(info) + formatOperationToken(info) + formatGitSuffix(info);
+			// the mark is an element now rather than a leading glyph in the string, so
+			// the SAME StatusMark the sidebar row draws carries the status here too;
+			// the container's 4px gap supplies the space the emoji's own did
+			const text = info.branch + formatWorktreeToken(info) + formatOperationToken(info) + formatGitSuffix(info);
 			return react_jsx_runtime.jsx("span", {
 				style: {
 					display: "inline-flex",
@@ -395,7 +421,10 @@ window.__ModuleLoader__.load({
 					whiteSpace: "nowrap",
 					cursor: "default"
 				},
-				children: text
+				children: [
+					react_jsx_runtime.jsx(StatusMark, { key: "mark", info }),
+					react_jsx_runtime.jsx("span", { key: "text", children: text })
+				]
 			});
 		}
 		//#endregion

@@ -12,16 +12,21 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Changed
 
-- **The sidebar row shows status, not the branch.** The row now renders a small
-  tree whose crown is filled with the status colour, and a linked worktree's name
-  after it — `🌳`, or `🌳 ⑂hotfix-tree`. The tree is drawn as an SVG rather than
-  typed as an emoji because 🌳 is a **colour emoji**: CSS cannot tint its leaves,
-  and a tree that carries the status has to be paintable. The crown colours come
-  from the app's own `--dsw-alias-state-{success,warn,error}-primary` tokens, so
-  the row follows light/dark and custom themes — which the chip's hardcoded dot
-  emoji cannot do. Colour is not the only channel: the crown carries an
-  accessible name. The branch, sync counts and operation token stay on the input
-  chip, the surface scoped to the current conversation.
+- **Both surfaces draw the same status mark.** The input chip no longer leads with
+  a 🔴/🟡/🟢 emoji dot: it renders the SAME 12px SVG mark as the sidebar row — a
+  filled **circle**, or a **tree** for a linked `git worktree` — so the shape says
+  *worktree or not* and the fill says *status*, identically wherever the badge
+  appears. The `⑂` worktree glyph is gone with the emoji: the tree shape already
+  says "worktree". The mark is drawn rather than typed because 🌳 is a **colour
+  emoji** — CSS cannot tint its leaves — and the fill comes from the app's own
+  `--dsw-alias-state-{success,warn,error}-primary` tokens, so the mark follows
+  light/dark and custom themes, which the hardcoded emoji could not. Neither colour
+  nor shape is the only channel: the mark carries an accessible name.
+- **The sidebar row shows status, not the branch.** The row keeps the workspace
+  name on the left and floats the status mark to the right, with a worktree's
+  directory name beside it; the `|` separator is gone. The branch, sync counts and
+  operation token stay on the input chip, the surface scoped to the current
+  conversation.
 - **The status endpoint no longer accepts a filesystem path.** The caller now says
   *who it is* and the server resolves the workspace itself: `?session=<id>` for the
   input chip, `?workspace=<id>` for a sidebar row. `?path=` is refused with
@@ -40,14 +45,15 @@ npm. 0.6.0 is the first release recorded here.
 ### Added
 
 - **The input chip now says which working tree a conversation is in.** A linked
-  `git worktree` is marked with `⑂` plus the checkout's directory name —
-  `🟡 main ⑂hotfix-tree ↑0 ↓2 ✎3` — because several worktrees of one repository
-  otherwise render identical `🟡 main` chips and the chip carries no workspace
-  identity at all. The name is dropped when the branch already implies it
-  (`repo-feat-x` on `feat-x` shows a bare `⑂`), a main checkout is not marked, and
-  the response reports `isWorktree` / `worktreeName` from one stat of the git dir
-  the existing `rev-parse` already returned — no extra git invocation. Chip-only,
-  like the operation token. The value is a directory NAME, never a path.
+  `git worktree`'s directory name is appended after the branch —
+  `🌳 main hotfix-tree ↑0 ↓2 ✎3` — because several worktrees of one repository
+  otherwise render identical chips and the chip carries no other workspace
+  identity. The name is dropped when the branch already implies it (`repo-feat-x`
+  on `feat-x` shows just the tree), a main checkout appends nothing, and the
+  response reports `isWorktree` / `worktreeName` from one stat of the git dir the
+  existing `rev-parse` already returned — no extra git invocation. Naming the
+  worktree is chip-only, like the operation token. The value is a directory NAME,
+  never a path.
 - **A server-side poll fallback for workspaces whose file watcher failed.** A
   workspace whose recursive `fs.watch` could not be established, or which later
   errored, is polled every 5s on a state key (status + refs fingerprint +
