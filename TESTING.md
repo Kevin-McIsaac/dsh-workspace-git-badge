@@ -9,7 +9,7 @@ cd dsh-git-badge && npm test      # node --test, no dependencies
 ```
 
 Run this first for **any** node-half change. It verifies the status parser,
-`gitStatus` against real temporary repositories, the workspace allowlist, SSE
+`gitStatus` against real temporary repositories, request→workspace resolution, SSE
 framing and the fs watcher without booting DSH — so it costs no restart and
 cannot end your session. CI runs the same command on Node 20/22/24
 (`.github/workflows/test.yml`).
@@ -180,7 +180,7 @@ hard-refresh. DevTools console confirms which code is live via the
 
 - **Node half changed** → run `npm test` first; a restart is then only needed to
   see it live (the suite already covers the parser, `gitStatus` against real
-  repos, the allowlist, SSE and the watcher).
+  repos, resolution, SSE and the watcher).
 - **Client half only** → usually a browser refresh suffices; after patch or
   bundle-graph changes, restart first (see above).
 
