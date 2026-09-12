@@ -7,7 +7,7 @@
  * Zero dependencies beyond node:test.
  */
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -141,12 +141,4 @@ export async function makeRepo(t, { userName = "Test User", userEmail = "test@ex
 		}
 	};
 	return api;
-}
-
-/** A symlink pointing at `root`, for the realpath-allowlist case. */
-export async function makeSymlink(t, root, name = "link") {
-	const base = await makeTempDir(t, "dsh-git-badge-link-");
-	const link = join(base, name);
-	await symlink(root, link);
-	return link;
 }

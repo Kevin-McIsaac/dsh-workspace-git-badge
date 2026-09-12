@@ -14,7 +14,7 @@
 #   5. Verifies the install on disk: exports map, both lib halves, version.
 #   6. Boots headless and verifies over HTTP: the plugin is present in the
 #      composed client graph and its advertised bundle is served, plus the
-#      allowlist 403 on an unregistered path.
+#      refusal of an unresolvable target (404 session-not-found).
 #
 # Usage:
 #   ./test-profile.sh                 # latest npm version, profile "test", port 3100
@@ -233,28 +233,29 @@ grep -q "dsh-git-badge" "$BUNDLE_JS" \
 	|| fail "advertised bundle served but does not contain the dsh-git-badge module"
 rm -f "$COOKIE_JAR" "$SHELL_HTML" "$BUNDLE_JS"
 
-# (c) the node half answers and the allowlist rejects unregistered paths.
-#     The handler answers 403 with a JSON body for unregistered paths — don't
-#     use curl -f here, the 403 is the EXPECTED outcome.
-#     Retry: server answering / does not mean the plugin's node half has
-#     registered its route yet (boot race — observed as a transient 404).
+# (c) the node half answers and refuses a target it cannot resolve. There is no
+#     path surface any more — the caller names a session or workspace id and the
+#     server resolves the directory. An unknown session is the cheapest such
+#     probe, and the 404 is the EXPECTED outcome, so do not use curl -f.
+#     Retry: the server answering / does not mean the plugin's route is
+#     registered yet (boot race — observed as a transient 404).
 BODY=""
 for _ in $(seq 1 15); do
-	CODE="$(curl -s -o /tmp/gb-allowlist.json -w '%{http_code}' "http://127.0.0.1:${PORT}/api/git-badge?path=/tmp")"
-	BODY="$(cat /tmp/gb-allowlist.json)"
-	[[ "$CODE" == "403" || "$CODE" == "200" ]] && [[ "$BODY" == *'"git":false'* && "$BODY" == *'not a registered workspace'* ]] && break
+	CODE="$(curl -s -o /tmp/gb-target.json -w '%{http_code}' "http://127.0.0.1:${PORT}/api/git-badge?session=__no_such_session__")"
+	BODY="$(cat /tmp/gb-target.json)"
+	[[ "$CODE" == "404" ]] && [[ "$BODY" == *'"git":false'* && "$BODY" == *'session-not-found'* ]] && break
 	kill -0 "$SERVER_PID" 2>/dev/null || fail "server process died — see ${LOG_FILE}"
 	sleep 1
 done
-[[ "$CODE" == "403" || "$CODE" == "200" ]] || fail "allowlist probe returned HTTP ${CODE}, expected 403 (or 200 with git:false)"
-[[ "$BODY" == *'"git":false'* && "$BODY" == *'not a registered workspace'* ]] \
-	|| fail "allowlist check unexpected (HTTP ${CODE}): ${BODY}"
-rm -f /tmp/gb-allowlist.json
+[[ "$CODE" == "404" ]] || fail "target-resolution probe returned HTTP ${CODE}, expected 404"
+[[ "$BODY" == *'"git":false'* && "$BODY" == *'session-not-found'* ]] \
+	|| fail "target-resolution check unexpected (HTTP ${CODE}): ${BODY}"
+rm -f /tmp/gb-target.json
 
 CLEANUP_ON_EXIT=0
 log "OK — all checks passed:"
 log "  client bundle advertised in the boot graph and served: ${BUNDLE_URL}"
-log "  /api/git-badge allowlist 403 behavior confirmed"
+log "  unknown-target resolution refused (404 session-not-found)"
 log ""
 log "Server left running on http://127.0.0.1:${PORT} (pid ${SERVER_PID}, log ${LOG_FILE})."
 log "Browser console should show: [dsh-git-badge] surfaces: input chip = on; sidebar rows = off (seam absent …)"

@@ -22,7 +22,8 @@ import { makeRepo, makeTempDir, runGit } from "../test-support/repo.mjs";
 /** Subscribe a spy to change notifications; released with the test. */
 function spyOn(t) {
 	const seen = [];
-	const spy = (key) => seen.push(key);
+	// notifications carry a payload: { path, workspace }
+	const spy = (payload) => seen.push(payload);
 	changeListeners.add(spy);
 	t.after(() => changeListeners.delete(spy));
 	return seen;
@@ -48,11 +49,14 @@ test("a change under the repository notifies the subscriber once", async (t) => 
 	const repo = await makeRepo(t);
 	releaseWatchers(t);
 	const seen = spyOn(t);
-	watchWorkspace(repo.root, repo.root);
+	watchWorkspace(repo.root, repo.root, "ws-test");
 	writeFileSync(join(repo.root, "x.txt"), "x\n");
 	const hit = await waitFor(() => seen.length > 0);
 	assert.ok(hit, "expected a change notification");
-	assert.equal(seen[0], repo.root);
+	// both fields matter: `path` for debugging, `workspace` so a client that
+	// asked by id can match the event without knowing a path
+	assert.equal(seen[0].path, repo.root);
+	assert.equal(seen[0].workspace, "ws-test");
 });
 
 test("a burst of writes collapses to a single notification (debounce)", async (t) => {

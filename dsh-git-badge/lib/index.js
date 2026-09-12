@@ -3,10 +3,16 @@
  *
  * Hardened git-status service behind two routes:
  *
- *   GET /api/git-badge?path=<workspace path>[&detail=1]
- *     - path allowlist: only directories registered as DSH workspaces
- *       (WorkspaceRegistry records) are ever queried — no filesystem probing
- *       of arbitrary paths.
+ *   GET /api/git-badge?workspace=<workspaceId>   (sidebar rows)
+ *   GET /api/git-badge?session=<sessionId>       (the input chip)
+ *     - NO client-supplied path is accepted. The caller names a workspace id or
+ *       a session id; the server resolves the directory itself. `?path=` was
+ *       removed precisely so a caller cannot aim the route at a directory of
+ *       its choosing, even one inside the registry.
+ *     - the route is intentionally unauthenticated (it is a local, read-only
+ *       status feed), so resolution must never assume the caller is honest.
+ *       Workspace ids are generated uuids and session ids are opaque, so the
+ *       surface no longer offers anything to enumerate.
  *     - one git invocation per sample: `git --no-optional-locks status
  *       --porcelain=v2 --branch --untracked-files=all` yields branch,
  *       ahead/behind, and the changed / untracked counts in a single call
@@ -43,7 +49,6 @@
  * the client half re-points at it — the seam contract does not change.
  */
 import { execFile } from "node:child_process";
-import { realpath } from "node:fs/promises";
 import { watch, existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -330,9 +335,12 @@ const changeListeners = new Set();
 const openStreams = new Set();
 
 function notifyChange(key) {
+	// `workspace` lets a client that asked by id match the event without ever
+	// knowing a filesystem path; `path` stays for debugging and other consumers.
+	const payload = { path: key, workspace: watchers.get(key)?.workspaceId };
 	for (const fn of changeListeners) {
 		try {
-			fn(key);
+			fn(payload);
 		} catch {
 			/* a dead SSE subscriber must never break the others */
 		}
@@ -363,18 +371,21 @@ function unwatchWorkspace(key) {
 	if (record.timer !== void 0) clearTimeout(record.timer);
 }
 
-function watchWorkspace(root, key) {
+function watchWorkspace(root, key, workspaceId) {
 	const existing = watchers.get(key);
 	if (existing !== void 0) {
 		// live watcher, or a failed attempt still inside its retry backoff
-		if (existing.watcher !== null || Date.now() - existing.failedAt < config.watchRetryMs) return;
+		if (existing.watcher !== null || Date.now() - existing.failedAt < config.watchRetryMs) {
+			existing.workspaceId = workspaceId;
+			return;
+		}
 		watchers.delete(key);
 	}
 	// only git workspaces need a badge; a missing .git skips the watcher but
 	// retries on the normal backoff (cheap existsSync) so a later `git init`
 	// in the workspace is picked up
 	if (!existsSync(join(root, ".git"))) {
-		watchers.set(key, { watcher: null, failedAt: Date.now(), timer: void 0 });
+		watchers.set(key, { watcher: null, failedAt: Date.now(), timer: void 0, workspaceId });
 		return;
 	}
 	try {
@@ -390,10 +401,10 @@ function watchWorkspace(root, key) {
 			record.timer = setTimeout(() => notifyChange(key), config.debounceMs);
 		});
 		watcher.on("error", () => unwatchWorkspace(key));
-		watchers.set(key, { watcher, timer: void 0 });
+		watchers.set(key, { watcher, timer: void 0, workspaceId });
 	} catch {
 		// watch refused (permissions, watch budget) — remember and back off
-		watchers.set(key, { watcher: null, failedAt: Date.now(), timer: void 0 });
+		watchers.set(key, { watcher: null, failedAt: Date.now(), timer: void 0, workspaceId });
 	}
 }
 
@@ -401,14 +412,60 @@ function watchWorkspace(root, key) {
 function syncWatchers(ctx) {
 	const wanted = new Set();
 	for (const entity of ctx.workspaceRegistry.list()) {
-		const p = entity?.record?.path ?? entity?.path;
-		if (typeof p !== "string") continue;
-		wanted.add(p);
-		watchWorkspace(p, p);
+		// `path` and `id` are the entity's public surface; its `record` is private
+		if (typeof entity?.path !== "string") continue;
+		wanted.add(entity.path);
+		watchWorkspace(entity.path, entity.path, entity.id === void 0 ? void 0 : String(entity.id));
 	}
 	for (const key of [...watchers.keys()]) if (!wanted.has(key)) unwatchWorkspace(key);
 }
 //#endregion
+
+/**
+ * Resolve a request to a registered workspace directory. The caller says WHO it
+ * is, never WHERE to look — no client-supplied path is trusted or probed.
+ *
+ *   1. `?workspace=<id>` — the entity's own id, which is the same id the sidebar
+ *      seam hands a row (the client builds `workspaceId` from `workspace.id`).
+ *   2. `?session=<id>` — registry membership first, because `sessionIds` is
+ *      header-validated and durable, so a conversation that is no longer live
+ *      still resolves; then the live session's cwd validated through the
+ *      registry's `resolveByPath`, which covers the window where a brand-new
+ *      session is not yet attached to its workspace.
+ *
+ * @returns `{ path }` when resolved, else `{ status, error: { code, message } }`.
+ */
+async function resolveWorkspace(ctx, params) {
+	const workspaceId = params.get("workspace") ?? "";
+	const sessionId = params.get("session") ?? "";
+	if (workspaceId === "" && sessionId === "") {
+		return { status: 400, error: { code: "target-required", message: "pass workspace=<id> or session=<id>" } };
+	}
+	const entities = [];
+	for (const entity of ctx.workspaceRegistry.list()) {
+		if (typeof entity?.path === "string") entities.push(entity);
+	}
+	if (workspaceId !== "") {
+		const entity = entities.find((candidate) => String(candidate.id) === workspaceId);
+		if (entity === void 0) {
+			return { status: 404, error: { code: "workspace-not-found", message: "no workspace with that id" } };
+		}
+		return { path: entity.path };
+	}
+	for (const entity of entities) {
+		if (Array.isArray(entity.sessionIds) && entity.sessionIds.includes(sessionId)) return { path: entity.path };
+	}
+	// A brand-new session whose workspace attach has not landed yet. Trust the
+	// server-side session header (never the caller), then require the registry to
+	// recognise that directory — so the path is still registry-validated.
+	const cwd = ctx.get("sessions")?.get?.(sessionId)?.header?.cwd;
+	const resolveByPath = ctx.workspaceRegistry.resolveByPath;
+	if (typeof cwd === "string" && cwd !== "" && typeof resolveByPath === "function") {
+		const entity = await resolveByPath.call(ctx.workspaceRegistry, cwd).catch(() => void 0);
+		if (entity !== void 0 && typeof entity?.path === "string") return { path: entity.path };
+	}
+	return { status: 404, error: { code: "session-not-found", message: "no registered workspace owns that session" } };
+}
 
 /** Host plugin body — register the status route and the SSE change feed. */
 function apply(ctx) {
@@ -418,28 +475,18 @@ function apply(ctx) {
 		handler: async (req, res) => {
 			try {
 				const url = new URL(req.url, "http://localhost");
-				const raw = url.searchParams.get("path") ?? "";
-				if (raw === "") throw new Error("missing path");
-				// Allowlist: the requested path must be (or resolve to) a registered
-				// workspace directory. Anything else is refused without inspection.
-				const registered = new Set();
-				for (const entity of ctx.workspaceRegistry.list()) {
-					const p = entity?.record?.path ?? entity?.path;
-					if (typeof p === "string") registered.add(p);
-				}
-				const resolved = await realpath(raw).catch(() => null);
-				if (resolved === null || !registered.has(raw) && !registered.has(resolved)) {
-					res.writeHead(403, { "content-type": "application/json" });
-					res.end(JSON.stringify({ git: false, error: "path is not a registered workspace" }));
+				const target = await resolveWorkspace(ctx, url.searchParams);
+				if (target.error !== void 0) {
+					res.writeHead(target.status, { "content-type": "application/json" });
+					res.end(JSON.stringify({ git: false, error: target.error }));
 					return;
 				}
 				const detail = url.searchParams.get("detail") === "1";
-				const body = JSON.stringify(await gitStatus(resolved, detail));
 				res.writeHead(200, { "content-type": "application/json" });
-				res.end(body);
+				res.end(JSON.stringify(await gitStatus(target.path, detail)));
 			} catch (error) {
 				res.writeHead(400, { "content-type": "application/json" });
-				res.end(JSON.stringify({ git: false, error: String(error?.message ?? error) }));
+				res.end(JSON.stringify({ git: false, error: { code: "bad-request", message: String(error?.message ?? error) } }));
 			}
 		}
 	}));
@@ -464,12 +511,12 @@ function apply(ctx) {
 				const stream = {
 					res,
 					heartbeat: null,
-					send: (key) => {
+					send: (payload) => {
 						try {
 							// NAMED frame: the client subscribes with
 							// addEventListener("change", …), which never sees an
 							// unnamed message
-							res.write(`event: change\ndata: ${JSON.stringify({ path: key })}\n\n`);
+							res.write(`event: change\ndata: ${JSON.stringify(payload)}\n\n`);
 						} catch {
 							/* socket gone; the close handler cleans up */
 						}
@@ -513,6 +560,7 @@ export {
 	parseStatusV2,
 	runGit,
 	gitStatus,
+	resolveWorkspace,
 	watchWorkspace,
 	unwatchWorkspace,
 	syncWatchers,

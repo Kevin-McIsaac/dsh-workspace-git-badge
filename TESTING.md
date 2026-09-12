@@ -49,8 +49,9 @@ The feature has three independently testable layers:
 removes the old profile, stops any server running it, installs from npm
 (optionally pinned to `[version]`), adds the web bundle, verifies the exports
 map and both lib halves on disk, boots headless, then verifies the plugin is in
-the composed **client** graph and that its advertised bundle is served, plus
-the allowlist 403. Leaves the server running and prints the cleanup command.
+the composed **client** graph and that its advertised bundle is served, plus the
+refusal of an unresolvable target. Leaves the server running and prints the
+cleanup command.
 
 Env overrides:
 
@@ -100,9 +101,11 @@ curl -sL -c /tmp/jar -b /tmp/jar "http://127.0.0.1:3100/?token=$TOKEN" \
   | grep -o '"id":"dsh-git-badge"[^}]*'   # {"id":"dsh-git-badge","url":"/plugins/??dsh-git-badge/client.js&rev=…"}
 # fetch that advertised url with the same cookie jar → 200 and the module body
 
-# node half, unauthenticated on purpose — the 403 IS the expected result:
-curl -s "http://127.0.0.1:3100/api/git-badge?path=/tmp"
-#   → 403 {"git":false,"error":"path is not a registered workspace"}
+# node half, unauthenticated on purpose. There is no path surface: the caller
+# names a session or workspace id. An unknown session is the cheapest probe and
+# the 404 IS the expected result:
+curl -s "http://127.0.0.1:3100/api/git-badge?session=__no_such_session__"
+#   → 404 {"git":false,"error":{"code":"session-not-found","message":"…"}}
 ```
 
 `test-profile.sh` does exactly this — prefer it over retyping.

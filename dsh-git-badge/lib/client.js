@@ -24,16 +24,16 @@ window.__ModuleLoader__.load({
 		const FALLBACK_POLL_MS = 60000;
 
 		/**
-		 * Path equality for SSE notifications. The node half notifies with the
-		 * registered workspace path, while a surface may hold a variant spelling
-		 * (a trailing slash). A bare === there would silently kill that row's
-		 * freshness, so normalise the one difference we can cheaply normalise.
+		 * A request target names WHO is asking, never a filesystem path — the node
+		 * half resolves the directory itself, so a surface never needs to know
+		 * one. The chip targets its conversation (`session`); a sidebar row
+		 * targets the workspace id the seam hands it. The query string doubles as
+		 * the cache key.
 		 */
-		function samePath(a, b) {
-			if (a === b) return true;
-			if (typeof a !== "string" || typeof b !== "string") return false;
-			const trim = (value) => value.length > 1 ? value.replace(/\/+$/, "") : value;
-			return trim(a) === trim(b);
+		function targetQuery(target) {
+			if (target === void 0 || target.id === void 0) return void 0;
+			const param = target.kind === "workspace" ? "workspace" : "session";
+			return param + "=" + encodeURIComponent(target.id);
 		}
 
 		//#region SSE change feed (one EventSource per page, ref-counted)
@@ -49,19 +49,19 @@ window.__ModuleLoader__.load({
 				// NAMED frames: the node half writes `event: change`, and onmessage
 				// never fires for a named event
 				eventSource.addEventListener("change", (message) => {
-					let path;
+					let payload;
 					try {
-						path = JSON.parse(message.data).path;
+						payload = JSON.parse(message.data);
 					} catch {
 						return;
 					}
-					// invalidate every cache entry for this workspace, then refetch
-					for (const key of [...GIT_CACHE.keys()]) {
-						if (samePath(key, path)) GIT_CACHE.delete(key);
-					}
+					// The server names the workspace it watched, so a subscriber that
+					// asked by id matches without ever knowing a path. Each
+					// subscriber refetches itself, and the per-key in-flight map
+					// collapses the resulting burst into one request.
 					for (const fn of [...eventListeners]) {
 						try {
-							fn(path);
+							fn(payload);
 						} catch {
 							/* one bad subscriber must not starve the rest */
 						}
@@ -81,49 +81,56 @@ window.__ModuleLoader__.load({
 
 		/**
 		 * Shared git-status hook. Fetches once on mount and then only when the
-		 * node half's watcher reports a change for this workspace (SSE), plus a
-		 * slow safety-net poll in case the stream dies silently. Returns
-		 * undefined while loading and for non-git paths.
+		 * node half's watcher reports a change for this target (SSE), plus a slow
+		 * safety-net poll in case the stream dies silently. Returns undefined
+		 * while loading and for non-git workspaces.
 		 */
-		function useGitStatus(cwd) {
-			const cacheKey = cwd;
+		function useGitStatus(target) {
+			const cacheKey = targetQuery(target);
+			const targetId = target === void 0 ? void 0 : target.id;
 			const hit = cacheKey === void 0 ? void 0 : GIT_CACHE.get(cacheKey);
-			const [info, setInfo] = react.useState(hit !== void 0 ? hit.data : void 0);
+			// state carries the key it belongs to: switching conversations changes
+			// the key, and showing the previous session's badge until the new fetch
+			// lands would be wrong
+			const [state, setState] = react.useState({ key: cacheKey, data: hit === void 0 ? void 0 : hit.data });
 			react.useEffect(() => {
-			if (cacheKey === void 0) return;
-			let alive = true;
-			const apply = (data) => {
-				// A degraded response (git timeout/failure) must never clobber a
-				// good cached badge — keep the last-known state until a real
-				// event or the fallback poll succeeds.
-				if (data !== null && data.error !== void 0 && GIT_CACHE.has(cacheKey)) return;
-				GIT_CACHE.set(cacheKey, { at: Date.now(), data });
-				if (alive) setInfo(data);
-			};
-			const load = () => {
-				// dedupe: an in-flight fetch for this key serves all callers
-				let pending = GIT_INFLIGHT.get(cacheKey);
-				if (pending === void 0) {
-					pending = fetch("/api/git-badge?path=" + encodeURIComponent(cwd))
-						.then((r) => r.json())
-						.finally(() => GIT_INFLIGHT.delete(cacheKey));
-					GIT_INFLIGHT.set(cacheKey, pending);
-				}
-				pending.then(apply).catch(() => {});
-			};
-			load();
-			// this workspace's watcher events → refetch
-			const unsubscribe = subscribeGitEvents((path) => {
-				if (samePath(path, cwd)) load();
-			});
-			const fallback = setInterval(load, FALLBACK_POLL_MS);
-			return () => {
-				alive = false;
-				unsubscribe();
-				clearInterval(fallback);
-			};
-		}, [cacheKey]);
-			return info;
+				if (cacheKey === void 0) return;
+				let alive = true;
+				const cached = GIT_CACHE.get(cacheKey);
+				if (cached !== void 0) setState({ key: cacheKey, data: cached.data });
+				const apply = (data) => {
+					// A degraded response (git timeout/failure) must never clobber a
+					// good cached badge — keep the last-known state until a real
+					// event or the fallback poll succeeds.
+					if (data !== null && data.error !== void 0 && GIT_CACHE.has(cacheKey)) return;
+					GIT_CACHE.set(cacheKey, { at: Date.now(), data });
+					if (alive) setState({ key: cacheKey, data });
+				};
+				const load = () => {
+					// dedupe: an in-flight fetch for this key serves all callers
+					let pending = GIT_INFLIGHT.get(cacheKey);
+					if (pending === void 0) {
+						pending = fetch("/api/git-badge?" + cacheKey)
+							.then((r) => r.json())
+							.finally(() => GIT_INFLIGHT.delete(cacheKey));
+						GIT_INFLIGHT.set(cacheKey, pending);
+					}
+					pending.then(apply).catch(() => {});
+				};
+				load();
+				// this target's watcher events → refetch. An event carrying no
+				// workspace id cannot be attributed, so refetch rather than guess.
+				const unsubscribe = subscribeGitEvents((payload) => {
+					if (payload.workspace === void 0 || payload.workspace === targetId) load();
+				});
+				const fallback = setInterval(load, FALLBACK_POLL_MS);
+				return () => {
+					alive = false;
+					unsubscribe();
+					clearInterval(fallback);
+				};
+			}, [cacheKey, targetId]);
+			return state.key === cacheKey ? state.data : void 0;
 		}
 
 		/**
@@ -209,13 +216,19 @@ window.__ModuleLoader__.load({
 		 * out-of-sync, red conflict or dirty-and-behind.
 		 * Always renders the workspace name (so the row keeps its identity);
 		 * appends the muted `| emoji branch` part only for git workspaces.
+		 *
+		 * Targets the row's `workspaceId`. The seam also passes `cwd`, which is
+		 * deliberately ignored: the node half resolves the directory itself, so
+		 * the client never has to name one. A row with no workspaceId (the
+		 * ungrouped bucket) has no workspace to report on, so it renders
+		 * name-only.
 		 */
-		function WorkspaceGitBadge({ label, cwd }) {
+		function WorkspaceGitBadge({ label, workspaceId }) {
 			// no detail=1: the row renders dot + branch only, and the extra log /
 			// stash calls have no consumer yet
-			const info = useGitStatus(cwd);
+			const info = useGitStatus(workspaceId === void 0 ? void 0 : { kind: "workspace", id: workspaceId });
 			const children = [react_jsx_runtime.jsx("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: label })];
-			if (cwd !== void 0 && info !== void 0 && info.git === true) {
+			if (workspaceId !== void 0 && info !== void 0 && info.git === true) {
 				children.push(
 					react_jsx_runtime.jsx("span", { style: { ...META_STYLE, margin: "0 7px" }, children: "|" }),
 					react_jsx_runtime.jsx("span", { style: { ...META_STYLE, marginRight: "4px" }, children: badgeDot(info) }),
@@ -225,46 +238,21 @@ window.__ModuleLoader__.load({
 			return react_jsx_runtime.jsx("span", { style: { display: "flex", alignItems: "center", minWidth: 0 }, children });
 		}
 
-		//#region composer chip (fallback + companion surface: conversation.composer.dock)
-		/** Client root ctx, captured at apply() for the chip's service lookups. */
-		let clientCtx = null;
-
+		//#region composer chip (upstream additive surface: conversation.input.left)
 		/**
-		 * Resolve the workspace cwd attached to a session: projects the
-		 * workspaces service's snapshot store (items carry path + sessionIds)
-		 * and re-resolves on change. Returns undefined while unknown.
-		 */
-		function useSessionWorkspaceCwd(sessionId) {
-			const workspaces = clientCtx === null ? null : clientCtx.get("workspaces");
-			const resolve = () => {
-				if (sessionId === void 0 || workspaces === void 0) return void 0;
-				const item = workspaces.list.getSnapshot().items.find((w) => w.sessionIds !== void 0 && w.sessionIds.includes(sessionId));
-				return item === void 0 ? void 0 : item.path;
-			};
-			const [cwd, setCwd] = react.useState(resolve);
-			react.useEffect(() => {
-				if (sessionId === void 0 || workspaces === void 0) return;
-				setCwd(resolve());
-				return workspaces.list.subscribe(() => {
-					setCwd(resolve());
-				});
-			}, [sessionId, workspaces]);
-			return cwd;
-		}
-
-		/**
-		 * Chip line docked at the composer: git state of the workspace the
-		 * CURRENT conversation is attached to. Works on unpatched installs
-		 * (conversation.composer.dock is an upstream additive slot), and stays
-		 * useful next to the sidebar rows on patched/upstream-seam installs
-		 * because it is context-anchored ("where am I") rather than surveying.
+		 * Chip line in the input row: git state of the workspace the CURRENT
+		 * conversation is attached to. It targets the session id and lets the node
+		 * half resolve the workspace, so this surface needs no `workspaces`
+		 * service, no cwd and no path plumbing at all. Works on unpatched installs
+		 * (conversation.input.left is an upstream additive slot), and stays useful
+		 * next to the sidebar rows because it is context-anchored ("where am I")
+		 * rather than surveying.
 		 */
 		function ComposerGitChip({ sessionId }) {
-			const cwd = useSessionWorkspaceCwd(sessionId);
-			// no detail=1 either: nothing renders lastCommits / stashCount yet, and
-			// asking for them would add a log -3 plus a stash list to every refresh
-			const info = useGitStatus(cwd);
-			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
+			// no detail=1: nothing renders lastCommits / stashCount yet, and asking
+			// for them would add a log -3 plus a stash list to every refresh
+			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId });
+			if (info === void 0 || info.git !== true) return null;
 			const text = badgeDot(info) + " " + info.branch + formatOperationToken(info) + formatGitSuffix(info);
 			return react_jsx_runtime.jsx("span", {
 				style: {
@@ -283,15 +271,17 @@ window.__ModuleLoader__.load({
 		}
 		//#endregion
 
-		const inject = ["slots", "workspaces"];
+		// `workspaces` is no longer required: both surfaces target an id and the
+		// node half resolves the workspace, so the client never needs a service
+		// lookup. Fewer declared services also means fewer ways to fail to load.
+		const inject = ["slots"];
 
 		/**
 		 * Register the badge into both seams. The seam owner hands each entry the
-		 * row owner share as props; the badge destructures { workspaceId, cwd,
-		 * label } from it.
+		 * row owner share as props; the badge destructures { workspaceId, label }
+		 * and deliberately ignores the cwd it is also given.
 		 */
 		function apply(ctx) {
-			clientCtx = ctx;
 			// inject() re-evaluates when a seam's declaration appears, so boot
 			// order relative to the workspace browser does not matter. On an
 			// unpatched install the row seams never get declared, so those two

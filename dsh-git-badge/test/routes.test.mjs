@@ -1,24 +1,35 @@
 /**
- * Route-level tests: the workspace allowlist, the response contract, and the
- * registration wiring, driven through a fake cordis ctx instead of a live
+ * Route-level tests: request → workspace resolution, the response contract, and
+ * the registration wiring, driven through a fake cordis ctx instead of a live
  * server.
+ *
+ * The trust model under test: the caller names a workspace id or a session id,
+ * and the server resolves the directory. No client-supplied path is accepted —
+ * `?path=` is gone, and one test exists purely to keep it gone.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { realpath } from "node:fs/promises";
 import { apply } from "../lib/index.js";
 import { fakeCtx, fakeReq, fakeStream } from "../test-support/harness.mjs";
-import { makeRepo, makeSymlink } from "../test-support/repo.mjs";
+import { makeRepo } from "../test-support/repo.mjs";
+
+const WORKSPACE_ID = "ws-alpha";
+const ATTACHED_SESSION = "sess-attached";
 
 /** Registered-workspace repo plus the captured routes. */
-async function setup(t, { register = [] } = {}) {
+async function setup(t, { register, sessions = {}, resolveByPath = true } = {}) {
 	const repo = await makeRepo(t);
 	await repo.commit("initial");
-	const workspaces = register.length > 0 ? register : [await realpath(repo.root)];
-	const { ctx, routes, disposeAll } = fakeCtx({ workspaces });
+	const workspaces = register ?? [
+		{ id: WORKSPACE_ID, path: repo.root, sessionIds: [ATTACHED_SESSION] }
+	];
+	// `sessions` may be a factory so a test can key a live session off the repo
+	// path it only receives after the repo exists
+	const liveSessions = typeof sessions === "function" ? sessions(repo) : sessions;
+	const { ctx, routes, entities, disposeAll } = fakeCtx({ workspaces, sessions: liveSessions, resolveByPath });
 	apply(ctx);
 	t.after(() => disposeAll());
-	return { repo, routes };
+	return { repo, routes, entities };
 }
 
 async function get(routes, query) {
@@ -34,26 +45,33 @@ test("both routes are registered", async (t) => {
 	assert.ok(routes.has("/api/git-badge/events"));
 });
 
-test("a missing path is a 400, not a crash", async (t) => {
+test("no target at all is a 400 with a stable code", async (t) => {
 	const { routes } = await setup(t);
 	const res = await get(routes, "");
 	assert.equal(res.status, 400);
-	assert.equal(JSON.parse(res.text()).git, false);
+	const body = JSON.parse(res.text());
+	assert.equal(body.git, false);
+	assert.equal(body.error.code, "target-required");
 });
 
-test("a path outside the workspace registry is refused with 403", async (t) => {
-	const { routes } = await setup(t);
-	const res = await get(routes, "?path=%2Ftmp");
-	assert.equal(res.status, 403);
-	assert.deepEqual(JSON.parse(res.text()), {
-		git: false,
-		error: "path is not a registered workspace"
-	});
-});
-
-test("a registered workspace returns 200 with the full status contract", async (t) => {
+test("REGRESSION: a path, even a registered one, is no longer accepted", async (t) => {
 	const { repo, routes } = await setup(t);
 	const res = await get(routes, `?path=${encodeURIComponent(repo.root)}`);
+	// the registered path must NOT resolve — the whole point of the change
+	assert.equal(res.status, 400);
+	assert.equal(JSON.parse(res.text()).error.code, "target-required");
+});
+
+test("an unknown workspace id is a 404", async (t) => {
+	const { routes } = await setup(t);
+	const res = await get(routes, "?workspace=nope");
+	assert.equal(res.status, 404);
+	assert.equal(JSON.parse(res.text()).error.code, "workspace-not-found");
+});
+
+test("a known workspace id returns 200 with the full status contract", async (t) => {
+	const { routes } = await setup(t);
+	const res = await get(routes, `?workspace=${WORKSPACE_ID}`);
 	assert.equal(res.status, 200);
 	const body = JSON.parse(res.text());
 	assert.equal(body.git, true);
@@ -70,24 +88,59 @@ test("a registered workspace returns 200 with the full status contract", async (
 	assert.equal("ahead" in body, false);
 });
 
-test("a symlink that resolves to a registered workspace is accepted", async (t) => {
-	const { repo, routes } = await setup(t);
-	const link = await makeSymlink(t, repo.root);
-	const res = await get(routes, `?path=${encodeURIComponent(link)}`);
+test("a session listed in the registry resolves, including a non-live one", async (t) => {
+	// no `sessions` entry at all: membership alone must carry it, which is what
+	// makes an old conversation still render a badge
+	const { routes } = await setup(t);
+	const res = await get(routes, `?session=${ATTACHED_SESSION}`);
 	assert.equal(res.status, 200);
 	assert.equal(JSON.parse(res.text()).git, true);
 });
 
+test("an unknown session id is a 404", async (t) => {
+	const { routes } = await setup(t);
+	const res = await get(routes, "?session=sess-unknown");
+	assert.equal(res.status, 404);
+	assert.equal(JSON.parse(res.text()).error.code, "session-not-found");
+});
+
+test("a brand-new session resolves through its live cwd, validated by the registry", async (t) => {
+	const { routes } = await setup(t, {
+		sessions: (repo) => ({ "sess-new": { header: { cwd: repo.root } } })
+	});
+	const res = await get(routes, "?session=sess-new");
+	assert.equal(res.status, 200);
+	assert.equal(JSON.parse(res.text()).git, true);
+});
+
+test("a live session whose cwd is not a registered workspace is refused", async (t) => {
+	const { routes } = await setup(t, {
+		sessions: { "sess-stray": { header: { cwd: "/tmp" } } }
+	});
+	const res = await get(routes, "?session=sess-stray");
+	assert.equal(res.status, 404);
+	assert.equal(JSON.parse(res.text()).error.code, "session-not-found");
+});
+
+test("without the optional resolveByPath, a non-member session degrades to 404", async (t) => {
+	const { routes } = await setup(t, {
+		sessions: (repo) => ({ "sess-new": { header: { cwd: repo.root } } }),
+		resolveByPath: false
+	});
+	const res = await get(routes, "?session=sess-new");
+	assert.equal(res.status, 404);
+});
+
 test("detail=1 is honoured at the route level", async (t) => {
-	const { repo, routes } = await setup(t);
-	const res = await get(routes, `?path=${encodeURIComponent(repo.root)}&detail=1`);
+	const { routes } = await setup(t);
+	const res = await get(routes, `?workspace=${WORKSPACE_ID}&detail=1`);
 	const body = JSON.parse(res.text());
 	assert.ok(Array.isArray(body.lastCommits));
 	assert.equal(body.lastCommits[0].subject, "initial");
 });
 
-test("a non-registered path that does not exist is still a 403", async (t) => {
+test("a workspace id wins over a session id when both are supplied", async (t) => {
 	const { routes } = await setup(t);
-	const res = await get(routes, "?path=%2Fdefinitely%2Fnot%2Fhere");
-	assert.equal(res.status, 403);
+	const res = await get(routes, `?workspace=${WORKSPACE_ID}&session=sess-unknown`);
+	assert.equal(res.status, 200);
 });
