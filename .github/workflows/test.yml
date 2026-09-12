@@ -23,8 +23,10 @@ jobs:
       run:
         working-directory: dsh-git-badge
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # v7 targets the Node 24 action runtime; v4 forced the deprecated Node 20
+      # one (this is the action runtime only — the matrix above is what we test)
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node-version }}
       - run: npm test

@@ -48,13 +48,31 @@ The feature has three independently testable layers:
 **Automated**: `./test-profile.sh [version]` performs the whole procedure —
 removes the old profile, stops any server running it, installs from npm
 (optionally pinned to `[version]`), adds the web bundle, verifies the exports
-map and both lib halves on disk, boots headless, then checks the client.js
-route and the allowlist 403 over HTTP. Leaves the server running and prints
-the cleanup command. Env overrides: `PROFILE=`, `PORT=`, `NO_BOOT=1`.
+map and both lib halves on disk, boots headless, then verifies the plugin is in
+the composed **client** graph and that its advertised bundle is served, plus
+the allowlist 403. Leaves the server running and prints the cleanup command.
+
+Env overrides:
+
+| Var | Effect |
+|---|---|
+| `PROFILE=` | profile name under `$DSH_HOME/profiles` (default `test`) |
+| `PORT=` | headless port (default 3100) |
+| `NO_BOOT=1` | set up + verify on disk only |
+| `PLUGIN_SOURCE=<path>` | install the **working tree** instead of npm — the only way to exercise unreleased code |
+| `PROFILES_ROOT=` | override `$DSH_HOME/profiles` |
+
+`DSH_HOME` is honored by the harness (`$DSH_HOME` > `~/.dsh`), so
+`PROFILES_ROOT` must name wherever the `dsh` CLI actually installs.
+
+**Version resolution is not "newest".** An unpinned run has been observed
+installing `0.5.5` while `0.6.0` was `latest`, so always read the script's
+`installed dsh-git-badge@x.y.z` line, and pass an explicit version when testing
+a freshly published release.
 
 Manual procedure (what the script automates), for reference:
 
-A DSH profile is just a bundle stack under `~/.dsh/profiles/<name>`:
+A DSH profile is just a bundle stack under `$DSH_HOME/profiles/<name>`:
 `package.json` → `dsh.profile.bundles` plus its own config. Fresh profiles
 boot **headless** by default — the plugin's node half waits for
 `webServer`/`workspaceRegistry` and boot FAILS LOUDLY until the web app is
@@ -62,26 +80,41 @@ in the stack:
 
 ```bash
 dsh plugin --profile test add dsh-git-badge   # creates the profile, installs from npm
-# add the web app to dsh.profile.bundles in ~/.dsh/profiles/test/package.json
+# working tree instead: dsh plugin --profile test add /path/to/dsh-git-badge
+# add the web app to dsh.profile.bundles in the profile's package.json
 # (insert "@deepseek-ai/dsh-web-app" after "@deepseek-ai/dsh-base";
 #  `dsh plugin add` may fail on it — edit the JSON directly)
 dsh --profile test --port 3100 --no-open      # NOTE: `dsh web` hardcodes the web profile
 ```
 
-Verify server-side:
+Verifying over HTTP has two traps. The **shell is auth-gated** (an
+unauthenticated `/` returns no 2xx, so `curl -f` reports a healthy server as
+dead), and **`/plugins/<id>/client.js` is not a route**: the client-modules
+host serves only the exact rev-pinned URLs it advertises in the boot payload,
+so every other shape is 404 by design. Take the token the server printed into
+its boot log, then read the advertised URL out of `window.__DSH_BOOT__`:
 
 ```bash
-# NOTE: the homepage HTML does NOT list plugins — check client.js instead.
-curl -s http://127.0.0.1:3100/plugins/dsh-git-badge/client.js | grep -o 'dsh-git-badge' | head -1
-curl -s "http://127.0.0.1:3100/api/git-badge?path=/tmp"            # 403 {"git":false,"error":"path is not a registered workspace"} — 403 is expected, don't use curl -f
-curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3100/plugins/dsh-git-badge/client.js  # 200
+TOKEN=$(grep -oE 'token=[A-Za-z0-9_-]+' /tmp/dsh-test-boot.log | head -1 | cut -d= -f2)
+curl -sL -c /tmp/jar -b /tmp/jar "http://127.0.0.1:3100/?token=$TOKEN" \
+  | grep -o '"id":"dsh-git-badge"[^}]*'   # {"id":"dsh-git-badge","url":"/plugins/??dsh-git-badge/client.js&rev=…"}
+# fetch that advertised url with the same cookie jar → 200 and the module body
+
+# node half, unauthenticated on purpose — the 403 IS the expected result:
+curl -s "http://127.0.0.1:3100/api/git-badge?path=/tmp"
+#   → 403 {"git":false,"error":"path is not a registered workspace"}
 ```
+
+`test-profile.sh` does exactly this — prefer it over retyping.
 
 Then in a browser: no sidebar badges (no seam in a clean profile), input chip
 present, console shows
 `[dsh-git-badge] surfaces: input chip = on; sidebar rows = off (seam absent …)`.
+Open the URL the server printed (the one carrying `?token=`) — a bare
+`http://127.0.0.1:3100` will not authenticate.
 
-Clean up: stop the server, delete `~/.dsh/profiles/test`.
+Clean up: stop the server and delete the profile directory; `test-profile.sh`
+prints both commands with the real paths.
 
 ## Seam-patched test (full badges)
 

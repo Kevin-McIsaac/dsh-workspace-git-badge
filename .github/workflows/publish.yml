@@ -8,9 +8,17 @@
 #     Organization or user: Kevin-McIsaac
 #     Repository:           dsh-workspace-git-badge
 #     Workflow filename:    publish.yml
+#     Environment:          leave blank (this job declares none)
+#     Allowed actions:      enable "publish directly" (npm publish)
+#
+# The allowed-action box is the silent one: since 2026-05-20 a configuration
+# must name at least one action, and "npm stage publish is always allowed", so
+# leaving the box unticked saves successfully and only fails here, at publish
+# time, with an authorization error.
 #
 # The version in dsh-git-badge/package.json is what gets published, so bump it
-# and land it on main BEFORE cutting the release.
+# and land it on main BEFORE cutting the release: the `release` event reads this
+# workflow from the tagged commit, so tagging an unmerged branch runs nothing.
 name: Publish to npm
 
 on:
@@ -29,16 +37,19 @@ jobs:
         # the published package lives in a subdirectory of this repo
         working-directory: dsh-git-badge
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # v7 targets the Node 24 action runtime; v4 forced the deprecated Node 20
+      # one and the runner warned about it on every publish
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          # Node 24 bundles the npm that supports trusted publishing
+          # Node 24 bundles the npm (>= 11.5.1) that can do the OIDC handshake
           node-version: 24
           registry-url: https://registry.npmjs.org/
       # never publish a red suite
       - run: npm test
       - run: npm publish --provenance --access public
         env:
-          # trusted publishing authenticates through OIDC; an empty token stops
-          # setup-node's placeholder .npmrc entry from being used instead
+          # trusted publishing authenticates through OIDC. setup-node v7 no
+          # longer exports a dummy token, but keeping this empty is belt and
+          # braces: no ambient token can be picked up instead of the handshake.
           NODE_AUTH_TOKEN: ""
