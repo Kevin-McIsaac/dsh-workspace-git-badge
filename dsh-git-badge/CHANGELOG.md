@@ -10,6 +10,8 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-12
+
 ### Changed
 
 - **Both surfaces draw the same status mark.** The input chip no longer leads with
@@ -134,5 +136,6 @@ npm. 0.6.0 is the first release recorded here.
 - `detail=1` is annotated as having no consumer yet (the hover card remains
   pending). Its comment previously claimed `log -1` while the code ran `log -3`.
 
-[Unreleased]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.7.0
 [0.6.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.6.0
