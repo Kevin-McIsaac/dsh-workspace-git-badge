@@ -38,6 +38,13 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Fixed
 
+- **The input chip now refreshes on change events.** Change events identify the
+  *workspace*, and the client matched them against its own target id. A sidebar row
+  targets by workspace id so rows kept working, but the chip targets by session id,
+  which can never equal a workspace id — so its handler never fired and the chip
+  only updated when it remounted (switching conversations) or on the 60s fallback
+  poll. The status response now echoes the resolved workspace id and the client
+  matches on that. This was a regression in the server-side resolution change.
 - **The TTL fetch no longer delays the status response.** `ahead`/`behind` are
   read from the local remote-tracking ref, and the fetch that refreshes it was
   awaited before answering, so any request arriving after the 60s TTL had lapsed

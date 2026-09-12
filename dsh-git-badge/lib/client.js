@@ -87,7 +87,6 @@ window.__ModuleLoader__.load({
 		 */
 		function useGitStatus(target) {
 			const cacheKey = targetQuery(target);
-			const targetId = target === void 0 ? void 0 : target.id;
 			const hit = cacheKey === void 0 ? void 0 : GIT_CACHE.get(cacheKey);
 			// state carries the key it belongs to: switching conversations changes
 			// the key, and showing the previous session's badge until the new fetch
@@ -96,13 +95,25 @@ window.__ModuleLoader__.load({
 			react.useEffect(() => {
 				if (cacheKey === void 0) return;
 				let alive = true;
+				// The workspace this target resolved to, taken from the response (the
+				// server echoes it). THIS is what events are matched against: an event
+				// carries a workspace id, and a session-targeted chip has only a
+				// session id, so comparing the two directly never matches.
+				let resolvedWorkspace;
+				// Re-seed from cache when the key changes (switching conversations):
+				// render the last-known badge immediately instead of blanking until the
+				// fetch lands, and take the workspace id from it so events still match.
 				const cached = GIT_CACHE.get(cacheKey);
-				if (cached !== void 0) setState({ key: cacheKey, data: cached.data });
+				if (cached !== void 0) {
+					if (typeof cached.data?.workspace === "string") resolvedWorkspace = cached.data.workspace;
+					setState({ key: cacheKey, data: cached.data });
+				}
 				const apply = (data) => {
 					// A degraded response (git timeout/failure) must never clobber a
 					// good cached badge — keep the last-known state until a real
 					// event or the fallback poll succeeds.
 					if (data !== null && data.error !== void 0 && GIT_CACHE.has(cacheKey)) return;
+					if (data !== null && typeof data.workspace === "string") resolvedWorkspace = data.workspace;
 					GIT_CACHE.set(cacheKey, { at: Date.now(), data });
 					if (alive) setState({ key: cacheKey, data });
 				};
@@ -118,10 +129,13 @@ window.__ModuleLoader__.load({
 					pending.then(apply).catch(() => {});
 				};
 				load();
-				// this target's watcher events → refetch. An event carrying no
-				// workspace id cannot be attributed, so refetch rather than guess.
 				const unsubscribe = subscribeGitEvents((payload) => {
-					if (payload.workspace === void 0 || payload.workspace === targetId) load();
+					// An event with no workspace id (no watcher record for that path)
+					// cannot be attributed, and neither can one arriving before we have
+					// resolved our own target — refetch rather than guess, since a
+					// missed refresh is the bug this guards and an extra request is cheap
+					// (the in-flight map collapses bursts).
+					if (payload.workspace === void 0 || resolvedWorkspace === void 0 || payload.workspace === resolvedWorkspace) load();
 				});
 				const fallback = setInterval(load, FALLBACK_POLL_MS);
 				return () => {
@@ -129,7 +143,7 @@ window.__ModuleLoader__.load({
 					unsubscribe();
 					clearInterval(fallback);
 				};
-			}, [cacheKey, targetId]);
+			}, [cacheKey]);
 			return state.key === cacheKey ? state.data : void 0;
 		}
 

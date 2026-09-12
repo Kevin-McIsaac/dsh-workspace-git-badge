@@ -531,7 +531,10 @@ function syncWatchers(ctx) {
  *      registry's `resolveByPath`, which covers the window where a brand-new
  *      session is not yet attached to its workspace.
  *
- * @returns `{ path }` when resolved, else `{ status, error: { code, message } }`.
+ * @returns `{ id, path }` when resolved, else `{ status, error: { code, message } }`.
+ *   The id is returned because the route echoes it: a client that asked by
+ *   SESSION needs the workspace id to attribute that workspace's SSE events,
+ *   since an event carries a workspace id and a session id can never match it.
  */
 async function resolveWorkspace(ctx, params) {
 	const workspaceId = params.get("workspace") ?? "";
@@ -548,10 +551,12 @@ async function resolveWorkspace(ctx, params) {
 		if (entity === void 0) {
 			return { status: 404, error: { code: "workspace-not-found", message: "no workspace with that id" } };
 		}
-		return { path: entity.path };
+		return { id: String(entity.id), path: entity.path };
 	}
 	for (const entity of entities) {
-		if (Array.isArray(entity.sessionIds) && entity.sessionIds.includes(sessionId)) return { path: entity.path };
+		if (Array.isArray(entity.sessionIds) && entity.sessionIds.includes(sessionId)) {
+			return { id: String(entity.id), path: entity.path };
+		}
 	}
 	// A brand-new session whose workspace attach has not landed yet. Trust the
 	// server-side session header (never the caller), then require the registry to
@@ -560,7 +565,7 @@ async function resolveWorkspace(ctx, params) {
 	const resolveByPath = ctx.workspaceRegistry.resolveByPath;
 	if (typeof cwd === "string" && cwd !== "" && typeof resolveByPath === "function") {
 		const entity = await resolveByPath.call(ctx.workspaceRegistry, cwd).catch(() => void 0);
-		if (entity !== void 0 && typeof entity?.path === "string") return { path: entity.path };
+		if (entity !== void 0 && typeof entity?.path === "string") return { id: String(entity.id), path: entity.path };
 	}
 	return { status: 404, error: { code: "session-not-found", message: "no registered workspace owns that session" } };
 }
@@ -580,8 +585,13 @@ function apply(ctx) {
 					return;
 				}
 				const detail = url.searchParams.get("detail") === "1";
+				const info = await gitStatus(target.path, detail);
+				// Echo the resolved workspace id. SSE events identify the workspace,
+				// not the session, so a session-targeted client has no other way to
+				// tell whether an event belongs to it — without this the input chip
+				// only ever refreshed on remount or the 60s poll.
 				res.writeHead(200, { "content-type": "application/json" });
-				res.end(JSON.stringify(await gitStatus(target.path, detail)));
+				res.end(JSON.stringify({ ...info, workspace: target.id }));
 			} catch (error) {
 				res.writeHead(400, { "content-type": "application/json" });
 				res.end(JSON.stringify({ git: false, error: { code: "bad-request", message: String(error?.message ?? error) } }));

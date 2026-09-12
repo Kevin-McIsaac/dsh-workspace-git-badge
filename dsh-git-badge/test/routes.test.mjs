@@ -86,6 +86,8 @@ test("a known workspace id returns 200 with the full status contract", async (t)
 	// arrows" rather than as a zero
 	assert.equal("upstream" in body, false);
 	assert.equal("ahead" in body, false);
+	// the resolved workspace id is echoed so a client can attribute SSE events
+	assert.equal(body.workspace, WORKSPACE_ID);
 });
 
 test("a session listed in the registry resolves, including a non-live one", async (t) => {
@@ -94,7 +96,12 @@ test("a session listed in the registry resolves, including a non-live one", asyn
 	const { routes } = await setup(t);
 	const res = await get(routes, `?session=${ATTACHED_SESSION}`);
 	assert.equal(res.status, 200);
-	assert.equal(JSON.parse(res.text()).git, true);
+	const body = JSON.parse(res.text());
+	assert.equal(body.git, true);
+	// THE reason this field exists: a session-targeted client has no workspace id
+	// of its own, and SSE events identify the workspace — without the echo the
+	// input chip could never match an event and only refreshed on remount.
+	assert.equal(body.workspace, WORKSPACE_ID);
 });
 
 test("an unknown session id is a 404", async (t) => {
