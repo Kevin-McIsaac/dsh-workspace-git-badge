@@ -39,9 +39,22 @@ full write-up for maintainers is in [`PR.md`](PR.md).
 `seam/apply.sh` patches the installed package in place:
 
 ```bash
+seam/apply.sh status    # inspect: patched / pristine / upstream-landed / drift
 seam/apply.sh apply     # patch + install hints
 seam/apply.sh revert    # restore the pristine files from backup
 ```
+
+`status` mutates nothing and is the first thing to run **after a DSH update**,
+because a DSH release rewrites `lib/client.js` and invalidates the hash-guard. It
+reports the installed hash, whether it matches the pinned baseline or this repo's
+patched artifact, whether a revert backup exists, and whether the seam is
+declared — then gives a verdict. It exits `0` for a recognised state (patched /
+pristine / upstream-landed) and `1` for drift, so it is usable in a script. On
+drift it prints the exact rebuild commands.
+
+Note the tell it encodes: **hashes, not version strings.** The package version is
+read from whichever copy is installed and says nothing about which bytes they
+are — the same trap that made a dev-install look current when it was not.
 
 Safety rails:
 
