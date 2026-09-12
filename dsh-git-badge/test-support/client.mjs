@@ -82,18 +82,45 @@ export function markFill(svg) {
  * Load the real client bundle and return a renderer per registered surface.
  * `apply()` is driven with a fake slots service that captures each registration
  * by slot name.
+ *
+ * Options:
+ *  - `tooltip: true` seeds a `Tooltip` stub into the primitives module, so the
+ *    hover-card path can be exercised. Default false: the real shell is NOT
+ *    assumed to provide it, so the default render covers the no-Tooltip fallback.
+ *  - `hover: true` makes the chip's `hovered` boolean state initialise true, which
+ *    is how the card's extra fields are reached — the suite has no real pointer
+ *    and no re-render, so hover is chosen at render time instead.
  */
-export function createClient() {
+export function createClient({ tooltip = false, hover = false } = {}) {
 	const source = readFileSync(CLIENT, "utf8");
-	const injected = { data: void 0 };
+	const injected = { data: void 0, detail: void 0 };
 	let captured = null;
 	const element = (type, props) => ({ type, props });
 	const react = {
-		useState: (initial) => [{ key: initial.key, data: injected.data }, () => {}],
+		useState: (initial) => {
+			// The git-status slot is a `{ key, data }` record; every OTHER useState is
+			// ordinary local state and keeps its initial value — the payload would be
+			// nonsense as a `hovered` boolean.
+			const isStatusSlot = initial !== null && typeof initial === "object" && "key" in initial;
+			if (!isStatusSlot) return [hover && initial === false ? true : initial, () => {}];
+			// The slot's own query string identifies it, which is what lets the
+			// harness model LAZINESS honestly: a detail slot holds nothing until a
+			// hover actually fetches it, so it is served only when `hover` says the
+			// pointer arrived. Serving it unconditionally would make the lazy-fetch
+			// contract look satisfied when it was not.
+			const wantsDetail = typeof initial.key === "string" && initial.key.includes("detail=1");
+			const data = wantsDetail ? (hover ? injected.detail : void 0) : injected.data;
+			return [{ key: initial.key, data }, () => {}];
+		},
 		useEffect: () => {}
 	};
 	const jsxRuntime = { jsx: element, jsxs: element, Fragment: "Fragment" };
-	const fakeRequire = (id) => (id === "react/jsx-runtime" ? jsxRuntime : react);
+	const primitives = tooltip ? { Tooltip: (...args) => element("Tooltip", args[0]) } : {};
+	const fakeRequire = (id) => {
+		if (id === "react/jsx-runtime") return jsxRuntime;
+		if (id === "@deepseek-ai/dsh-client-ui-primitives") return primitives;
+		return react;
+	};
 	new Function("window", "require", source)(
 		{ __ModuleLoader__: { load: (module) => { captured = module; } } },
 		fakeRequire
@@ -101,10 +128,14 @@ export function createClient() {
 
 	const registered = {};
 	const info = console.info;
-	// apply() reports which surfaces it found; that is boot logging, not test output
-	console.info = () => {};
+	// apply() reports which surfaces and capabilities it found; capture rather than
+	// print, so the boot diagnostics are assertable instead of test noise
+	const logs = [];
+	console.info = (...args) => { logs.push(args.map(String).join(" ")); };
+	let client;
 	try {
-		captured.factory(fakeRequire).apply({
+		client = captured.factory(fakeRequire);
+		client.apply({
 			slots: {
 				inject: (_name, callback) => { callback(); },
 				register: (spec, component) => {
@@ -121,16 +152,34 @@ export function createClient() {
 	// `git: true` is the node half's "this is a repository" marker; a payload that
 	// names `git` itself (e.g. { git: false }) wins, so non-repo cases are testable
 	const payload = (data) => (data === void 0 ? void 0 : { git: true, ...data });
+	/**
+	 * Point the surfaces at a fixture. `data` is the ORDINARY status response and
+	 * `detail` the payload a `detail=1` fetch would return — omitting `detail`
+	 * leaves the lazy slot empty, which is the state of a chip nobody has hovered.
+	 */
+	const feed = (data, detail) => {
+		injected.data = payload(data);
+		injected.detail = detail === void 0 ? void 0 : payload(detail);
+	};
 	return {
+		/** Test-only exports from the bundle: the request contract, not the DOM. */
+		internals: client.__internals,
+		/** The boot diagnostics apply() emitted, one string per console.info call. */
+		logs,
 		/** Render the sidebar row. */
 		row(data, label = "project") {
-			injected.data = payload(data);
+			feed(data);
 			return expand(registered["sidebar.workspaces.row"]({ label, workspaceId: "ws-1" }));
 		},
 		/** Render the composer chip. */
-		chip(data) {
-			injected.data = payload(data);
+		chip(data, detail) {
+			feed(data, detail);
 			return expand(registered["conversation.input.left"]({ sessionId: "s-1" }));
+		},
+		/** The chip BEFORE expansion, so a test can see the Tooltip wrapper itself. */
+		rawChip(data, detail) {
+			feed(data, detail);
+			return registered["conversation.input.left"]({ sessionId: "s-1" });
 		}
 	};
 }

@@ -2,3 +2,7 @@ backup-*.js
 .npm-cache/
 # local-only reference clone (prior-art study; never publish)
 .reference/
+# Local scratch (throwaway DSH_HOME / pnpm store for a clean-profile run under a
+# file sandbox that cannot write ~/.dsh). Never commit it: it once reached 11M of
+# untracked store files before anyone noticed.
+/scratch/

@@ -27,9 +27,13 @@ This file documents what the patch does, how to apply it, and why it is safe.
    `sidebar.workspaces.row.detail`, in the workspace hover card, with the same
    `{ workspaceId, cwd, label }` owner shape and the **raw** host path as `cwd`
    (the card abbreviates its own display copy separately). No published plugin
-   occupies it yet; the node half's `?detail=1` response (last commits + stash,
-   "for the hover card") is the intended consumer. `PR.md` scopes the upstream
-   proposal to the row slot only.
+   occupies it yet. Its original intended consumer was the node half's `?detail=1`
+   response (last commits + stash), which is now consumed instead by the **input
+   chip's own hover card** — a surface that needs no seam at all, because the
+   `Tooltip` primitive is seeded by the shell and `conversation.input.left` is
+   upstream. So this detail slot is an optional extension for row-scoped detail,
+   not the only route to those fields, and nothing in the repo depends on it.
+   `PR.md` scopes the upstream proposal to the row slot only.
 
 With no plugin registered the rows render byte-identically to upstream. The
 full write-up for maintainers is in [`PR.md`](PR.md).

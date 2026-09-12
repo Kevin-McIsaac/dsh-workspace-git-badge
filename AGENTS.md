@@ -41,10 +41,22 @@ seam (a local +40/−8 patch in `seam/`, proposed upstream — see `PR.md`).
 4. `dsh-git-badge/package.json` exports must keep `"./package.json"` — the client
    scanner silently ignores the package without it.
 5. When committing: stage explicit paths. Never `git add -A` (test artifacts).
-6. The status route takes **no path** — the caller names who it is and the server
+6. **Feature work goes on a branch, never `main`.** Create a `feat/<topic>` branch
+   before starting (a worktree under `.wt/` is also fine), and **do not merge it
+   without the user's approval** — changes land here as pull requests. This was
+   learned the hard way: a whole feature was built on `main` and only noticed at
+   the end. It also compounds with rule 1, because a change built on `main` is the
+   one most likely to be left uncommitted while the user is asked to restart.
+7. The status route takes **no path** — the caller names who it is and the server
    resolves the directory: `?session=<id>` (the input chip) or `?workspace=<id>`
    (a sidebar row; a generated uuid matching the seam's `workspaceId`). A `?path=`
    request is refused with `target-required`; an unresolvable id gives
    `session-not-found` / `workspace-not-found`. Never send a filesystem path, and
    never display-abbreviate one as `~/...`.
+8. **The user's editor profile installs the plugin by path or from npm — check
+   which before promising a restart will show a change.** A restart only reveals
+   code the profile actually has: `readlink -f
+   ~/.dsh/profiles/web/node_modules/dsh-git-badge` resolves to the working tree
+   for a `link:` install, and to a published copy otherwise. Restarting onto a
+   published package shows nothing new, which looks exactly like a broken feature.
 

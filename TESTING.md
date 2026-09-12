@@ -89,6 +89,21 @@ can lag by up to one fetch; branch, dirty state and counts are never delayed by 
 If you are verifying counts against ground truth, fetch yourself first, then curl
 (see `docs/VERIFICATION.md`).
 
+**PR / CI state converges the same way, and degrades harder.** It is read through
+the user's `gh` CLI, TTL-bounded (`config.prTtlMs`, 90s per toplevel) and never
+awaited: the route serves the cached value and a refresh that *changes* it
+notifies subscribers, so the request that lapses the window carries the previous
+answer. Only `?pr=1` asks for it (the input chip), so a sidebar row refresh never
+spawns `gh`.
+
+The degradation contract is a **missing field, never an error** — no `gh`, a
+logged-out `gh`, a non-GitHub `origin`, offline, rate-limited, unparseable output
+and a timeout all produce the same response, with no `pr` key. When verifying
+live, do not read "no PR token" as a bug until you have checked `gh pr view` in
+that workspace yourself: the token is *supposed* to be invisible when `gh` cannot
+answer. `config.prRunner` substitutes for the CLI in the suite, so no test needs
+`gh`, a network or a forge.
+
 Pattern credit: the fake-ctx / fake-stream / temp-repo shape is adapted from
 `@wongzexu/dsh-git-status` (MIT).
 
@@ -202,10 +217,18 @@ hard-refresh. DevTools console confirms which code is live via the
 
 - **Node half changed** → run `npm test` first; a restart is then only needed to
   see it live (the suite already covers the parser, `gitStatus` against real
-  repos, resolution, SSE and the watcher).
+  repos, resolution, SSE, the watcher, and every PR/CI degradation path through
+  the `prRunner` seam — so a `gh`-less CI box still tests the feature).
 - **Client half changed** → `npm test` covers the rendering rules (mark shape and
-  colour, row/chip composition); a browser refresh is then only needed to see it
-  live. After patch or bundle-graph changes, restart first (see above).
+  colour, row/chip composition, the hover card's contents, and the PR token);
+  a browser refresh is then only needed to see it live. After patch or
+  bundle-graph changes, restart first (see above).
+- **Hover card / PR token changed** → two things to know when testing by hand.
+  The card's fields are **lazy**: the node half only sees `detail=1` after a
+  pointer has rested on the chip, so watching the network panel, expect the first
+  request to carry `pr=1` only. And `pr=1` requires `gh` on PATH, authenticated,
+  and a `github.com` `origin` — verify with `gh pr view` in the same directory
+  before concluding the token is broken.
 
 ## Publishing a new version
 

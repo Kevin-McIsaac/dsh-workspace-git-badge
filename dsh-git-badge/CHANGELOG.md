@@ -10,6 +10,52 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Added
+
+- **A hover card on the input chip.** Resting a pointer on the chip now shows what
+  the chip has no room for: the file breakdown (`✎3` split into staged / unstaged
+  / unmerged / untracked, so *ready to commit* is distinguishable from *not staged
+  yet*), the last three commits with their ages, and the stash count. When the
+  untracked walk fell back to git's collapsed count the card says `(collapsed)`
+  rather than presenting an under-count as exact.
+  The card consumes the `detail=1` payload the node half has carried unused since
+  0.6.0, and it is **lazy**: the extra fields cost a `log -3` plus a stash list, so
+  they are fetched only once a pointer rests on the chip and then kept fresh over
+  the same SSE path. A badge refresh fires on every file edit, and the everyday
+  chip still pays for none of it. It uses the shell's own seeded `Tooltip`
+  primitive — no new dependency, no seam patch — and if that primitive is ever
+  absent the chip renders uncarded rather than not at all. The boot log reports
+  which path was taken (`[dsh-git-badge] hover card = on (shell Tooltip
+  primitive).`), because the guard that keeps the badge working would otherwise
+  make a missing seed look like a missing feature.
+- **A PR / CI token on the input chip.** When the branch has a GitHub pull
+  request the chip carries `PR#142` with the rollup state (`✓` passing, `…`
+  running, `✗` failing) and a `draft` marker. It reads the PR through the user's
+  own `gh` CLI, so the plugin never handles a credential. The rollup is reduced to
+  one worst-case state (a single failure outweighs any number of successes), the
+  token carries an accessible name naming the state, and the hover card spells out
+  the check state, draft and review decision.
+- `?pr=1` on the status route. PR/CI is asked for by the **chip only**, so a
+  sidebar that surveys twenty workspaces never spawns twenty `gh` processes. The
+  read is TTL-bounded (~90s per repository), refreshed out of band exactly like
+  the existing fetch, and notifies subscribers only when the state actually
+  changes.
+- **PR/CI degrades to an absent field, never an error.** No `gh`, a logged-out
+  `gh`, a non-GitHub remote, an offline network, a rate limit, unparseable output
+  and a timed-out call all render the unchanged chip: a caller cannot tell "no PR"
+  from "no `gh`", because neither changes what should be displayed.
+- A `runCli` helper the git and `gh` invocations now share, so `gh` inherits the
+  same timeout / missing-binary / exit-code semantics (and `GIT_TERMINAL_PROMPT`'s
+  analogue, `GH_PROMPT_DISABLED`, keeps an auth prompt from hanging a refresh).
+
+### Changed
+
+- The `detail=1` payload has a consumer at last. Its annotation said "no surface
+  consumes this yet"; the input chip's hover card is that surface, so the
+  branch/last-commits/stash fields are no longer speculative.
+- `config` gains `prStatus` (`"auto"` / `"off"`), `prTtlMs`, `prTimeoutMs` and a
+  `prRunner` test seam mirroring `gitRunner`.
+
 ## [0.7.0] - 2026-09-12
 
 ### Changed
