@@ -45,7 +45,27 @@ apply)
 	echo "now install the plugin:  dsh plugin --profile web add \"$HERE/../dsh-git-badge\""
 	;;
 revert)
+	# Guard against downgrading an upstream update. `backup-client.js` is the file
+	# as it was before WE patched it, so it is the previous upstream build. If a
+	# DSH update has since replaced lib/client.js, restoring that backup would
+	# overwrite a NEWER upstream file with an older one. Only restore when the
+	# installed file is still this repo's patched artifact, or already the backup
+	# (the idempotent re-run case).
+	PATCHED_HASH="$(sha256sum "$HERE/patched-client.js" 2>/dev/null | cut -d' ' -f1 || true)"
 	if [ -f "$HERE/backup-client.js" ]; then
+		CUR="$(current_hash)"
+		BACKUP_HASH="$(sha256sum "$HERE/backup-client.js" | cut -d' ' -f1)"
+		if [ -n "$PATCHED_HASH" ] && [ "$CUR" != "$PATCHED_HASH" ] && [ "$CUR" != "$BACKUP_HASH" ]; then
+			echo "REFUSING to revert: the installed client.js is neither this repo's patched" >&2
+			echo "artifact nor the backup, so upstream has replaced it since the patch was" >&2
+			echo "applied. Restoring the backup would DOWNGRADE the package." >&2
+			echo "  installed: $CUR" >&2
+			echo "  patched:   $PATCHED_HASH" >&2
+			echo "  backup:    $BACKUP_HASH" >&2
+			echo "Nothing was changed. Run 'seam/apply.sh status' to see the state; if the" >&2
+			echo "downgrade is really what you want, restore the backup by hand." >&2
+			exit 1
+		fi
 		cp "$HERE/backup-client.js" "$CLIENT"
 		cp "$HERE/backup-index.js" "$INDEX"
 		echo "reverted client.js/index.js to backup."
@@ -81,7 +101,12 @@ status)
 		fi
 	fi
 	if [ -f "$HERE/backup-client.js" ]; then
+		BACKUP_HASH="$(sha256sum "$HERE/backup-client.js" | cut -d' ' -f1)"
 		echo "backup:     present (revert can restore the pre-patch bytes)"
+		if [ -n "$PATCHED_HASH" ] && [ "$CUR" != "$PATCHED_HASH" ] && [ "$CUR" != "$BACKUP_HASH" ]; then
+			echo "revert:     would REFUSE — the installed file is neither the patched"
+			echo "            artifact nor the backup, so upstream replaced it since patching."
+		fi
 	else
 		echo "backup:     none"
 	fi

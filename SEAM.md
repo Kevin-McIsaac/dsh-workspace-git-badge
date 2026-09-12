@@ -63,8 +63,13 @@ Safety rails:
   rebuild). An upstream update is never blind-overwritten.
 - **Seam detection**: once upstream declares the seam itself, `apply` becomes
   a no-op and the plugin keeps working unchanged.
-- **Reversible**: `revert` restores the exact pre-patch bytes from the backup
-  taken at apply time. The upstream host half is a no-op stub
+- **Reversible, but downgrade-guarded**: `revert` restores the exact pre-patch
+  bytes from the backup taken at apply time — but only while the installed file is
+  still this repo's patched artifact (or already the backup). The backup *is* the
+  previous upstream build, so after a DSH update has replaced `lib/client.js`,
+  restoring it would overwrite a newer file with an older one. `revert` therefore
+  refuses in that case, changes nothing, and exits 1; `status` flags it in advance
+  under `revert: would REFUSE`. The upstream host half is a no-op stub
   (`seam/pristine-index.js`).
 
 `seam/make-patch.sh` regenerates `patched-client.js` from `pristine-client.js`

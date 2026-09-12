@@ -207,14 +207,25 @@ Verification, in order:
    and 6 (the "allowlist" the suite covers, and the 403 contract that no longer
    exists), and the package README's "only answers registered workspace paths".
 
-### Found, deliberately not fixed (out of scope)
+### Found during this work, and fixed on request
 
-`seam/apply.sh revert` restores `backup-client.js` unconditionally. If a DSH update
-replaced `lib/client.js` in the meantime, `revert` would **downgrade** the installed
-file to the pre-patch bytes of the previous version. `status` now makes that state
-visible ("SEAM PRESENT, but not this repo's artifact"), but `revert` itself should
-refuse unless the installed file is this repo's patched artifact. Left alone because
-changing `revert`'s semantics was not in the approved scope.
+`seam/apply.sh revert` restored `backup-client.js` unconditionally. The backup is
+the *previous* upstream build, so after a DSH update replaced `lib/client.js`,
+`revert` would have **downgraded** the installed file. It now refuses unless the
+installed file is this repo's patched artifact or already the backup — changing
+nothing and exiting 1 — and `status` flags the condition in advance under
+`revert: would REFUSE`. All four cases (patched / drifted / already-reverted / no
+backup) are exercised against a fake install via `DSH_INSTALL`.
+
+### Also fixed: the TTL fetch was on the request path
+
+Found by a user report that a file edit took several seconds to show. The
+TTL-bounded fetch that refreshes the remote-tracking ref was **awaited** before
+responding, so the first request after every 60s window paid a full network fetch
+(~3.3s measured here). It now runs out of band and notifies subscribers on
+success: same call with an expired TTL went 3.47s → 27ms. `ahead`/`behind` can lag
+by up to one fetch; branch, dirty state and counts never do. Regression test
+added and proven to fail with the blocking version restored.
 
 ### Verification status
 
