@@ -12,7 +12,8 @@
 #   4. Adds the web app bundle (the node half boot-FAILS without webServer/
 #      workspaceRegistry) and pins the plugin version if requested.
 #   5. Verifies the install on disk: exports map, both lib halves, version.
-#   6. Boots headless and verifies over HTTP: boot graph, client.js route,
+#   6. Boots headless and verifies over HTTP: the plugin is present in the
+#      composed client graph and its advertised bundle is served, plus the
 #      allowlist 403 on an unregistered path.
 #
 # Usage:
@@ -20,9 +21,18 @@
 #   ./test-profile.sh 0.5.3           # pin a specific version
 #
 # Environment overrides:
-#   PROFILE=name   profile directory name under ~/.dsh/profiles  (default: test)
-#   PORT=nnnn      port for the headless server                  (default: 3100)
-#   NO_BOOT=1      set up + verify on disk only, don't boot
+#   PROFILE=name        profile name under $DSH_HOME/profiles   (default: test)
+#   PORT=nnnn           port for the headless server            (default: 3100)
+#   NO_BOOT=1           set up + verify on disk only, don't boot
+#   PLUGIN_SOURCE=path  install the plugin from a local directory instead of npm
+#                       — the only way to exercise a working tree
+#   PROFILES_ROOT=dir   override $DSH_HOME/profiles (must match where the dsh CLI
+#                       actually installs; DSH_HOME itself is honored)
+#
+# Version resolution: an unpinned run is NOT guaranteed to install the newest
+# release — observed installing 0.5.5 while 0.6.0 was `latest`. Always read the
+# "installed dsh-git-badge@x.y.z" line below, and pin explicitly when testing a
+# freshly published version.
 #
 # Cleanup when finished testing:
 #   pkill -f "dsh --profile test" && rm -rf ~/.dsh/profiles/test
@@ -32,8 +42,10 @@ set -euo pipefail
 PROFILE="${PROFILE:-test}"
 PORT="${PORT:-3100}"
 PIN_VERSION="${1:-}"
+PLUGIN_SOURCE="${PLUGIN_SOURCE:-}"
 
-PROFILES_ROOT="${HOME}/.dsh/profiles"
+# $DSH_HOME > ~/.dsh — the same precedence the harness uses (resolveDshHome)
+PROFILES_ROOT="${PROFILES_ROOT:-${DSH_HOME:-$HOME/.dsh}/profiles}"
 PROFILE_DIR="${PROFILES_ROOT}/${PROFILE}"
 DSH_BIN="${DSH_BIN:-dsh}"
 LOG_FILE="/tmp/dsh-${PROFILE}-boot.log"
@@ -79,9 +91,16 @@ if [[ -d "$PROFILE_DIR" ]]; then
 	rm -rf "$PROFILE_DIR"
 fi
 
-log "creating profile via ${DSH_BIN} plugin add (installs from npm)…"
-"$DSH_BIN" plugin --profile "$PROFILE" add dsh-git-badge \
-	|| fail "dsh plugin add failed — check npm reachability (npm view dsh-git-badge version)"
+if [[ -n "$PLUGIN_SOURCE" ]]; then
+	[[ -d "$PLUGIN_SOURCE" ]] || fail "PLUGIN_SOURCE is not a directory: $PLUGIN_SOURCE"
+	log "creating profile with the LOCAL plugin at ${PLUGIN_SOURCE} (working tree)…"
+	"$DSH_BIN" plugin --profile "$PROFILE" add "$PLUGIN_SOURCE" \
+		|| fail "dsh plugin add <local path> failed for $PLUGIN_SOURCE"
+else
+	log "creating profile via ${DSH_BIN} plugin add (installs from npm)…"
+	"$DSH_BIN" plugin --profile "$PROFILE" add dsh-git-badge \
+		|| fail "dsh plugin add failed — check npm reachability (npm view dsh-git-badge version)"
+fi
 
 # The plugin market (same install path as the live web profile) so the
 # clean-profile simulation can browse/install from the registry.
@@ -106,6 +125,10 @@ if (!b.includes("@deepseek-ai/dsh-web-app")) b.splice(b.indexOf("@deepseek-ai/ds
 if (!b.includes("dshmarket")) b.splice(b.indexOf("@deepseek-ai/dsh-web-app") + 1, 0, "dshmarket");
 fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
 NODE
+
+if [[ -n "$PIN_VERSION" && -n "$PLUGIN_SOURCE" ]]; then
+	fail "PIN_VERSION and PLUGIN_SOURCE are mutually exclusive — a local source carries its own version"
+fi
 
 if [[ -n "$PIN_VERSION" ]]; then
 	log "pinning dsh-git-badge to ${PIN_VERSION}…"
@@ -165,23 +188,50 @@ nohup "$DSH_BIN" --profile "$PROFILE" --port "$PORT" --no-open >"$LOG_FILE" 2>&1
 SERVER_PID=$!
 disown 2>/dev/null || true
 
-# Wait up to 60s for the server to answer at all.
+# Wait up to 60s for the server to answer at all. The shell is auth-gated, so a
+# bare `/` answers 401: "answered at all" is the test, not 2xx. `curl -f` would
+# treat that expected 401 as failure and time the boot out instead.
 UP=0
+CODE=""
 for _ in $(seq 1 60); do
-	if curl -sf -o /dev/null "http://127.0.0.1:${PORT}/" 2>/dev/null; then UP=1; break; fi
+	CODE="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "http://127.0.0.1:${PORT}/" 2>/dev/null || true)"
+	if [[ "$CODE" =~ ^[1-5][0-9][0-9]$ ]]; then UP=1; break; fi
 	kill -0 "$SERVER_PID" 2>/dev/null || fail "server process died during boot — see ${LOG_FILE}"
 	sleep 1
 done
 [[ "$UP" == "1" ]] || fail "server did not come up within 60s — see ${LOG_FILE}"
+log "server answered: HTTP ${CODE} on / (any HTTP response means it is listening; the shell itself needs auth)"
 
-# (a) the plugin is registered in the client bundle graph (its module loader
-#     is served; the homepage HTML does NOT list plugins)
-curl -sf "http://127.0.0.1:${PORT}/plugins/dsh-git-badge/client.js" | grep -q "dsh-git-badge" \
-	|| fail "client.js served but is not the dsh-git-badge module — client scanner wiring broken"
+# (a)+(b) the plugin is in the composed CLIENT graph, and its bundle is served.
+# `/plugins/<id>/client.js` is NOT a route on this build: the client-modules host
+# only serves the exact rev-pinned URLs it advertised in the boot payload, and
+# the shell carrying that payload is auth-gated (unauthenticated `/` is 401). So
+# authenticate with the token the server printed into the boot log, read the
+# advertised URL out of window.__DSH_BOOT__, and fetch THAT.
+TOKEN=""
+for _ in $(seq 1 20); do
+	TOKEN="$(grep -oE 'token=[A-Za-z0-9_-]+' "$LOG_FILE" | head -1 | cut -d= -f2 || true)"
+	[[ -n "$TOKEN" ]] && break
+	sleep 1
+done
+[[ -n "$TOKEN" ]] || fail "no auth token in ${LOG_FILE} — cannot verify the client bundle"
 
-# (b) the client half is served
-CODE="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/plugins/dsh-git-badge/client.js")"
-[[ "$CODE" == "200" ]] || fail "client.js route returned ${CODE}, expected 200"
+COOKIE_JAR="$(mktemp)"
+SHELL_HTML="/tmp/gb-shell-${PROFILE}.html"
+BUNDLE_JS="/tmp/gb-bundle-${PROFILE}.js"
+curl -sf -L -c "$COOKIE_JAR" -b "$COOKIE_JAR" -o "$SHELL_HTML" \
+	"http://127.0.0.1:${PORT}/?token=${TOKEN}" \
+	|| fail "authenticated shell fetch failed (token from ${LOG_FILE})"
+
+BUNDLE_URL="$(grep -oE '"id":"dsh-git-badge"[^}]{0,200}' "$SHELL_HTML" \
+	| grep -oE '"url":"[^"]+"' | head -1 | sed 's/"url":"//; s/"$//; s/&amp;/\&/g' || true)"
+[[ -n "$BUNDLE_URL" ]] || fail "dsh-git-badge absent from the boot graph — the client scanner did not compose it"
+
+CODE="$(curl -s -L -b "$COOKIE_JAR" -o "$BUNDLE_JS" -w '%{http_code}' "http://127.0.0.1:${PORT}${BUNDLE_URL}")"
+[[ "$CODE" == "200" ]] || fail "advertised bundle ${BUNDLE_URL} returned ${CODE}, expected 200"
+grep -q "dsh-git-badge" "$BUNDLE_JS" \
+	|| fail "advertised bundle served but does not contain the dsh-git-badge module"
+rm -f "$COOKIE_JAR" "$SHELL_HTML" "$BUNDLE_JS"
 
 # (c) the node half answers and the allowlist rejects unregistered paths.
 #     The handler answers 403 with a JSON body for unregistered paths — don't
@@ -203,7 +253,7 @@ rm -f /tmp/gb-allowlist.json
 
 CLEANUP_ON_EXIT=0
 log "OK — all checks passed:"
-log "  /plugins/dsh-git-badge/client.js → 200 (module served)"
+log "  client bundle advertised in the boot graph and served: ${BUNDLE_URL}"
 log "  /api/git-badge allowlist 403 behavior confirmed"
 log ""
 log "Server left running on http://127.0.0.1:${PORT} (pid ${SERVER_PID}, log ${LOG_FILE})."
