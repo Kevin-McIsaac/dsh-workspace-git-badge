@@ -3,10 +3,16 @@
  *
  * Hardened git-status service behind two routes:
  *
- *   GET /api/git-badge?path=<workspace path>[&detail=1]
- *     - path allowlist: only directories registered as DSH workspaces
- *       (WorkspaceRegistry records) are ever queried — no filesystem probing
- *       of arbitrary paths.
+ *   GET /api/git-badge?workspace=<workspaceId>   (sidebar rows)
+ *   GET /api/git-badge?session=<sessionId>       (the input chip)
+ *     - NO client-supplied path is accepted. The caller names a workspace id or
+ *       a session id; the server resolves the directory itself. `?path=` was
+ *       removed precisely so a caller cannot aim the route at a directory of
+ *       its choosing, even one inside the registry.
+ *     - the route is intentionally unauthenticated (it is a local, read-only
+ *       status feed), so resolution must never assume the caller is honest.
+ *       Workspace ids are generated uuids and session ids are opaque, so the
+ *       surface no longer offers anything to enumerate.
  *     - one git invocation per sample: `git --no-optional-locks status
  *       --porcelain=v2 --branch --untracked-files=all` yields branch,
  *       ahead/behind, and the changed / untracked counts in a single call
@@ -22,11 +28,14 @@
  *       markers (`MERGE_HEAD`, `rebase-merge`, …) are stat'd — surfaced as
  *       `operation`, so a paused rebase/cherry-pick is distinguishable from
  *       ordinary dirty work even when its conflicts are already staged.
- *     - ahead/behind compare against the LOCAL remote-tracking ref, which
- *       only moves on fetch — so a TTL-bounded background fetch (60s per
- *       toplevel) runs before status when the ref can be stale. `GIT_TERMINAL_PROMPT=0`
- *       and the shared timeout keep an offline/slow remote from stalling the
- *       route; on fetch failure the stale-ref answer is served as-is.
+ *     - ahead/behind compare against the LOCAL remote-tracking ref, which only
+ *       moves on fetch. A TTL-bounded fetch (60s per toplevel) keeps that ref
+ *       fresh, but it runs OUT OF BAND: the answer is served from the refs at
+ *       hand and a successful fetch notifies subscribers so the next refresh
+ *       carries corrected ahead/behind. Awaiting it here cost ~3.3s per request
+ *       on the first refresh after each TTL window. `GIT_TERMINAL_PROMPT=0`, the
+ *       shared timeout and the TTL bound keep an offline or slow remote harmless;
+ *       on failure the stale-ref answer simply stands.
  *     - `detail=1` adds one `log -3` plus a stash count. NOTE: no surface
  *       consumes this yet (see the annotation on gitStatus) — it is kept for
  *       the planned hover card, and never paid for by row refresh.
@@ -43,7 +52,6 @@
  * the client half re-points at it — the seam contract does not change.
  */
 import { execFile } from "node:child_process";
-import { realpath } from "node:fs/promises";
 import { watch, existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -68,6 +76,12 @@ const config = {
 	debounceMs: 200,
 	/** backoff before re-attempting a failed watcher (or a missing .git) */
 	watchRetryMs: 60000,
+	/**
+	 * Degraded-mode poll interval for a workspace whose watcher failed. Only used
+	 * where a real watcher could not be established or later errored — a healthy
+	 * workspace is event-driven and never polls.
+	 */
+	pollFallbackMs: 5000,
 	/** SSE comment heartbeat interval */
 	heartbeatMs: 25000,
 	/**
@@ -269,18 +283,26 @@ async function gitStatus(dir, wantDetail) {
 		statusOut = await sample(false);
 	}
 	if (statusOut.stdout === null) return GIT_DEGRADED;
-	let parsed = parseStatusV2(statusOut.stdout);
-	// The upstream header is the cheap gate: no upstream configured → the
-	// fetch would be a no-op probe, skip it entirely. When it fires and the
-	// fetch succeeds, re-sample so this very response already carries the
-	// fresh ahead/behind instead of lagging one cycle behind.
+	const parsed = parseStatusV2(statusOut.stdout);
+	// The upstream header is the cheap gate: with no upstream the fetch would be a
+	// no-op probe, so skip it. With one, refresh the remote-tracking refs OUT OF
+	// BAND rather than before the answer.
+	//
+	// Blocking here cost ~3.3s per request (measured: `git fetch` over SSH) on every
+	// request whose TTL had lapsed — and that is the first refresh after each 60s
+	// window, i.e. constantly while someone is editing, which made an edit-triggered
+	// badge update take seconds. So: answer now from the refs we already have, and
+	// when the background fetch succeeds, notify subscribers — the client refetches,
+	// finds the TTL fresh, and picks up the corrected ahead/behind in ~50ms. The
+	// cost of the trade is that ahead/behind can lag by up to one fetch.
 	if (parsed.upstream !== void 0) {
-		const fetched = await maybeFetch(toplevel);
-		if (fetched) {
-			statusOut = await sample(untrackedMode === "all");
-			if (statusOut.stdout === null) return GIT_DEGRADED;
-			parsed = parseStatusV2(statusOut.stdout);
-		}
+		void maybeFetch(toplevel)
+			.then((fetched) => {
+				if (fetched) notifyChange(toplevel);
+			})
+			.catch(() => {
+				/* a failed fetch just means the stale-ref answer stands */
+			});
 	}
 	const dirtyFiles = parsed.staged + parsed.unstaged + parsed.unmerged + parsed.untracked;
 	const info = {
@@ -330,9 +352,12 @@ const changeListeners = new Set();
 const openStreams = new Set();
 
 function notifyChange(key) {
+	// `workspace` lets a client that asked by id match the event without ever
+	// knowing a filesystem path; `path` stays for debugging and other consumers.
+	const payload = { path: key, workspace: watchers.get(key)?.workspaceId };
 	for (const fn of changeListeners) {
 		try {
-			fn(key);
+			fn(payload);
 		} catch {
 			/* a dead SSE subscriber must never break the others */
 		}
@@ -361,39 +386,123 @@ function unwatchWorkspace(key) {
 	watchers.delete(key);
 	if (record.watcher !== null) record.watcher.close();
 	if (record.timer !== void 0) clearTimeout(record.timer);
+	if (record.poll !== void 0) clearInterval(record.poll);
 }
 
-function watchWorkspace(root, key) {
+/**
+ * Change-detection key for a workspace whose watcher failed. Deliberately cheap:
+ * it runs every `config.pollFallbackMs`, so the `-uall` walk is off the table.
+ * `status` covers worktree + index, the refs fingerprint covers what a fetch or
+ * an external checkout moves, and the marker stat covers an in-progress
+ * operation (which porcelain status does not report).
+ *
+ * The price of the cheap status: a new file inside an ALREADY untracked
+ * directory does not change the key, so on a broken-watcher workspace that case
+ * waits for the client's 60s poll. Recorded in TESTING.md rather than papered
+ * over with a `-uall` walk every few seconds. The git dir is resolved once and
+ * cached on the record.
+ *
+ * Resolves null when git could not run this tick; the caller keeps the previous
+ * key and tries again.
+ */
+async function fallbackStateKey(root, record) {
+	const status = await runGit(root, [
+		"--no-optional-locks",
+		"status",
+		"--porcelain=v2",
+		"--branch",
+		"--untracked-files=normal"
+	]);
+	if (status.stdout === null) return null;
+	if (record.gitDir === void 0) {
+		const dir = await runGit(root, ["rev-parse", "--absolute-git-dir"]);
+		record.gitDir = dir.stdout === null ? "" : dir.stdout.trim();
+	}
+	const refs = await runGit(root, ["for-each-ref", "--format=%(refname)%(objectname)", "refs/heads", "refs/remotes"]);
+	return [status.stdout, refs.stdout ?? "", operationMarker(record.gitDir) ?? ""].join("\u0000");
+}
+
+/**
+ * Start the degraded-mode poll for a workspace whose watcher could not be
+ * established, or later errored. Only ever called for a workspace that HAS a
+ * .git — a directory without one is not a repository, so polling it would be
+ * waste; the retry backoff keeps re-checking that case instead.
+ *
+ * The interval is unref'd so a forgotten one can never hold the process open
+ * (test runs included); `unwatchWorkspace` clears it properly.
+ */
+function startFallbackPoll(key, root) {
+	const record = watchers.get(key);
+	if (record === void 0 || record.poll !== void 0) return;
+	const tick = () => {
+		void (async () => {
+			const current = watchers.get(key);
+			if (current === void 0) return;
+			const next = await fallbackStateKey(root, current).catch(() => null);
+			if (next === null) return;
+			// the first tick only sets a baseline: a fresh subscriber fetches on
+			// mount, so there is nothing to announce yet
+			if (current.pollKey !== void 0 && current.pollKey !== next) notifyChange(key);
+			current.pollKey = next;
+		})();
+	};
+	record.poll = setInterval(tick, config.pollFallbackMs);
+	if (typeof record.poll.unref === "function") record.poll.unref();
+	// Baseline immediately rather than one interval from now, so a change landing
+	// right after the watcher died is still noticed on the following tick instead
+	// of being baked into the baseline and never announced.
+	tick();
+}
+
+function watchWorkspace(root, key, workspaceId) {
 	const existing = watchers.get(key);
 	if (existing !== void 0) {
 		// live watcher, or a failed attempt still inside its retry backoff
-		if (existing.watcher !== null || Date.now() - existing.failedAt < config.watchRetryMs) return;
+		if (existing.watcher !== null || Date.now() - existing.failedAt < config.watchRetryMs) {
+			existing.workspaceId = workspaceId;
+			return;
+		}
+		// retrying: the degraded poll is replaced by a real watcher, or by a
+		// fresh one created below
+		if (existing.poll !== void 0) clearInterval(existing.poll);
 		watchers.delete(key);
 	}
 	// only git workspaces need a badge; a missing .git skips the watcher but
 	// retries on the normal backoff (cheap existsSync) so a later `git init`
-	// in the workspace is picked up
+	// in the workspace is picked up. No poll here: a non-repository has nothing
+	// to report.
 	if (!existsSync(join(root, ".git"))) {
-		watchers.set(key, { watcher: null, failedAt: Date.now(), timer: void 0 });
+		watchers.set(key, { watcher: null, failedAt: Date.now(), timer: void 0, workspaceId });
 		return;
 	}
 	try {
 		// Watch the whole worktree, .git included: worktree edits (the most
 		// common dirty signal) and metadata ops (commit / checkout / stage)
-		// all surface here. The 200ms debounce collapses save bursts; if the
-		// tree is too large for the inotify budget the error handler drops
-		// back to the 60s client poll.
+		// all surface here; the debounce collapses save bursts.
 		const watcher = watch(root, { recursive: true }, () => {
 			const record = watchers.get(key);
 			if (record === void 0) return;
 			clearTimeout(record.timer);
 			record.timer = setTimeout(() => notifyChange(key), config.debounceMs);
 		});
-		watcher.on("error", () => unwatchWorkspace(key));
-		watchers.set(key, { watcher, timer: void 0 });
+		watcher.on("error", () => {
+			// The watcher died after being established (inotify budget, tree
+			// replaced, permissions). Drop it, but KEEP the record so the retry
+			// backoff and the degraded poll both have somewhere to live — and
+			// start polling so this workspace stays fresh in the meantime.
+			const current = watchers.get(key);
+			if (current === void 0) return;
+			if (current.watcher !== null) current.watcher.close();
+			current.watcher = null;
+			current.failedAt = Date.now();
+			startFallbackPoll(key, root);
+		});
+		watchers.set(key, { watcher, timer: void 0, workspaceId });
 	} catch {
-		// watch refused (permissions, watch budget) — remember and back off
-		watchers.set(key, { watcher: null, failedAt: Date.now(), timer: void 0 });
+		// watch refused (permissions, watch budget) — back off AND poll: this
+		// repository is real, just unwatchable
+		watchers.set(key, { watcher: null, failedAt: Date.now(), timer: void 0, workspaceId });
+		startFallbackPoll(key, root);
 	}
 }
 
@@ -401,14 +510,60 @@ function watchWorkspace(root, key) {
 function syncWatchers(ctx) {
 	const wanted = new Set();
 	for (const entity of ctx.workspaceRegistry.list()) {
-		const p = entity?.record?.path ?? entity?.path;
-		if (typeof p !== "string") continue;
-		wanted.add(p);
-		watchWorkspace(p, p);
+		// `path` and `id` are the entity's public surface; its `record` is private
+		if (typeof entity?.path !== "string") continue;
+		wanted.add(entity.path);
+		watchWorkspace(entity.path, entity.path, entity.id === void 0 ? void 0 : String(entity.id));
 	}
 	for (const key of [...watchers.keys()]) if (!wanted.has(key)) unwatchWorkspace(key);
 }
 //#endregion
+
+/**
+ * Resolve a request to a registered workspace directory. The caller says WHO it
+ * is, never WHERE to look — no client-supplied path is trusted or probed.
+ *
+ *   1. `?workspace=<id>` — the entity's own id, which is the same id the sidebar
+ *      seam hands a row (the client builds `workspaceId` from `workspace.id`).
+ *   2. `?session=<id>` — registry membership first, because `sessionIds` is
+ *      header-validated and durable, so a conversation that is no longer live
+ *      still resolves; then the live session's cwd validated through the
+ *      registry's `resolveByPath`, which covers the window where a brand-new
+ *      session is not yet attached to its workspace.
+ *
+ * @returns `{ path }` when resolved, else `{ status, error: { code, message } }`.
+ */
+async function resolveWorkspace(ctx, params) {
+	const workspaceId = params.get("workspace") ?? "";
+	const sessionId = params.get("session") ?? "";
+	if (workspaceId === "" && sessionId === "") {
+		return { status: 400, error: { code: "target-required", message: "pass workspace=<id> or session=<id>" } };
+	}
+	const entities = [];
+	for (const entity of ctx.workspaceRegistry.list()) {
+		if (typeof entity?.path === "string") entities.push(entity);
+	}
+	if (workspaceId !== "") {
+		const entity = entities.find((candidate) => String(candidate.id) === workspaceId);
+		if (entity === void 0) {
+			return { status: 404, error: { code: "workspace-not-found", message: "no workspace with that id" } };
+		}
+		return { path: entity.path };
+	}
+	for (const entity of entities) {
+		if (Array.isArray(entity.sessionIds) && entity.sessionIds.includes(sessionId)) return { path: entity.path };
+	}
+	// A brand-new session whose workspace attach has not landed yet. Trust the
+	// server-side session header (never the caller), then require the registry to
+	// recognise that directory — so the path is still registry-validated.
+	const cwd = ctx.get("sessions")?.get?.(sessionId)?.header?.cwd;
+	const resolveByPath = ctx.workspaceRegistry.resolveByPath;
+	if (typeof cwd === "string" && cwd !== "" && typeof resolveByPath === "function") {
+		const entity = await resolveByPath.call(ctx.workspaceRegistry, cwd).catch(() => void 0);
+		if (entity !== void 0 && typeof entity?.path === "string") return { path: entity.path };
+	}
+	return { status: 404, error: { code: "session-not-found", message: "no registered workspace owns that session" } };
+}
 
 /** Host plugin body — register the status route and the SSE change feed. */
 function apply(ctx) {
@@ -418,28 +573,18 @@ function apply(ctx) {
 		handler: async (req, res) => {
 			try {
 				const url = new URL(req.url, "http://localhost");
-				const raw = url.searchParams.get("path") ?? "";
-				if (raw === "") throw new Error("missing path");
-				// Allowlist: the requested path must be (or resolve to) a registered
-				// workspace directory. Anything else is refused without inspection.
-				const registered = new Set();
-				for (const entity of ctx.workspaceRegistry.list()) {
-					const p = entity?.record?.path ?? entity?.path;
-					if (typeof p === "string") registered.add(p);
-				}
-				const resolved = await realpath(raw).catch(() => null);
-				if (resolved === null || !registered.has(raw) && !registered.has(resolved)) {
-					res.writeHead(403, { "content-type": "application/json" });
-					res.end(JSON.stringify({ git: false, error: "path is not a registered workspace" }));
+				const target = await resolveWorkspace(ctx, url.searchParams);
+				if (target.error !== void 0) {
+					res.writeHead(target.status, { "content-type": "application/json" });
+					res.end(JSON.stringify({ git: false, error: target.error }));
 					return;
 				}
 				const detail = url.searchParams.get("detail") === "1";
-				const body = JSON.stringify(await gitStatus(resolved, detail));
 				res.writeHead(200, { "content-type": "application/json" });
-				res.end(body);
+				res.end(JSON.stringify(await gitStatus(target.path, detail)));
 			} catch (error) {
 				res.writeHead(400, { "content-type": "application/json" });
-				res.end(JSON.stringify({ git: false, error: String(error?.message ?? error) }));
+				res.end(JSON.stringify({ git: false, error: { code: "bad-request", message: String(error?.message ?? error) } }));
 			}
 		}
 	}));
@@ -464,12 +609,12 @@ function apply(ctx) {
 				const stream = {
 					res,
 					heartbeat: null,
-					send: (key) => {
+					send: (payload) => {
 						try {
 							// NAMED frame: the client subscribes with
 							// addEventListener("change", …), which never sees an
 							// unnamed message
-							res.write(`event: change\ndata: ${JSON.stringify({ path: key })}\n\n`);
+							res.write(`event: change\ndata: ${JSON.stringify(payload)}\n\n`);
 						} catch {
 							/* socket gone; the close handler cleans up */
 						}
@@ -513,6 +658,7 @@ export {
 	parseStatusV2,
 	runGit,
 	gitStatus,
+	resolveWorkspace,
 	watchWorkspace,
 	unwatchWorkspace,
 	syncWatchers,

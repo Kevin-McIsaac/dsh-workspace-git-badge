@@ -43,14 +43,37 @@ function emitter() {
  * Fake cordis ctx: captures every webServer.register() route by path and every
  * disposer returned by effect(), so a test can drive routes directly and
  * simulate a plugin unload with disposeAll().
+ *
+ * `workspaces` entries may be a bare path or `{ id, path, sessionIds }`. The
+ * entities mirror the REAL registry surface — `WorkspaceEntity` exposes public
+ * `id`, `path` and `sessionIds`, and its `record` is private — so a test cannot
+ * accidentally pass by reading a field the plugin must not touch. Ids default to
+ * `ws-<index>`. `sessions` maps a session id to a live-session stand-in
+ * (`{ header: { cwd } }`) for the pre-attach fallback.
  */
-export function fakeCtx({ workspaces = [] } = {}) {
+export function fakeCtx({ workspaces = [], sessions = {}, resolveByPath = true } = {}) {
 	const routes = new Map();
 	const disposers = [];
+	const entities = workspaces.map((entry, index) => {
+		if (typeof entry === "string") return { id: `ws-${index}`, path: entry, sessionIds: [] };
+		return {
+			id: entry.id ?? `ws-${index}`,
+			path: entry.path,
+			sessionIds: entry.sessionIds ?? []
+		};
+	});
 	const ctx = {
 		workspaceRegistry: {
-			list: () => workspaces.map((path) => ({ record: { path } }))
+			list: () => entities,
+			// the real signature is async, rejects for a missing path, and resolves
+			// undefined for a directory no workspace owns
+			...(resolveByPath
+				? { resolveByPath: async (candidate) => entities.find((entity) => entity.path === candidate) }
+				: {})
 		},
+		sessions: { get: (id) => sessions[id] },
+		// the optional service is read through ctx.get(), never injected
+		get: (name) => (name === "sessions" ? ctx.sessions : void 0),
 		webServer: {
 			register(route) {
 				routes.set(route.path, route);
@@ -66,6 +89,7 @@ export function fakeCtx({ workspaces = [] } = {}) {
 	return {
 		ctx,
 		routes,
+		entities,
 		disposeAll() {
 			for (const dispose of disposers.splice(0)) dispose();
 		}

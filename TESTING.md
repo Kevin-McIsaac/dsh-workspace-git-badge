@@ -26,7 +26,50 @@ and SSE stream in `t.after` (an open handle keeps the process alive and hangs th
 run); poll to a deadline rather than asserting on a fixed sleep, because fs.watch
 delivery plus the debounce window are not deterministic; and never race a real
 millisecond timeout — `config.gitRunner` exists so the collapsed-status fallback
-can be forced deterministically.
+can be forced deterministically, and `config.pollFallbackMs` shrinks the degraded
+poll so its tests run in ~120ms instead of 5s.
+
+Two things to know when testing the watcher. A watcher failure is simulated by
+emitting on the established watcher — `watchers.get(root).watcher.emit("error",
+new Error("simulated"))` — because that is the real failure mode (inotify budget
+exhausted, tree replaced, permissions changed) and it exercises the production
+error path rather than a stub. And the degraded poll sets its **baseline on the
+first tick**, which `startFallbackPoll` fires immediately; a test must wait for
+`pollKey` to exist before mutating anything, or the change becomes part of the
+baseline and is correctly never announced.
+
+## How freshness works (and what degrades)
+
+Three mechanisms, in order of preference, all **event-driven by default**:
+
+1. A recursive `fs.watch` per registered workspace, debounced (200ms) — the normal
+   path. A commit, checkout, stage or worktree edit pushes one SSE frame.
+2. **Degraded mode:** a workspace whose watcher could not be established, or which
+   later errored, gets a server-side state-key poll every `config.pollFallbackMs`
+   (5s). The key is `status --porcelain=v2 --branch` (collapsed untracked mode)
+   plus a `refs/heads`+`refs/remotes` fingerprint plus the in-progress operation
+   marker. Only a change in that key pushes a frame. The interval is cleared by
+   `unwatchWorkspace`, by the plugin-unload disposer, and when a retry re-
+   establishes a real watcher.
+3. The client's 60s safety-net poll, for when the SSE stream itself has died.
+
+Two deliberate limits: a workspace with **no `.git` is never polled** (it is not a
+repository; the retry backoff covers it), and because degraded mode uses the cheap
+collapsed untracked mode, **a new file inside an already-untracked directory does
+not move the key** — that case waits for the 60s client poll on a broken-watcher
+workspace. The alternative was an `-uall` walk every 5 seconds, which is not worth
+it for a degraded path.
+
+Separately, **ahead/behind converge out of band.** They are read from the local
+remote-tracking ref, which only a fetch moves, so a repo with an upstream gets a
+TTL-bounded fetch (60s per toplevel) — but it is *not* awaited: the response is
+served from the refs at hand, and a successful fetch notifies subscribers so the
+next refresh carries corrected counts. Awaiting it used to cost ~3.3s per request
+(measured `git fetch` over SSH) on the first request after each TTL window, which
+made an edit-triggered badge update take seconds. The trade is that ahead/behind
+can lag by up to one fetch; branch, dirty state and counts are never delayed by it.
+If you are verifying counts against ground truth, fetch yourself first, then curl
+(see `docs/VERIFICATION.md`).
 
 Pattern credit: the fake-ctx / fake-stream / temp-repo shape is adapted from
 `@wongzexu/dsh-git-status` (MIT).
@@ -49,8 +92,9 @@ The feature has three independently testable layers:
 removes the old profile, stops any server running it, installs from npm
 (optionally pinned to `[version]`), adds the web bundle, verifies the exports
 map and both lib halves on disk, boots headless, then verifies the plugin is in
-the composed **client** graph and that its advertised bundle is served, plus
-the allowlist 403. Leaves the server running and prints the cleanup command.
+the composed **client** graph and that its advertised bundle is served, plus the
+refusal of an unresolvable target. Leaves the server running and prints the
+cleanup command.
 
 Env overrides:
 
@@ -100,9 +144,11 @@ curl -sL -c /tmp/jar -b /tmp/jar "http://127.0.0.1:3100/?token=$TOKEN" \
   | grep -o '"id":"dsh-git-badge"[^}]*'   # {"id":"dsh-git-badge","url":"/plugins/??dsh-git-badge/client.js&rev=…"}
 # fetch that advertised url with the same cookie jar → 200 and the module body
 
-# node half, unauthenticated on purpose — the 403 IS the expected result:
-curl -s "http://127.0.0.1:3100/api/git-badge?path=/tmp"
-#   → 403 {"git":false,"error":"path is not a registered workspace"}
+# node half, unauthenticated on purpose. There is no path surface: the caller
+# names a session or workspace id. An unknown session is the cheapest probe and
+# the 404 IS the expected result:
+curl -s "http://127.0.0.1:3100/api/git-badge?session=__no_such_session__"
+#   → 404 {"git":false,"error":{"code":"session-not-found","message":"…"}}
 ```
 
 `test-profile.sh` does exactly this — prefer it over retyping.

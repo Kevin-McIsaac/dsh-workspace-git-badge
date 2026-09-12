@@ -39,9 +39,22 @@ full write-up for maintainers is in [`PR.md`](PR.md).
 `seam/apply.sh` patches the installed package in place:
 
 ```bash
+seam/apply.sh status    # inspect: patched / pristine / upstream-landed / drift
 seam/apply.sh apply     # patch + install hints
 seam/apply.sh revert    # restore the pristine files from backup
 ```
+
+`status` mutates nothing and is the first thing to run **after a DSH update**,
+because a DSH release rewrites `lib/client.js` and invalidates the hash-guard. It
+reports the installed hash, whether it matches the pinned baseline or this repo's
+patched artifact, whether a revert backup exists, and whether the seam is
+declared — then gives a verdict. It exits `0` for a recognised state (patched /
+pristine / upstream-landed) and `1` for drift, so it is usable in a script. On
+drift it prints the exact rebuild commands.
+
+Note the tell it encodes: **hashes, not version strings.** The package version is
+read from whichever copy is installed and says nothing about which bytes they
+are — the same trap that made a dev-install look current when it was not.
 
 Safety rails:
 
@@ -50,8 +63,13 @@ Safety rails:
   rebuild). An upstream update is never blind-overwritten.
 - **Seam detection**: once upstream declares the seam itself, `apply` becomes
   a no-op and the plugin keeps working unchanged.
-- **Reversible**: `revert` restores the exact pre-patch bytes from the backup
-  taken at apply time. The upstream host half is a no-op stub
+- **Reversible, but downgrade-guarded**: `revert` restores the exact pre-patch
+  bytes from the backup taken at apply time — but only while the installed file is
+  still this repo's patched artifact (or already the backup). The backup *is* the
+  previous upstream build, so after a DSH update has replaced `lib/client.js`,
+  restoring it would overwrite a newer file with an older one. `revert` therefore
+  refuses in that case, changes nothing, and exits 1; `status` flags it in advance
+  under `revert: would REFUSE`. The upstream host half is a no-op stub
   (`seam/pristine-index.js`).
 
 `seam/make-patch.sh` regenerates `patched-client.js` from `pristine-client.js`
