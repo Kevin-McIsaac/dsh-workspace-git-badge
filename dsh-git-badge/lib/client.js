@@ -294,6 +294,29 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * The PR's web URL, or undefined — the token is a LINK only when the node
+		 * half vouched for a URL, and is plain text otherwise (no `gh`, no GitHub
+		 * remote, an unauthenticated `gh`: the token still appears, it just does not
+		 * pretend to be clickable, so there is no dead link to discover).
+		 *
+		 * The protocol is re-checked HERE even though the node half already dropped
+		 * a non-http(s) value: an `href` is the one place a payload string becomes
+		 * executable, so the element that creates it verifies its own input rather
+		 * than trusting an upstream guard to stay in place. The shell's own markdown
+		 * renderer guards its links the same way.
+		 */
+		function prLinkUrl(info) {
+			const pr = info.pr;
+			if (pr === void 0 || pr === null || typeof pr.url !== "string") return void 0;
+			try {
+				const { protocol } = new URL(pr.url);
+				return protocol === "http:" || protocol === "https:" ? pr.url : void 0;
+			} catch {
+				return void 0;
+			}
+		}
+
+		/**
 		 * In-progress operation token — INPUT CHIP ONLY (the row shows the status
 		 * tree alone). A paused rebase or cherry-pick whose conflicts are all
 		 * already staged has no unmerged files, so the three-state summary cannot
@@ -580,6 +603,9 @@ window.__ModuleLoader__.load({
 			// fresh by the same SSE path. Eagerly asking would add both invocations
 			// to every refresh — and a refresh fires on every file edit.
 			const [hovered, setHovered] = react.useState(false);
+			// the PR token's own hover/focus state: it underlines on hover (and on
+			// focus) rather than at rest, and that underline is applied inline below
+			const [linkHover, setLinkHover] = react.useState(false);
 			const detail = useGitStatus(target, { pr: true, detail: true, enabled: hovered });
 			if (info === void 0 || info.git !== true) return null;
 			// the mark is an element now rather than a leading glyph in the string, so
@@ -587,6 +613,7 @@ window.__ModuleLoader__.load({
 			// the container's 4px gap supplies the space the emoji's own did
 			const text = info.branch + formatWorktreeToken(info) + formatOperationToken(info) + formatGitSuffix(info);
 			const prToken = formatPrToken(info);
+			const prUrl = prLinkUrl(info);
 			const chip = react_jsx_runtime.jsxs("span", {
 				style: {
 					display: "inline-flex",
@@ -607,13 +634,41 @@ window.__ModuleLoader__.load({
 					react_jsx_runtime.jsx("span", { key: "text", children: text }),
 					prToken === ""
 						? null
-						: react_jsx_runtime.jsx("span", {
-								key: "pr",
-								// the glyph is not the only channel: the token says what the
-								// CI state IS, for anyone who cannot see it
-								"aria-label": prTokenLabel(info),
-								children: prToken
-							})
+						: prUrl === void 0
+							? react_jsx_runtime.jsx("span", {
+									key: "pr",
+									// the glyph is not the only channel: the token says what the
+									// CI state IS, for anyone who cannot see it
+									"aria-label": prTokenLabel(info),
+									children: prToken
+								})
+							: react_jsx_runtime.jsx("a", {
+									key: "pr",
+									href: prUrl,
+									// a new tab, because navigating THIS one away from the app
+									// would lose the conversation; noopener/noreferrer keep the
+									// opened tab from getting a handle on it
+									target: "_blank",
+									rel: "noopener noreferrer",
+									"aria-label": prTokenLabel(info) + ", opens on GitHub in a new tab",
+									// the chip's own colour rather than the browser's link blue /
+									// visited purple, so the token still reads as one row. The
+									// affordance is the pointer cursor plus an underline on hover
+									// or focus, set HERE rather than left to the host stylesheet:
+									// a shell that resets anchors would otherwise drop it silently.
+									style: {
+										color: "inherit",
+										textDecoration: linkHover ? "underline" : "none",
+										cursor: "pointer"
+									},
+									// focus joins hover — the token is keyboard-reachable now, and a
+									// keyboard user needs the same "this is a link" signal
+									onPointerEnter: () => setLinkHover(true),
+									onPointerLeave: () => setLinkHover(false),
+									onFocus: () => setLinkHover(true),
+									onBlur: () => setLinkHover(false),
+									children: prToken
+								})
 				]
 			});
 			// No Tooltip primitive (a shell that does not seed it): render the chip

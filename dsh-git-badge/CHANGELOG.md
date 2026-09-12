@@ -35,6 +35,14 @@ npm. 0.6.0 is the first release recorded here.
   one worst-case state (a single failure outweighs any number of successes), the
   token carries an accessible name naming the state, and the hover card spells out
   the check state, draft and review decision.
+- **The PR token links to the pull request.** When `gh` reports an http(s) URL the
+  token is an anchor that opens the PR in a new tab, so this browser tab keeps the
+  conversation. It underlines on hover or focus only — the at-rest signal is the
+  pointer cursor — and keeps the chip's own colour instead of the browser's link
+  blue, so it still reads as one row. Being an anchor, it is also keyboard-reachable
+  now, which the text token was not. The protocol is checked on both halves: only
+  `http:`/`https:` is carried or rendered, so a payload value can never become a
+  `javascript:` href.
 - `?pr=1` on the status route. PR/CI is asked for by the **chip only**, so a
   sidebar that surveys twenty workspaces never spawns twenty `gh` processes. The
   read is TTL-bounded (~90s per repository), refreshed out of band exactly like
