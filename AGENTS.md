@@ -59,4 +59,16 @@ seam (a local +40/−8 patch in `seam/`, proposed upstream — see `PR.md`).
    ~/.dsh/profiles/web/node_modules/dsh-git-badge` resolves to the working tree
    for a `link:` install, and to a published copy otherwise. Restarting onto a
    published package shows nothing new, which looks exactly like a broken feature.
+9. **After merging, PROVE that local `main` caught up before anyone restarts.**
+   `gh pr merge` fast-forwards local `main` itself, but that ref update is a
+   compare-and-swap — and this plugin's own TTL `git fetch` races it. On PR #14 the
+   plugin's fetch won the race, so gh printed
+   `cannot lock ref 'refs/remotes/origin/main': is at <new> but expected <old>` and
+   only *warned* (`not possible to fast-forward to: "main"`) while GitHub's merge
+   succeeded. Local `main` was left behind — and under a `link:` install that is
+   not a stale checkout, it is the running plugin silently losing the merged
+   feature, with no error anywhere. Merge with `scripts/merge-pr.sh <pr>` (API
+   merge, then an explicit fetch + `--ff-only` + an equality assertion), or at
+   minimum verify that `git rev-parse main origin/main` match. Rule 6 still
+   applies: no merge without the user's approval.
 
