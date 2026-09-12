@@ -73,6 +73,12 @@ const config = {
 	debounceMs: 200,
 	/** backoff before re-attempting a failed watcher (or a missing .git) */
 	watchRetryMs: 60000,
+	/**
+	 * Degraded-mode poll interval for a workspace whose watcher failed. Only used
+	 * where a real watcher could not be established or later errored — a healthy
+	 * workspace is event-driven and never polls.
+	 */
+	pollFallbackMs: 5000,
 	/** SSE comment heartbeat interval */
 	heartbeatMs: 25000,
 	/**
@@ -369,6 +375,72 @@ function unwatchWorkspace(key) {
 	watchers.delete(key);
 	if (record.watcher !== null) record.watcher.close();
 	if (record.timer !== void 0) clearTimeout(record.timer);
+	if (record.poll !== void 0) clearInterval(record.poll);
+}
+
+/**
+ * Change-detection key for a workspace whose watcher failed. Deliberately cheap:
+ * it runs every `config.pollFallbackMs`, so the `-uall` walk is off the table.
+ * `status` covers worktree + index, the refs fingerprint covers what a fetch or
+ * an external checkout moves, and the marker stat covers an in-progress
+ * operation (which porcelain status does not report).
+ *
+ * The price of the cheap status: a new file inside an ALREADY untracked
+ * directory does not change the key, so on a broken-watcher workspace that case
+ * waits for the client's 60s poll. Recorded in TESTING.md rather than papered
+ * over with a `-uall` walk every few seconds. The git dir is resolved once and
+ * cached on the record.
+ *
+ * Resolves null when git could not run this tick; the caller keeps the previous
+ * key and tries again.
+ */
+async function fallbackStateKey(root, record) {
+	const status = await runGit(root, [
+		"--no-optional-locks",
+		"status",
+		"--porcelain=v2",
+		"--branch",
+		"--untracked-files=normal"
+	]);
+	if (status.stdout === null) return null;
+	if (record.gitDir === void 0) {
+		const dir = await runGit(root, ["rev-parse", "--absolute-git-dir"]);
+		record.gitDir = dir.stdout === null ? "" : dir.stdout.trim();
+	}
+	const refs = await runGit(root, ["for-each-ref", "--format=%(refname)%(objectname)", "refs/heads", "refs/remotes"]);
+	return [status.stdout, refs.stdout ?? "", operationMarker(record.gitDir) ?? ""].join("\u0000");
+}
+
+/**
+ * Start the degraded-mode poll for a workspace whose watcher could not be
+ * established, or later errored. Only ever called for a workspace that HAS a
+ * .git — a directory without one is not a repository, so polling it would be
+ * waste; the retry backoff keeps re-checking that case instead.
+ *
+ * The interval is unref'd so a forgotten one can never hold the process open
+ * (test runs included); `unwatchWorkspace` clears it properly.
+ */
+function startFallbackPoll(key, root) {
+	const record = watchers.get(key);
+	if (record === void 0 || record.poll !== void 0) return;
+	const tick = () => {
+		void (async () => {
+			const current = watchers.get(key);
+			if (current === void 0) return;
+			const next = await fallbackStateKey(root, current).catch(() => null);
+			if (next === null) return;
+			// the first tick only sets a baseline: a fresh subscriber fetches on
+			// mount, so there is nothing to announce yet
+			if (current.pollKey !== void 0 && current.pollKey !== next) notifyChange(key);
+			current.pollKey = next;
+		})();
+	};
+	record.poll = setInterval(tick, config.pollFallbackMs);
+	if (typeof record.poll.unref === "function") record.poll.unref();
+	// Baseline immediately rather than one interval from now, so a change landing
+	// right after the watcher died is still noticed on the following tick instead
+	// of being baked into the baseline and never announced.
+	tick();
 }
 
 function watchWorkspace(root, key, workspaceId) {
@@ -379,11 +451,15 @@ function watchWorkspace(root, key, workspaceId) {
 			existing.workspaceId = workspaceId;
 			return;
 		}
+		// retrying: the degraded poll is replaced by a real watcher, or by a
+		// fresh one created below
+		if (existing.poll !== void 0) clearInterval(existing.poll);
 		watchers.delete(key);
 	}
 	// only git workspaces need a badge; a missing .git skips the watcher but
 	// retries on the normal backoff (cheap existsSync) so a later `git init`
-	// in the workspace is picked up
+	// in the workspace is picked up. No poll here: a non-repository has nothing
+	// to report.
 	if (!existsSync(join(root, ".git"))) {
 		watchers.set(key, { watcher: null, failedAt: Date.now(), timer: void 0, workspaceId });
 		return;
@@ -391,20 +467,31 @@ function watchWorkspace(root, key, workspaceId) {
 	try {
 		// Watch the whole worktree, .git included: worktree edits (the most
 		// common dirty signal) and metadata ops (commit / checkout / stage)
-		// all surface here. The 200ms debounce collapses save bursts; if the
-		// tree is too large for the inotify budget the error handler drops
-		// back to the 60s client poll.
+		// all surface here; the debounce collapses save bursts.
 		const watcher = watch(root, { recursive: true }, () => {
 			const record = watchers.get(key);
 			if (record === void 0) return;
 			clearTimeout(record.timer);
 			record.timer = setTimeout(() => notifyChange(key), config.debounceMs);
 		});
-		watcher.on("error", () => unwatchWorkspace(key));
+		watcher.on("error", () => {
+			// The watcher died after being established (inotify budget, tree
+			// replaced, permissions). Drop it, but KEEP the record so the retry
+			// backoff and the degraded poll both have somewhere to live — and
+			// start polling so this workspace stays fresh in the meantime.
+			const current = watchers.get(key);
+			if (current === void 0) return;
+			if (current.watcher !== null) current.watcher.close();
+			current.watcher = null;
+			current.failedAt = Date.now();
+			startFallbackPoll(key, root);
+		});
 		watchers.set(key, { watcher, timer: void 0, workspaceId });
 	} catch {
-		// watch refused (permissions, watch budget) — remember and back off
+		// watch refused (permissions, watch budget) — back off AND poll: this
+		// repository is real, just unwatchable
 		watchers.set(key, { watcher: null, failedAt: Date.now(), timer: void 0, workspaceId });
+		startFallbackPoll(key, root);
 	}
 }
 

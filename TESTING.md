@@ -26,7 +26,39 @@ and SSE stream in `t.after` (an open handle keeps the process alive and hangs th
 run); poll to a deadline rather than asserting on a fixed sleep, because fs.watch
 delivery plus the debounce window are not deterministic; and never race a real
 millisecond timeout — `config.gitRunner` exists so the collapsed-status fallback
-can be forced deterministically.
+can be forced deterministically, and `config.pollFallbackMs` shrinks the degraded
+poll so its tests run in ~120ms instead of 5s.
+
+Two things to know when testing the watcher. A watcher failure is simulated by
+emitting on the established watcher — `watchers.get(root).watcher.emit("error",
+new Error("simulated"))` — because that is the real failure mode (inotify budget
+exhausted, tree replaced, permissions changed) and it exercises the production
+error path rather than a stub. And the degraded poll sets its **baseline on the
+first tick**, which `startFallbackPoll` fires immediately; a test must wait for
+`pollKey` to exist before mutating anything, or the change becomes part of the
+baseline and is correctly never announced.
+
+## How freshness works (and what degrades)
+
+Three mechanisms, in order of preference, all **event-driven by default**:
+
+1. A recursive `fs.watch` per registered workspace, debounced (200ms) — the normal
+   path. A commit, checkout, stage or worktree edit pushes one SSE frame.
+2. **Degraded mode:** a workspace whose watcher could not be established, or which
+   later errored, gets a server-side state-key poll every `config.pollFallbackMs`
+   (5s). The key is `status --porcelain=v2 --branch` (collapsed untracked mode)
+   plus a `refs/heads`+`refs/remotes` fingerprint plus the in-progress operation
+   marker. Only a change in that key pushes a frame. The interval is cleared by
+   `unwatchWorkspace`, by the plugin-unload disposer, and when a retry re-
+   establishes a real watcher.
+3. The client's 60s safety-net poll, for when the SSE stream itself has died.
+
+Two deliberate limits: a workspace with **no `.git` is never polled** (it is not a
+repository; the retry backoff covers it), and because degraded mode uses the cheap
+collapsed untracked mode, **a new file inside an already-untracked directory does
+not move the key** — that case waits for the 60s client poll on a broken-watcher
+workspace. The alternative was an `-uall` walk every 5 seconds, which is not worth
+it for a degraded path.
 
 Pattern credit: the fake-ctx / fake-stream / temp-repo shape is adapted from
 `@wongzexu/dsh-git-status` (MIT).

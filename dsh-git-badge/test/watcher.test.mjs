@@ -115,3 +115,86 @@ test("syncWatchers adds registered workspaces and drops unregistered ones", asyn
 	assert.equal(watchers.has(first.root), true);
 	assert.equal(watchers.has(second.root), false);
 });
+
+// ---- degraded mode: the poll fallback for a workspace whose watcher failed ----
+
+/** Run a test with a short poll interval; restores the knob afterwards. */
+function withFastPoll(t) {
+	const original = config.pollFallbackMs;
+	config.pollFallbackMs = 120;
+	t.after(() => {
+		config.pollFallbackMs = original;
+	});
+}
+
+test("a healthy watcher starts no fallback poll", async (t) => {
+	const repo = await makeRepo(t);
+	releaseWatchers(t);
+	watchWorkspace(repo.root, repo.root, "ws-ok");
+	const record = watchers.get(repo.root);
+	assert.notEqual(record.watcher, null);
+	assert.equal(record.poll, undefined, "an event-driven workspace must not poll");
+});
+
+test("a directory without .git is never polled", async (t) => {
+	const dir = await makeTempDir(t, "dsh-git-badge-nogit-");
+	releaseWatchers(t);
+	watchWorkspace(dir, dir, "ws-nogit");
+	const record = watchers.get(dir);
+	assert.ok(record);
+	assert.equal(record.watcher, null);
+	// a non-repository has nothing to report; the retry backoff covers it
+	assert.equal(record.poll, undefined);
+});
+
+test("a watcher that errors falls back to polling and still notifies", async (t) => {
+	const repo = await makeRepo(t);
+	releaseWatchers(t);
+	withFastPoll(t);
+	const seen = spyOn(t);
+	watchWorkspace(repo.root, repo.root, "ws-poll");
+	// simulate the real failure mode: the watcher is established, then dies
+	// (inotify budget exhausted, tree replaced, permissions changed)
+	watchers.get(repo.root).watcher.emit("error", new Error("simulated watcher failure"));
+	const record = watchers.get(repo.root);
+	assert.equal(record.watcher, null, "the dead watcher is dropped");
+	assert.ok(record.poll !== undefined, "the degraded poll takes over");
+	// wait for the baseline tick before changing anything — otherwise the change
+	// is simply part of the baseline and there is nothing to announce
+	await waitFor(() => record.pollKey !== void 0, { timeoutMs: 2000 });
+	writeFileSync(join(repo.root, "polled.txt"), "x\n");
+	const hit = await waitFor(() => seen.length > 0, { timeoutMs: 4000 });
+	assert.ok(hit, "expected the fallback poll to notice the change");
+	assert.equal(seen[0].workspace, "ws-poll");
+	assert.equal(seen[0].path, repo.root);
+});
+
+test("the fallback poll reports a ref change it cannot see in the worktree", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	releaseWatchers(t);
+	withFastPoll(t);
+	const seen = spyOn(t);
+	watchWorkspace(repo.root, repo.root, "ws-refs");
+	watchers.get(repo.root).watcher.emit("error", new Error("simulated"));
+	// let the baseline tick settle before changing anything
+	await waitFor(() => watchers.get(repo.root)?.pollKey !== void 0, { timeoutMs: 2000 });
+	await repo.branch("feature-branch");
+	const hit = await waitFor(() => seen.length > 0, { timeoutMs: 4000 });
+	assert.ok(hit, "a new branch must move the refs fingerprint");
+});
+
+test("unwatchWorkspace stops the fallback poll too", async (t) => {
+	const repo = await makeRepo(t);
+	releaseWatchers(t);
+	withFastPoll(t);
+	const seen = spyOn(t);
+	watchWorkspace(repo.root, repo.root, "ws-poll");
+	watchers.get(repo.root).watcher.emit("error", new Error("simulated"));
+	assert.ok(watchers.get(repo.root).poll !== undefined);
+	unwatchWorkspace(repo.root);
+	assert.equal(watchers.has(repo.root), false);
+	writeFileSync(join(repo.root, "after-unwatch.txt"), "x\n");
+	await new Promise((resolve) => setTimeout(resolve, 500));
+	assert.equal(seen.length, 0, "a released workspace must stop notifying");
+});

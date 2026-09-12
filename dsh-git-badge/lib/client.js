@@ -284,12 +284,25 @@ window.__ModuleLoader__.load({
 		function apply(ctx) {
 			// inject() re-evaluates when a seam's declaration appears, so boot
 			// order relative to the workspace browser does not matter. On an
-			// unpatched install the row seams never get declared, so those two
-			// registrations simply never render anything.
-			ctx.slots.inject("sidebar.workspaces.row", () => ctx.slots.register({
-				name: "sidebar.workspaces.row",
-				id: "git-badge"
-			}, WorkspaceGitBadge));
+			// unpatched install the row seam is never declared, so this callback
+			// never fires and the row badge simply never renders.
+			//
+			// The registration is reported from INSIDE the callback on purpose: a
+			// `spec()` check here at apply() time runs before the workspace browser
+			// declares the seam, so it reports the boot race rather than the
+			// outcome. That mistake made the old one-shot line claim "sidebar rows
+			// = off" while five row badges were rendering.
+			let rowsReported = false;
+			ctx.slots.inject("sidebar.workspaces.row", () => {
+				if (!rowsReported) {
+					rowsReported = true;
+					console.info("[dsh-git-badge] surfaces: sidebar rows = on (seam present).");
+				}
+				return ctx.slots.register({
+					name: "sidebar.workspaces.row",
+					id: "git-badge"
+				}, WorkspaceGitBadge);
+			});
 			// Input-row chip: upstream additive slot rendered in the input bar's
 			// leading cluster, right after the access picker — the git state sits
 			// with the controls that govern the conversation. Present on every
@@ -302,7 +315,7 @@ window.__ModuleLoader__.load({
 				inject: (sessionId) => ({ sessionId })
 			}, ComposerGitChip));
 			const seamDeclared = ctx.slots.spec("sidebar.workspaces.row") !== void 0;
-			console.info("[dsh-git-badge] surfaces: input chip = on; sidebar rows = " + (seamDeclared ? "on (seam present)" : "off (seam absent — sidebar badges need the sidebar.workspaces.row seam)") + ".");
+			console.info("[dsh-git-badge] surfaces: input chip = on; sidebar rows = " + (seamDeclared ? "on (seam present)." : "awaiting the sidebar.workspaces.row seam — the line above reports it if it appears."));
 		}
 
 		exports.apply = apply;
