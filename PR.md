@@ -11,7 +11,7 @@ Adds a per-row additive slot to the sidebar workspace browser, following [discus
 
 ## Reference implementation
 
-[`dsh-git-badge`](https://github.com/Kevin-McIsaac/dsh-workspace-git-badge) — published npm bundle that renders Claude-Code-statusline-style git badges (`| 🟡 main ↑0 ↓2 ✎3`) through this seam, with graceful degradation to name-only rows when the seam is absent. `PR.md`/`SEAM.md` in that repo document the seam contract from the occupant's perspective.
+[`dsh-git-badge`](https://github.com/Kevin-McIsaac/dsh-workspace-git-badge) — published npm bundle that renders git status badges through this seam (a status mark — a circle, or a tree for a linked worktree — plus branch and counts, e.g. `● main ↑0 ↓2 ✎3`), with graceful degradation to name-only rows when the seam is absent. `PR.md`/`SEAM.md` in that repo document the seam contract from the occupant's perspective.
 
 ## Notes for reviewers
 

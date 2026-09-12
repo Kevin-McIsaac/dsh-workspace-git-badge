@@ -1,20 +1,25 @@
 # Reading the git badge (for git newbies)
 
-The badge shows a **colored dot**, your **branch name**, and sometimes
+The badge shows a **status mark**, your **branch name**, and sometimes
 **small numbers** like `↑2 ↓1 ✎3`. Here's what each piece means.
 
-## The colored dot — "is there something I need to do?"
+The mark is a small filled **circle** — or a **tree** when the folder is a linked
+`git worktree` — and its colour is the status. The input box and the sidebar rows
+show the same mark. In this guide `●` stands for the circle and `🌳` for the tree,
+and the coloured circles stand for the mark's fill colour.
 
-The dot summarizes your whole git situation in three levels:
+## The status mark — "is there something I need to do?"
 
-| Dot | Meaning | What to do |
-|-----|---------|------------|
+The mark summarizes your whole git situation in three levels:
+
+| Mark | Meaning | What to do |
+|------|---------|------------|
 | 🟢 **Green** | Every file in your folder matches your last commit, **and** you're in sync with the remote (GitHub). Nothing to do. | Nothing |
 | 🟡 **Yellow** | Routine work pending: you have uncommitted file changes (✎), or you're ahead (↑) / behind (↓) of the remote. Nothing is wrong. | Commit, push, or pull when convenient |
 | 🔴 **Red** | Something needs attention before you keep working: either a **merge conflict** is in progress (git is blocked until you resolve it), or you have **uncommitted edits on top of an outdated base** (dirty *and* behind — commit first, then pull). | Resolve the conflict, or commit your edits then `git pull` |
 
 **Note:** red never means merely "behind". A clean folder that is one commit
-behind the remote is a completely normal state between pulls — the dot only
+behind the remote is a completely normal state between pulls — the mark only
 turns red when behind *combines* with unsaved edits.
 
 The rules are checked top-down: red wins over yellow, yellow over green.
@@ -23,7 +28,7 @@ The rules are checked top-down: red wins over yellow, yellow over green.
 
 ```
 ↑2   ↓1   ✎3
- │    │    └─ pencil: files changed but not committed (this makes the dot yellow)
+ │    │    └─ pencil: files changed but not committed (this makes the mark yellow)
  │    └─ down arrow: commits on the remote (GitHub) that you don't have yet — you should `git pull`
  └─ up arrow: commits you made that the remote doesn't have yet — you should `git push`
 ```
@@ -46,34 +51,35 @@ Sometimes the badge shows a word with a little sword in front of it, right after
 the branch name:
 
 ```
-🟡 main ⚔rebase ↑0 ↓2 ✎3
+● main ⚔rebase ↑0 ↓2 ✎3
 ```
 
 That means git started an operation and has not finished it. The word says
 which one: `⚔merge`, `⚔squash`, `⚔cherry-pick`, `⚔revert`, `⚔bisect`,
 `⚔rebase`, `⚔sequencer`.
 
-This matters because the **colored dot cannot tell you this**. When you pause a
-rebase and stage the files you fixed, no conflicts are left, so the dot goes
+This matters because the **status mark cannot tell you this**. When you pause a
+rebase and stage the files you fixed, no conflicts are left, so the mark goes
 back to yellow — or green. The ⚔ word is the only part of the badge saying git
 is still mid-operation and waiting for you to continue or undo it
 (`git rebase --continue`, `git rebase --abort`, …).
 
-Only the chip in the input box shows the token. The sidebar rows show just the
-dot and the branch.
+Only the chip in the input box shows the token. A sidebar row shows the same
+status mark — a circle, or a tree when the folder is a linked worktree — with the
+worktree's name beside it, and never the branch.
 
 ## A worked example
 
-`🟡 main  ↑0 ↓1` means:
+`● main  ↑0 ↓1` means:
 
 - Your folder exactly matches your last local commit (the ✎ count is 0).
 - ↑0 You have nothing to push.
 - ↓1 Someone (or you, from GitHub) added one commit to the remote that
   you haven't pulled yet.
 
-The dot is **yellow, not green** — it's reminding you that you're one
+The mark is **yellow, not green** — it's reminding you that you're one
 commit behind the shared version. It's a perfectly safe state, just a
-small nudge: run `git pull` whenever you're ready. The dot only turns
+small nudge: run `git pull` whenever you're ready. The mark only turns
 red if you start *editing files* while still behind — that combination
 is where beginners get bitten (a commit made on an outdated base needs
 an extra merge).
@@ -89,3 +95,7 @@ an extra merge).
 | 🟡 main ↑2 ↓1 ✎3 | Unsaved edits, plus unsynced commits both ways | Commit your edits, then `git pull` and `git push` |
 | 🟡 main ⚔rebase | A rebase is paused, waiting on you | Finish it (`git rebase --continue`) or undo it (`git rebase --abort`) |
 | 🔴 main | Merge conflict in progress | Resolve the conflicted files, then commit |
+| 🌳 main hotfix-tree | A linked worktree sitting on `main`, clean and synced | Nothing — the tree marks it as a separate checkout |
+
+(The coloured circle in these tables stands for the mark's fill; the mark itself
+is a circle, or a tree in a linked worktree.)

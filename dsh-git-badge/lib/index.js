@@ -28,6 +28,14 @@
  *       markers (`MERGE_HEAD`, `rebase-merge`, …) are stat'd — surfaced as
  *       `operation`, so a paused rebase/cherry-pick is distinguishable from
  *       ordinary dirty work even when its conflicts are already staged.
+ *     - the same invocation identifies a LINKED WORKTREE: its git dir is
+ *       `<main>/.git/worktrees/<name>` instead of `<root>/.git`, and unlike the
+ *       main worktree's it carries a `commondir` file. One stat of the git dir
+ *       the call already returned yields `isWorktree`, plus the checkout's own
+ *       directory name as `worktreeName` — so the chip can say WHICH working
+ *       tree a conversation is in. Without it, several worktrees of one
+ *       repository render identical `🟡 main` badges. The name is a NAME, never
+ *       a path: the route takes no path and the client still needs to know none.
  *     - ahead/behind compare against the LOCAL remote-tracking ref, which only
  *       moves on fetch. A TTL-bounded fetch (60s per toplevel) keeps that ref
  *       fresh, but it runs OUT OF BAND: the answer is served from the refs at
@@ -43,17 +51,19 @@
  *   GET /api/git-badge/events   (text/event-stream)
  *     - pushes `{ path }` dirty notifications the moment a workspace's git
  *       state can have changed. Freshness is EVENT-DRIVEN: each registered
- *       workspace root is watched recursively (.git included), so a commit /
- *       checkout / stage / worktree edit pushes one SSE message and every
- *       mounted row refetches immediately. There is no fixed polling
- *       interval anywhere in the pipeline.
+ *       workspace is watched recursively, so a commit / checkout / stage /
+ *       worktree edit pushes one SSE message and every mounted row refetches
+ *       immediately. There is no fixed polling interval anywhere in the
+ *       pipeline. A MAIN worktree's git dir is `<root>/.git` and so is covered
+ *       by the root watch; a LINKED worktree's is not, so its git dir gets a
+ *       second watcher (see the watcher region).
  *
  * When upstream lands a workspace-metadata service, this half is deleted and
  * the client half re-points at it — the seam contract does not change.
  */
 import { execFile } from "node:child_process";
-import { watch, existsSync } from "node:fs";
-import { join } from "node:path";
+import { watch, existsSync, readFileSync } from "node:fs";
+import { basename, isAbsolute, join, resolve } from "node:path";
 
 const inject = ["webServer", "workspaceRegistry"];
 const name = "dsh-git-badge";
@@ -244,6 +254,11 @@ function operationMarker(gitDir) {
  * branch, dirty state, and ahead/behind counts (what git itself considers
  * dirty), not the subdirectory in isolation. Intentional.
  *
+ * Worktree identity is reported, not assumed: `isWorktree` marks a linked
+ * worktree and `worktreeName` names the checkout. A subdirectory of a linked
+ * worktree reports that worktree (the toplevel walk starts above it), which is
+ * the same whole-repository rule as above.
+ *
  * `wantDetail` has no consumer yet: both surfaces fetch without `detail=1`.
  * The branch is retained for the planned hover card — nothing renders
  * lastCommits / stashCount today.
@@ -262,6 +277,11 @@ async function gitStatus(dir, wantDetail) {
 	const toplevel = (topLines[0] ?? "").trim();
 	if (toplevel === "") return { git: false };
 	const gitDir = (topLines[1] ?? "").trim();
+	// A linked worktree's git dir carries a `commondir` file pointing back at
+	// the shared git dir; a main worktree's does not. Stat'ing it costs nothing
+	// extra — `gitDir` came from the invocation above. A submodule also has an
+	// out-of-tree git dir but no `commondir`, so it is correctly NOT a worktree.
+	const isWorktree = existsSync(join(gitDir, "commondir"));
 	// -uall counts untracked FILES; git's default collapses a new directory into
 	// a single entry, which is why `✎n` under-reported anyone who added a folder.
 	// Routed through config.gitRunner so the suite can force the timeout branch.
@@ -317,6 +337,10 @@ async function gitStatus(dir, wantDetail) {
 		untrackedFiles: parsed.untracked,
 		untrackedMode,
 		operation: operationMarker(gitDir),
+		isWorktree,
+		// the checkout's own directory name (of the worktree root, so a
+		// subdirectory workspace still names the checkout it belongs to)
+		worktreeName: basename(toplevel),
 		ahead: parsed.ahead,
 		behind: parsed.behind
 	};
@@ -341,10 +365,11 @@ async function gitStatus(dir, wantDetail) {
 
 //#region git-state watcher
 /**
- * One recursive watcher per workspace `.git` directory. Any event under it
- * (HEAD swap, index write, ref update) marks the workspace dirty; a 200ms
- * debounce collapses burst events (a single `git commit` touches index,
- * refs, COMMIT_EDITMSG, objects…) into one notification.
+ * One recursive watcher per workspace, plus a second one when the git dir lives
+ * outside the workspace (a linked worktree). Any event under either (HEAD swap,
+ * index write, ref update, worktree save) marks the workspace dirty; a 200ms
+ * debounce collapses burst events (a single `git commit` touches index, refs,
+ * COMMIT_EDITMSG, objects…) into one notification.
  */
 const watchers = new Map();
 const changeListeners = new Set();
@@ -380,11 +405,29 @@ function closeStream(stream) {
 	}
 }
 
+/**
+ * Close every watcher attached to a record, leaving the record itself in place
+ * — the retry backoff and the degraded poll live on it. Tolerates a record
+ * whose watchers were never established, so every record shape is safe.
+ */
+function closeWatchers(record) {
+	for (const watcher of [record.watcher, record.extra]) {
+		if (watcher === null || watcher === void 0) continue;
+		try {
+			watcher.close();
+		} catch {
+			/* already closed */
+		}
+	}
+	record.watcher = null;
+	if ("extra" in record) record.extra = null;
+}
+
 function unwatchWorkspace(key) {
 	const record = watchers.get(key);
 	if (record === void 0) return;
 	watchers.delete(key);
-	if (record.watcher !== null) record.watcher.close();
+	closeWatchers(record);
 	if (record.timer !== void 0) clearTimeout(record.timer);
 	if (record.poll !== void 0) clearInterval(record.poll);
 }
@@ -454,6 +497,34 @@ function startFallbackPoll(key, root) {
 	tick();
 }
 
+/**
+ * The out-of-tree git dir for a workspace whose `.git` is a FILE rather than a
+ * directory — a linked worktree (`<main>/.git/worktrees/<name>`) or a submodule
+ * (`<parent>/.git/modules/<name>`). Git writes the index, HEAD and reflogs
+ * THERE, so a watcher on the worktree root alone never sees a stage, commit or
+ * checkout in a linked worktree; it only ever catches file edits. (Symptom
+ * before this fix: a worktree's badge moved only on a save or the client's 60s
+ * poll, never on commit.) Reading the gitfile mirrors git's own resolution,
+ * costs one small read at watch setup rather than another `rev-parse`, and stays
+ * correct for submodules. Returns null for a main worktree, whose `.git` is a
+ * directory already covered by the root watch.
+ */
+function outerGitDir(root) {
+	let content;
+	try {
+		// Reading the DIRECTORY `.git` of a main worktree raises EISDIR, which is
+		// the "no out-of-tree git dir" answer; a `.git` symlink to a gitfile
+		// still reads, where an isFile() stat would have followed it instead.
+		content = readFileSync(join(root, ".git"), "utf8");
+	} catch {
+		return null;
+	}
+	const match = /^gitdir:\s*(.+?)\s*$/m.exec(content);
+	if (match === null) return null;
+	const target = match[1];
+	return isAbsolute(target) ? target : resolve(root, target);
+}
+
 function watchWorkspace(root, key, workspaceId) {
 	const existing = watchers.get(key);
 	if (existing !== void 0) {
@@ -472,36 +543,55 @@ function watchWorkspace(root, key, workspaceId) {
 	// in the workspace is picked up. No poll here: a non-repository has nothing
 	// to report.
 	if (!existsSync(join(root, ".git"))) {
-		watchers.set(key, { watcher: null, failedAt: Date.now(), timer: void 0, workspaceId });
+		watchers.set(key, { watcher: null, extra: null, failedAt: Date.now(), timer: void 0, workspaceId });
 		return;
 	}
+	// Both watchers share one debounce and one failure path. Either dying means
+	// this workspace can no longer be trusted to be event-driven, so both are
+	// dropped and the degraded poll covers it until the retry backoff
+	// re-establishes them.
+	const onEvent = () => {
+		const record = watchers.get(key);
+		if (record === void 0) return;
+		clearTimeout(record.timer);
+		record.timer = setTimeout(() => notifyChange(key), config.debounceMs);
+	};
+	const onError = () => {
+		// The watcher died after being established (inotify budget, tree
+		// replaced, permissions). Drop it, but KEEP the record so the retry
+		// backoff and the degraded poll both have somewhere to live — and
+		// start polling so this workspace stays fresh in the meantime.
+		const current = watchers.get(key);
+		if (current === void 0) return;
+		closeWatchers(current);
+		current.failedAt = Date.now();
+		startFallbackPoll(key, root);
+	};
 	try {
-		// Watch the whole worktree, .git included: worktree edits (the most
-		// common dirty signal) and metadata ops (commit / checkout / stage)
-		// all surface here; the debounce collapses save bursts.
-		const watcher = watch(root, { recursive: true }, () => {
-			const record = watchers.get(key);
-			if (record === void 0) return;
-			clearTimeout(record.timer);
-			record.timer = setTimeout(() => notifyChange(key), config.debounceMs);
-		});
-		watcher.on("error", () => {
-			// The watcher died after being established (inotify budget, tree
-			// replaced, permissions). Drop it, but KEEP the record so the retry
-			// backoff and the degraded poll both have somewhere to live — and
-			// start polling so this workspace stays fresh in the meantime.
-			const current = watchers.get(key);
-			if (current === void 0) return;
-			if (current.watcher !== null) current.watcher.close();
-			current.watcher = null;
-			current.failedAt = Date.now();
-			startFallbackPoll(key, root);
-		});
-		watchers.set(key, { watcher, timer: void 0, workspaceId });
+		// Watch the whole worktree: worktree edits (the most common dirty signal)
+		// surface here and the debounce collapses save bursts. In a MAIN worktree
+		// this covers git metadata too, because its git dir IS `<root>/.git`.
+		const watcher = watch(root, { recursive: true }, onEvent);
+		watcher.on("error", onError);
+		// A linked worktree's git dir is OUTSIDE root, so staging, committing and
+		// checking out there write nothing this watch can see. Watch it too; if it
+		// cannot be watched the root watch still covers file edits, and the
+		// degraded poll is not started for a merely partial loss.
+		const gitDir = outerGitDir(root);
+		let extra = null;
+		if (gitDir !== null) {
+			try {
+				extra = watch(gitDir, { recursive: true }, onEvent);
+				extra.on("error", onError);
+			} catch {
+				extra = null;
+			}
+		}
+		watchers.set(key, { watcher, extra, timer: void 0, workspaceId });
 	} catch {
 		// watch refused (permissions, watch budget) — back off AND poll: this
 		// repository is real, just unwatchable
-		watchers.set(key, { watcher: null, failedAt: Date.now(), timer: void 0, workspaceId });
+		watchers.set(key, { watcher: null, extra: null, failedAt: Date.now(), timer: void 0, workspaceId });
 		startFallbackPoll(key, root);
 	}
 }
@@ -665,6 +755,7 @@ export {
 	config,
 	OPERATION_MARKERS,
 	operationMarker,
+	outerGitDir,
 	parseStatusV2,
 	runGit,
 	gitStatus,

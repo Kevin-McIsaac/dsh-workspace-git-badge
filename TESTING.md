@@ -2,24 +2,30 @@
 
 Verified procedures from development. Read this before testing changes.
 
-## Node tests (no DSH, no restart)
+## The suite (no DSH, no restart)
 
 ```bash
 cd dsh-git-badge && npm test      # node --test, no dependencies
 ```
 
-Run this first for **any** node-half change. It verifies the status parser,
-`gitStatus` against real temporary repositories, request→workspace resolution, SSE
-framing and the fs watcher without booting DSH — so it costs no restart and
-cannot end your session. CI runs the same command on Node 20/22/24
+Run this first for **any** change to either lib half. For the node half it
+verifies the status parser, `gitStatus` against real temporary repositories,
+request→workspace resolution, SSE framing and the fs watcher. For the client half
+it loads `lib/client.js` — the real bundle — behind a stub module loader and
+renders both registered surfaces, so the mark's shape/colour rules, the row's
+"never show the branch" rule and the worktree-name suppression are asserted
+rather than eyeballed. Nothing boots DSH, so it costs no restart and cannot end
+your session. CI runs the same command on Node 20/22/24
 (`.github/workflows/test.yml`).
 
 Layout:
 
 - `dsh-git-badge/test/*.test.mjs` — the suite.
 - `dsh-git-badge/test-support/` — `harness.mjs` (fake cordis ctx, fake req/res,
-  SSE frame parsing) and `repo.mjs` (throwaway git repositories). Deliberately
-  outside `test/`, so `node --test` discovers exactly the suite.
+  SSE frame parsing), `repo.mjs` (throwaway git repositories, including linked
+  worktrees and submodules) and `client.mjs` (stub `__ModuleLoader__` + react, so
+  the browser bundle runs under node). Deliberately outside `test/`, so
+  `node --test` discovers exactly the suite.
 
 House rules for extending it: keep helpers out of `test/`; release every watcher
 and SSE stream in `t.after` (an open handle keeps the process alive and hangs the
@@ -43,7 +49,13 @@ baseline and is correctly never announced.
 Three mechanisms, in order of preference, all **event-driven by default**:
 
 1. A recursive `fs.watch` per registered workspace, debounced (200ms) — the normal
-   path. A commit, checkout, stage or worktree edit pushes one SSE frame.
+   path. A commit, checkout, stage or worktree edit pushes one SSE frame. A
+   **linked worktree** gets a **second** watcher on its git dir, because that git
+   dir lives outside the worktree root (`<main>/.git/worktrees/<name>`): without
+   it, a stage, commit or checkout there moved nothing the root watch could see,
+   and the badge waited for a file edit or the 60s client poll. Either watcher
+   erroring closes both and hands over to the poll below. Both are released by
+   `unwatchWorkspace`.
 2. **Degraded mode:** a workspace whose watcher could not be established, or which
    later errored, gets a server-side state-key poll every `config.pollFallbackMs`
    (5s). The key is `status --porcelain=v2 --branch` (collapsed untracked mode)
@@ -52,6 +64,12 @@ Three mechanisms, in order of preference, all **event-driven by default**:
    `unwatchWorkspace`, by the plugin-unload disposer, and when a retry re-
    establishes a real watcher.
 3. The client's 60s safety-net poll, for when the SSE stream itself has died.
+
+`repo.mjs`'s `worktreeAdd()` builds a real linked worktree in a sibling temp dir
+for the two watcher tests below and the identity tests in `status-git.test.mjs`.
+Write a file BEFORE `watchWorkspace` when a test must prove that only the git-dir
+watcher (not the root watch) produced a notification — otherwise a root-watch
+event from the setup can satisfy the assertion.
 
 Two deliberate limits: a workspace with **no `.git` is never polled** (it is not a
 repository; the retry backoff covers it), and because degraded mode uses the cheap
@@ -81,9 +99,13 @@ The feature has three independently testable layers:
 1. **Node half** (`dsh-git-badge/lib/index.js`) — pure functions and git plumbing;
    covered by the suite above without booting DSH. A restart is only needed to see
    the change live.
-2. **Published plugin** (`dsh-git-badge` from npm) — the customer experience;
+2. **Client half** (`dsh-git-badge/lib/client.js`) — the rendered badge: mark
+   shape and colour, the row/chip composition, the accessible names. Covered by the
+   same suite through `test-support/client.mjs`; only the bundle actually being
+   served to a browser is left to a refresh.
+3. **Published plugin** (`dsh-git-badge` from npm) — the customer experience;
    test in a **clean profile**.
-3. **Seam patch** (`seam/apply.sh`) — the sidebar rows; only meaningful on
+4. **Seam patch** (`seam/apply.sh`) — the sidebar rows; only meaningful on
    top of a working plugin install.
 
 ## Clean-profile test (customer simulation)
@@ -181,8 +203,9 @@ hard-refresh. DevTools console confirms which code is live via the
 - **Node half changed** → run `npm test` first; a restart is then only needed to
   see it live (the suite already covers the parser, `gitStatus` against real
   repos, resolution, SSE and the watcher).
-- **Client half only** → usually a browser refresh suffices; after patch or
-  bundle-graph changes, restart first (see above).
+- **Client half changed** → `npm test` covers the rendering rules (mark shape and
+  colour, row/chip composition); a browser refresh is then only needed to see it
+  live. After patch or bundle-graph changes, restart first (see above).
 
 ## Publishing a new version
 

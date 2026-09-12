@@ -2,7 +2,11 @@
 
 Git status badges for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 
-`🟡 main ↑0 ↓2 ✎3`
+`● main ↑0 ↓2 ✎3`
+
+The leading **mark** is a filled circle carrying the status colour, or a **tree**
+(🌳) when the workspace is a linked `git worktree`. `●` and `🌳` stand in for it in
+these examples — it is drawn as an SVG so it can take the theme's status colours.
 
 ## What you get
 
@@ -18,19 +22,29 @@ The Git status badge for a project in the:
   workspace after each project name. (May require the seam patch to enable)
 
 ```
-Project 1   | 🟡 main
-Project 2   | 🟢 main
+Project 1                                    ●
+Project 2                     hotfix-tree 🌳
 ```
+
+  The row keeps the workspace name on the left and floats a **status mark** to
+  the right: a filled **circle** for a main checkout, a **tree** for a linked
+  `git worktree`, with the fill colour carrying the status. A worktree's name
+  sits beside the mark. The branch is never shown here — the input chip is the
+  surface that names it.
   </li>
 </ul>
-Git status is updated within seconds of any commit, checkout, stage, or file edit.
+Git status is updated within seconds of any commit, checkout, stage, or file edit — including inside a linked worktree.
 
-## Dot colors
+## Status colours
 
-The dot encodes a three-state summary (checked top-down, first match wins):
+One three-state summary drives the status mark on **both** surfaces — the input
+chip and each sidebar row — and the mark is identical in both: same
+circle-or-tree shape, same fill (checked top-down, first match wins). It is drawn
+as an SVG rather than typed as an emoji precisely so it can take these theme
+colours — 🌳 is a colour emoji and cannot be tinted.
 
-| Dot | When | What to do |
-|-----|------|------------|
+| Colour | When | What to do |
+|--------|------|------------|
 | 🔴 red | Unmerged files (merge/rebase conflict in progress), **or** a dirty tree that is also behind upstream | Resolve conflicts, or commit your edits before pulling |
 | 🟡 yellow | Dirty files, or any ahead/behind (sync pending) | Commit (✎), push (↑), or pull (↓) when convenient |
 | 🟢 green | Clean and in sync with the upstream | Nothing |
@@ -45,16 +59,32 @@ The input chip can carry an operation token after the branch name when git is
 mid-operation:
 
 ```
-🟡 main ⚔rebase ↑0 ↓2 ✎3
+● main ⚔rebase ↑0 ↓2 ✎3
 ```
 
 The token names what git is waiting on: `⚔merge`, `⚔squash`, `⚔cherry-pick`,
 `⚔revert`, `⚔bisect`, `⚔rebase`, `⚔sequencer`.
 
-It is independent of the dot. A paused rebase whose conflicts are all already
-staged has **no unmerged files**, so the dot can be green while `⚔rebase` is
+It is independent of the mark. A paused rebase whose conflicts are all already
+staged has **no unmerged files**, so the mark can be green while `⚔rebase` is
 showing — the token is the only signal that history is mid-rewrite. Tokens
-appear on the input chip only; sidebar rows show dot + branch.
+appear on the input chip only.
+
+## Worktrees
+
+When the workspace is a linked `git worktree`, the **mark becomes a tree** and the
+chip names the checkout — several worktrees of one repository otherwise all render
+the same `● main`:
+
+```
+🌳 main hotfix-tree ↑0 ↓2 ✎3
+```
+
+The name is the checkout's directory name, and it is dropped when the branch
+already implies it (a `repo-feat-x` directory on branch `feat-x` shows just the
+tree), so the everyday chip stays uncluttered. Naming the worktree is chip-only;
+a sidebar row shows the same tree mark with the worktree's name beside it, and
+never the branch.
 
 ## Install
 

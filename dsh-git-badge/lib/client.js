@@ -1,10 +1,16 @@
 /**
  * dsh-git-badge — client half.
  *
+ * Both surfaces show the SAME status mark — a circle, or a tree for a linked
+ * worktree, filled with the status colour — so status and worktree-ness read
+ * identically wherever they appear.
+ *
  * Surfaces:
- *  - sidebar.workspaces.row (seam): row badge — dot + branch
- *  - conversation.input.left (upstream): chip — dot + branch + in-progress
- *    operation token + sync/dirty suffix
+ *  - sidebar.workspaces.row (seam): row badge — workspace name, the status mark
+ *    floated right, and a worktree's name beside it. Deliberately shows NO
+ *    branch: the chip is the surface that names it.
+ *  - conversation.input.left (upstream): chip — status mark + branch + a
+ *    worktree's name + in-progress operation token + sync/dirty suffix
  * The hover card is intentionally untouched.
  */
 window.__ModuleLoader__.load({
@@ -148,30 +154,55 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Three-state dot color, shared by the sidebar row badge and the
-		 * composer chip. Checked top-down, first match wins:
-		 *  - RED: unmerged files (mid-conflict, git is blocked) — or a dirty
+		 * Three-state status, checked top-down, first match wins:
+		 *  - "error": unmerged files (mid-conflict, git is blocked) — or a dirty
 		 *    tree that is ALSO behind upstream (unsaved edits on an outdated
 		 *    base: commit-then-pull friction ahead).
-		 *  - YELLOW: dirty files, or any ahead/behind (routine work or sync
+		 *  - "warn": dirty files, or any ahead/behind (routine work or sync
 		 *    pending — including the previously "quiet" green-but-↓1 case).
-		 *  - GREEN: clean and in sync.
+		 *  - "ok": clean and in sync.
 		 * Red never means merely "behind": a clean tree one commit behind is
 		 * normal between pulls, not an alarm.
+		 *
+		 * The single source of truth for that summary. BOTH surfaces render it the
+		 * same way (see StatusMark): a circle, or a tree in a linked worktree,
+		 * filled with the colour below.
 		 */
-		function badgeDot(info) {
+		function badgeStatus(info) {
 			const dirty = info.dirty === true;
 			const behind = (info.behind || 0) > 0;
 			const ahead = (info.ahead || 0) > 0;
 			const conflict = (info.unmergedFiles || 0) > 0;
-			if (conflict || (dirty && behind)) return "\uD83D\uDD34";
-			if (dirty || ahead || behind) return "\uD83D\uDFE1";
-			return "\uD83D\uDFE2";
+			if (conflict || (dirty && behind)) return "error";
+			if (dirty || ahead || behind) return "warn";
+			return "ok";
 		}
 
 		/**
-		 * Sync/dirty suffix — INPUT CHIP ONLY. The sidebar row badge shows
-		 * status + branch alone; the chip is the detailed surface. Rule set:
+		 * Mark fill per status, from the app's own semantic tokens so BOTH surfaces
+		 * follow light/dark and custom themes — which a hardcoded emoji cannot do.
+		 * The literals are only fallbacks for use outside DSH.
+		 */
+		const MARK_FILL = {
+			error: "var(--dsw-alias-state-error-primary, #e5484d)",
+			warn: "var(--dsw-alias-state-warn-primary, #d29922)",
+			ok: "var(--dsw-alias-state-success-primary, #30a46c)"
+		};
+
+		/**
+		 * Accessible name per status, WITHOUT the "git" prefix — the mark adds
+		 * "git: " or "git worktree: ", so shape and colour are never the only
+		 * channel for either fact.
+		 */
+		const STATUS_LABEL = {
+			error: "conflict, or uncommitted changes on an outdated base",
+			warn: "uncommitted changes, or out of sync with upstream",
+			ok: "clean and in sync"
+		};
+
+		/**
+		 * Sync/dirty suffix — INPUT CHIP ONLY. The sidebar row shows status alone;
+		 * the chip is the surface that carries the numbers. Rule set:
 		 *  - dirty files render as ✎n (pencil = worktree files, distinct from
 		 *    the ↑/↓ commit-sync axis)
 		 *  - while dirty, BOTH sync counts render including zeros (↑0 ↓2 ✎3),
@@ -192,9 +223,9 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * In-progress operation token — INPUT CHIP ONLY (the row badge stays
-		 * dot + branch). A paused rebase or cherry-pick whose conflicts are all
-		 * already staged has no unmerged files, so the three-state dot cannot
+		 * In-progress operation token — INPUT CHIP ONLY (the row shows the status
+		 * tree alone). A paused rebase or cherry-pick whose conflicts are all
+		 * already staged has no unmerged files, so the three-state summary cannot
 		 * distinguish it from ordinary dirty work; this says which
 		 * history-rewriting operation git is waiting on.
 		 */
@@ -214,6 +245,45 @@ window.__ModuleLoader__.load({
 			return label === void 0 ? "" : " " + label;
 		}
 
+		/**
+		 * Linked-worktree NAME token — INPUT CHIP ONLY, and only the name: worktree-
+		 * ness itself is carried by the status mark's shape (a tree instead of a
+		 * circle) on both surfaces. The chip has no other workspace identity, so
+		 * several worktrees of one repository would otherwise render identical chips
+		 * with no way to tell which checkout a conversation is in. The node half
+		 * reports whether this is a linked worktree plus its directory NAME (never a
+		 * path).
+		 *
+		 * The name is appended only when it says something the branch does not: the
+		 * usual `repo-feat-x` directory sitting on branch `feat-x` would otherwise
+		 * read as stutter. (The ROW needs no such rule — it shows the name instead
+		 * of the branch, so there is nothing to stutter against.)
+		 */
+
+		/**
+		 * True when the worktree name is already implied by the branch name, so
+		 * showing both is pure repetition. Compared on a normalized form —
+		 * case-folded, with `/` and `_` folded to `-` — because directory and
+		 * branch conventions differ without changing the meaning (`feat/x` in a
+		 * `repo-feat-x` directory).
+		 */
+		function worktreeNameIsRedundant(name, branch) {
+			if (typeof name !== "string" || name === "" || typeof branch !== "string") return true;
+			const normalize = (value) => value.toLowerCase().replace(/[/_]/g, "-");
+			const normalizedName = normalize(name);
+			const normalizedBranch = normalize(branch);
+			return normalizedName === normalizedBranch
+				|| normalizedName.endsWith("-" + normalizedBranch)
+				|| normalizedBranch.endsWith("-" + normalizedName);
+		}
+
+		/** ` name` for a worktree whose name the branch does not already say, else "". */
+		function formatWorktreeToken(info) {
+			if (info.isWorktree !== true) return "";
+			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
+			return worktreeNameIsRedundant(name, info.branch) ? "" : " " + name;
+		}
+
 		const META_STYLE = {
 			color: "var(--dsw-alias-label-tertiary, #9ea7ad)",
 			fontSize: "12px",
@@ -223,13 +293,78 @@ window.__ModuleLoader__.load({
 		};
 
 		/**
-		 * Row badge — three-state dot + branch (sync/dirty detail lives on
-		 * the input chip):
-		 *   the_paragliding_app  | 🟢 main
-		 * Dot color via badgeDot(): green clean+synced, yellow dirty or
-		 * out-of-sync, red conflict or dirty-and-behind.
-		 * Always renders the workspace name (so the row keeps its identity);
-		 * appends the muted `| emoji branch` part only for git workspaces.
+		 * Status mark, SHARED BY BOTH SURFACES: the same 12px shape in the same fill
+		 * wherever it appears, so the sidebar row and the input chip read
+		 * identically. The FILL is the status colour; the SHAPE carries
+		 * worktree-ness — a circle for a main checkout, a tree for a linked
+		 * worktree — so the two facts never compete for the same channel.
+		 *
+		 * Drawn rather than typed because 🌳 is a COLOUR EMOJI: CSS cannot tint
+		 * its leaves, and a mark that carries the status has to be paintable.
+		 * Three overlapping crown lobes plus a trunk stay legible at this size.
+		 *
+		 * Neither colour nor shape is the only channel: the accessible name
+		 * states both.
+		 */
+		function StatusMark({ info }) {
+			const status = badgeStatus(info);
+			const fill = MARK_FILL[status];
+			const isWorktree = info.isWorktree === true;
+			const svg = {
+				// 14px, NOT 12px: a colour emoji draws well above its nominal size — the
+				// 🔴/🟡/🟢 dot this replaces put down ~13-14px of ink at the surfaces'
+				// 12px font-size, so a 12px box read as a shrunken dot.
+				width: 14,
+				height: 14,
+				viewBox: "0 0 12 12",
+				role: "img",
+				"aria-label": (isWorktree ? "git worktree: " : "git: ") + STATUS_LABEL[status],
+				focusable: "false",
+				style: { flex: "none", display: "block", color: META_STYLE.color }
+			};
+			if (!isWorktree) {
+				// a plain filled disc: this is a main checkout. It fills its box so the
+				// ink lands at the size the emoji dot used to.
+				return react_jsx_runtime.jsx("svg", { ...svg, children: react_jsx_runtime.jsx("circle", { cx: 6, cy: 6, r: 5.5, fill }) });
+			}
+			return react_jsx_runtime.jsxs("svg", {
+				...svg,
+				children: [
+					// trunk first, so the crown's lobes overlap and join it. These are the
+					// 12px-era coordinates scaled 1.15 about the tree's centre, so its ink
+					// stays comparable to the disc's instead of reading small beside it.
+					react_jsx_runtime.jsx("rect", { key: "trunk", x: 5.25, y: 7.3, width: 1.5, height: 4.14, rx: 0.63, fill: "currentColor" }),
+					react_jsx_runtime.jsx("circle", { key: "crown-1", cx: 6, cy: 3.62, r: 3.57, fill }),
+					react_jsx_runtime.jsx("circle", { key: "crown-2", cx: 3.24, cy: 5.46, r: 2.53, fill }),
+					react_jsx_runtime.jsx("circle", { key: "crown-3", cx: 8.76, cy: 5.46, r: 2.53, fill })
+				]
+			});
+		}
+
+		/**
+		 * A linked worktree's directory name, or null when there is nothing to
+		 * show. A main checkout shows NO text: the row surveys status and identity,
+		 * and the branch lives on the input chip — which is why the branch is never
+		 * rendered here. The name is the one thing the row's own label (the
+		 * worktree directory by default) cannot be trusted to say once a workspace
+		 * has been renamed.
+		 */
+		function rowName(info) {
+			if (info.isWorktree !== true) return null;
+			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
+			return name === "" ? null : name;
+		}
+
+		/**
+		 * Row badge — workspace name on the left, the status mark floated right:
+		 *   the_paragliding_app                       ●
+		 *   worktree_thing                  hotfix-tree 🌳
+		 * Fill colour via badgeStatus(): green clean+synced, amber dirty or
+		 * out-of-sync, red conflict or dirty-and-behind. Shape via the node half's
+		 * isWorktree: circle = main checkout, tree = linked worktree.
+		 * Always renders the workspace name (so the row keeps its identity) and
+		 * appends the right-hand mark only for git workspaces. No branch, and no
+		 * `|` separator.
 		 *
 		 * Targets the row's `workspaceId`. The seam also passes `cwd`, which is
 		 * deliberately ignored: the node half resolves the directory itself, so
@@ -238,18 +373,21 @@ window.__ModuleLoader__.load({
 		 * name-only.
 		 */
 		function WorkspaceGitBadge({ label, workspaceId }) {
-			// no detail=1: the row renders dot + branch only, and the extra log /
-			// stash calls have no consumer yet
+			// no detail=1: the row needs status and identity only, and the extra
+			// log / stash calls have no consumer yet
 			const info = useGitStatus(workspaceId === void 0 ? void 0 : { kind: "workspace", id: workspaceId });
 			const children = [react_jsx_runtime.jsx("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: label })];
 			if (workspaceId !== void 0 && info !== void 0 && info.git === true) {
-				children.push(
-					react_jsx_runtime.jsx("span", { style: { ...META_STYLE, margin: "0 7px" }, children: "|" }),
-					react_jsx_runtime.jsx("span", { style: { ...META_STYLE, marginRight: "4px" }, children: badgeDot(info) }),
-					react_jsx_runtime.jsx("span", { style: META_STYLE, children: info.branch })
-				);
+				// marginLeft:auto floats the mark to the right edge, so the status
+				// shape holds a fixed right-hand column and a worktree's name grows
+				// leftwards from it instead of shoving the shape around.
+				const meta = [];
+				const name = rowName(info);
+				if (name !== null) meta.push(react_jsx_runtime.jsx("span", { key: "name", style: META_STYLE, children: name }));
+				meta.push(react_jsx_runtime.jsx(StatusMark, { key: "mark", info }));
+				children.push(react_jsx_runtime.jsx("span", { style: { display: "inline-flex", alignItems: "center", gap: "6px", flex: "none", marginLeft: "auto", paddingLeft: "8px" }, children: meta }));
 			}
-			return react_jsx_runtime.jsx("span", { style: { display: "flex", alignItems: "center", minWidth: 0 }, children });
+			return react_jsx_runtime.jsx("span", { style: { display: "flex", alignItems: "center", minWidth: 0, width: "100%" }, children });
 		}
 
 		//#region composer chip (upstream additive surface: conversation.input.left)
@@ -267,7 +405,10 @@ window.__ModuleLoader__.load({
 			// for them would add a log -3 plus a stash list to every refresh
 			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId });
 			if (info === void 0 || info.git !== true) return null;
-			const text = badgeDot(info) + " " + info.branch + formatOperationToken(info) + formatGitSuffix(info);
+			// the mark is an element now rather than a leading glyph in the string, so
+			// the SAME StatusMark the sidebar row draws carries the status here too;
+			// the container's 4px gap supplies the space the emoji's own did
+			const text = info.branch + formatWorktreeToken(info) + formatOperationToken(info) + formatGitSuffix(info);
 			return react_jsx_runtime.jsx("span", {
 				style: {
 					display: "inline-flex",
@@ -280,7 +421,10 @@ window.__ModuleLoader__.load({
 					whiteSpace: "nowrap",
 					cursor: "default"
 				},
-				children: text
+				children: [
+					react_jsx_runtime.jsx(StatusMark, { key: "mark", info }),
+					react_jsx_runtime.jsx("span", { key: "text", children: text })
+				]
 			});
 		}
 		//#endregion

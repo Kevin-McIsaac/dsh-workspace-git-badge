@@ -5,8 +5,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
-import { changeListeners, config, gitStatus, runGit as pluginRunGit } from "../lib/index.js";
+import { basename, join } from "node:path";
+import { changeListeners, config, gitStatus, outerGitDir, runGit as pluginRunGit } from "../lib/index.js";
 import { makeRepo, makeTempDir, runGit } from "../test-support/repo.mjs";
 
 /** Subscribe to change notifications; released with the test. */
@@ -203,4 +203,54 @@ test("the TTL fetch is out of band: it never delays the answer", async (t) => {
 	// after which the corrected count is served without another fetch
 	const second = await gitStatus(repo.root);
 	assert.equal(second.behind, 1);
+});
+
+// ---- worktree identity (the chip can only name a worktree if this is right) ----
+
+test("a main worktree is not flagged, and names its own directory", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	const info = await gitStatus(repo.root);
+	assert.equal(info.isWorktree, false);
+	assert.equal(info.worktreeName, basename(repo.root));
+});
+
+test("a linked worktree is flagged and named, while the main checkout is not", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	const linked = await repo.worktreeAdd({ name: "feature-tree", branch: "feature" });
+	const info = await gitStatus(linked);
+	assert.equal(info.git, true);
+	assert.equal(info.branch, "feature");
+	assert.equal(info.isWorktree, true);
+	assert.equal(info.worktreeName, "feature-tree");
+	// same repository, different answer — the control for the assertion above
+	assert.equal((await gitStatus(repo.root)).isWorktree, false);
+});
+
+test("a subdirectory of a linked worktree reports the worktree, not itself", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	const linked = await repo.worktreeAdd({ name: "nested-tree", branch: "nested" });
+	const sub = join(linked, "inside");
+	await mkdir(sub, { recursive: true });
+	const info = await gitStatus(sub);
+	assert.equal(info.isWorktree, true);
+	assert.equal(info.worktreeName, "nested-tree");
+});
+
+test("a submodule is NOT a worktree, though its git dir is out-of-tree too", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	const sub = await repo.submoduleAdd({ name: "sub" });
+	const info = await gitStatus(sub);
+	assert.equal(info.git, true);
+	// A submodule's `.git` is a gitfile exactly like a worktree's, so the gitfile
+	// alone must not be the test: worktree-ness is the `commondir` marker, and
+	// reporting a submodule as a worktree would put a tree on the row.
+	assert.equal(info.isWorktree, false);
+	assert.equal(info.worktreeName, "sub");
+	// ...while the watcher still has to look outside the directory, as for a worktree
+	assert.match(outerGitDir(sub), /[\\/]\.git[\\/]modules[\\/]sub$/);
+	assert.equal((await gitStatus(repo.root)).isWorktree, false, "the hosting checkout is unaffected");
 });

@@ -11,6 +11,7 @@ import { join } from "node:path";
 import {
 	changeListeners,
 	config,
+	outerGitDir,
 	syncWatchers,
 	unwatchWorkspace,
 	watchWorkspace,
@@ -197,4 +198,84 @@ test("unwatchWorkspace stops the fallback poll too", async (t) => {
 	writeFileSync(join(repo.root, "after-unwatch.txt"), "x\n");
 	await new Promise((resolve) => setTimeout(resolve, 500));
 	assert.equal(seen.length, 0, "a released workspace must stop notifying");
+});
+
+// ---- linked worktrees: the git dir lives OUTSIDE the worktree root ----
+
+/** Sleep past the debounce window, for assertions that must stay silent. */
+const settle = () => new Promise((resolve) => setTimeout(resolve, config.debounceMs + 500));
+
+test("outerGitDir resolves a linked worktree's gitfile, and is null for a main worktree", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	const linked = await repo.worktreeAdd({ name: "linked", branch: "feature" });
+	assert.equal(outerGitDir(repo.root), null, "a main worktree's git dir sits inside its root");
+	const dir = outerGitDir(linked);
+	assert.ok(dir !== null, "a linked worktree has an out-of-tree git dir");
+	assert.match(dir, /[\\/]worktrees[\\/]linked$/);
+});
+
+test("only a linked worktree needs the second watcher", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	const linked = await repo.worktreeAdd({ name: "linked", branch: "feature" });
+	releaseWatchers(t);
+	watchWorkspace(repo.root, repo.root, "ws-main");
+	watchWorkspace(linked, linked, "ws-linked");
+	assert.equal(watchers.get(repo.root).extra, null, "a main worktree is fully covered by its root watch");
+	assert.notEqual(watchers.get(linked).extra, null, "a linked worktree's git dir must be watched too");
+});
+
+test("REGRESSION: staging in a linked worktree notifies although nothing under it changes", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	const linked = await repo.worktreeAdd({ name: "linked", branch: "feature" });
+	// Dirty the tracked file BEFORE the watch exists, so no root-watch event can
+	// arrive afterwards. `git add` then writes only
+	// <main>/.git/worktrees/linked/index — nothing at all under `linked` — so the
+	// git-dir watcher is the only thing that can possibly notify.
+	writeFileSync(join(linked, "a.txt"), "changed\n");
+	releaseWatchers(t);
+	const seen = spyOn(t);
+	watchWorkspace(linked, linked, "ws-linked");
+	await runGit(linked, ["add", "a.txt"]);
+	const hit = await waitFor(() => seen.length > 0, { timeoutMs: 3000 });
+	assert.ok(hit, "a stage in a linked worktree must notify via the git-dir watcher");
+	assert.equal(seen[0].workspace, "ws-linked");
+	assert.equal(seen[0].path, linked);
+});
+
+test("unwatchWorkspace releases the linked worktree's git-dir watcher too", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	const linked = await repo.worktreeAdd({ name: "linked", branch: "feature" });
+	writeFileSync(join(linked, "a.txt"), "changed\n");
+	releaseWatchers(t);
+	const seen = spyOn(t);
+	watchWorkspace(linked, linked, "ws-linked");
+	unwatchWorkspace(linked);
+	assert.equal(watchers.has(linked), false);
+	// the exact operation the extra watcher exists to catch — it must stay silent
+	await runGit(linked, ["add", "a.txt"]);
+	await settle();
+	assert.equal(seen.length, 0, "a released worktree must stop notifying");
+});
+
+test("a submodule's out-of-tree git dir is watched too", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	const sub = await repo.submoduleAdd({ name: "sub" });
+	// Dirty the tracked file BEFORE the watch exists, so no root-watch event can
+	// arrive afterwards and only the git-dir watcher can possibly notify.
+	writeFileSync(join(sub, "s.txt"), "changed\n");
+	releaseWatchers(t);
+	const seen = spyOn(t);
+	watchWorkspace(sub, sub, "ws-sub");
+	const record = watchers.get(sub);
+	assert.notEqual(record.watcher, null, "the submodule directory is watched");
+	assert.notEqual(record.extra, null, "and its git dir outside it is watched too");
+	await runGit(sub, ["add", "s.txt"]);
+	const hit = await waitFor(() => seen.length > 0, { timeoutMs: 3000 });
+	assert.ok(hit, "staging in a submodule must notify via the git-dir watcher");
+	assert.equal(seen[0].workspace, "ws-sub");
 });

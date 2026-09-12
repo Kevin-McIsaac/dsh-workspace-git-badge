@@ -10,8 +10,25 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-12
+
 ### Changed
 
+- **Both surfaces draw the same status mark.** The input chip no longer leads with
+  a 🔴/🟡/🟢 emoji dot: it renders the SAME 12px SVG mark as the sidebar row — a
+  filled **circle**, or a **tree** for a linked `git worktree` — so the shape says
+  *worktree or not* and the fill says *status*, identically wherever the badge
+  appears. The `⑂` worktree glyph is gone with the emoji: the tree shape already
+  says "worktree". The mark is drawn rather than typed because 🌳 is a **colour
+  emoji** — CSS cannot tint its leaves — and the fill comes from the app's own
+  `--dsw-alias-state-{success,warn,error}-primary` tokens, so the mark follows
+  light/dark and custom themes, which the hardcoded emoji could not. Neither colour
+  nor shape is the only channel: the mark carries an accessible name.
+- **The sidebar row shows status, not the branch.** The row keeps the workspace
+  name on the left and floats the status mark to the right, with a worktree's
+  directory name beside it; the `|` separator is gone. The branch, sync counts and
+  operation token stay on the input chip, the surface scoped to the current
+  conversation.
 - **The status endpoint no longer accepts a filesystem path.** The caller now says
   *who it is* and the server resolves the workspace itself: `?session=<id>` for the
   input chip, `?workspace=<id>` for a sidebar row. `?path=` is refused with
@@ -29,6 +46,24 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Added
 
+- **A client-half test suite, plus submodule coverage.** `test/client.test.mjs`
+  loads the real `lib/client.js` behind a stub module loader and renders both
+  registered surfaces, so the mark's shape/colour rules, the row's "never show the
+  branch" rule, the right-float and the worktree-name suppression are asserted in
+  CI rather than eyeballed. The node half gains a real-submodule fixture: a
+  submodule is asserted **not** to be a worktree (its gitfile alone must not decide
+  it — worktree-ness is the `commondir` marker) while its out-of-tree git dir is
+  still watched, like a linked worktree's.
+- **The input chip now says which working tree a conversation is in.** A linked
+  `git worktree`'s directory name is appended after the branch —
+  `🌳 main hotfix-tree ↑0 ↓2 ✎3` — because several worktrees of one repository
+  otherwise render identical chips and the chip carries no other workspace
+  identity. The name is dropped when the branch already implies it (`repo-feat-x`
+  on `feat-x` shows just the tree), a main checkout appends nothing, and the
+  response reports `isWorktree` / `worktreeName` from one stat of the git dir the
+  existing `rev-parse` already returned — no extra git invocation. Naming the
+  worktree is chip-only, like the operation token. The value is a directory NAME,
+  never a path.
 - **A server-side poll fallback for workspaces whose file watcher failed.** A
   workspace whose recursive `fs.watch` could not be established, or which later
   errored, is polled every 5s on a state key (status + refs fingerprint +
@@ -45,6 +80,15 @@ npm. 0.6.0 is the first release recorded here.
   only updated when it remounted (switching conversations) or on the 60s fallback
   poll. The status response now echoes the resolved workspace id and the client
   matches on that. This was a regression in the server-side resolution change.
+- **A linked worktree's badge only refreshed on a file edit.** The watcher watched
+  the workspace root, but a linked worktree's git dir lives OUTSIDE it
+  (`<main>/.git/worktrees/<name>`), so `git add`, `git commit` and `git checkout`
+  there wrote nothing the root watch could see: the badge stayed stale until a
+  worktree file changed or the client's 60s poll fired. The per-worktree git dir
+  now gets its own watcher, resolved from the `.git` gitfile (which covers
+  submodules too), and either watcher erroring drops both and hands over to the
+  degraded poll. A regression test that stages a file written before the watch
+  existed fails without the second watcher.
 - **The TTL fetch no longer delays the status response.** `ahead`/`behind` are
   read from the local remote-tracking ref, and the fetch that refreshes it was
   awaited before answering, so any request arriving after the 60s TTL had lapsed
@@ -92,5 +136,6 @@ npm. 0.6.0 is the first release recorded here.
 - `detail=1` is annotated as having no consumer yet (the hover card remains
   pending). Its comment previously claimed `log -1` while the code ran `log -3`.
 
-[Unreleased]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.7.0
 [0.6.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.6.0

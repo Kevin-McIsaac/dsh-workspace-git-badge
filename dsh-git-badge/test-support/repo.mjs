@@ -61,6 +61,7 @@ export async function makeTempDir(t, prefix = "dsh-git-badge-") {
  *   branch(name, start?)      checkout(name, args?)  stashPush(args?)
  *   headHash()                currentBranch()        gitDir()      git(args)
  *   untrackedTree(n)          makeSubdir(name?)      withUpstream()
+ *   worktreeAdd({ name?, branch? })                 submoduleAdd({ name?, branch? })
  */
 export async function makeRepo(t, { userName = "Test User", userEmail = "test@example.com" } = {}) {
 	const root = await makeTempDir(t);
@@ -138,6 +139,43 @@ export async function makeRepo(t, { userName = "Test User", userEmail = "test@ex
 			await runGit(root, ["remote", "add", "origin", bare]);
 			await runGit(root, ["push", "-u", "origin", "main"]);
 			return bare;
+		},
+
+		/**
+		 * Add a LINKED worktree on a new branch, in a sibling temp directory, and
+		 * return its root. It is a real one: its `.git` is a gitfile pointing at
+		 * `<root>/.git/worktrees/<name>`, so its index/HEAD/reflogs live OUTSIDE
+		 * the worktree root — the case the watcher must cover.
+		 */
+		async worktreeAdd({ name = "linked", branch = "linked-branch" } = {}) {
+			const parent = await makeTempDir(t, "dsh-git-badge-worktree-");
+			const worktreeRoot = join(parent, name);
+			await runGit(root, ["worktree", "add", "-q", worktreeRoot, "-b", branch]);
+			return worktreeRoot;
+		},
+
+		/**
+		 * Add a real SUBMODULE at `name` and return its working directory. Like a
+		 * linked worktree, a submodule's `.git` is a gitfile pointing outside itself
+		 * (`<root>/.git/modules/<name>`), so it exercises the same out-of-tree
+		 * git-dir path — while NOT being a worktree, which `isWorktree` must say.
+		 *
+		 * The submodule's origin is a local file remote, which git refuses to
+		 * clone unless `protocol.file.allow` is set; that is scoped to this one
+		 * command rather than written to the repo's config.
+		 */
+		async submoduleAdd({ name = "sub", branch = "main" } = {}) {
+			const origin = await makeTempDir(t, "dsh-git-badge-suborigin-");
+			await runGit(origin, ["init", "-b", branch]);
+			await runGit(origin, ["config", "user.name", "Sub User"]);
+			await runGit(origin, ["config", "user.email", "sub@example.com"]);
+			await runGit(origin, ["config", "commit.gpgsign", "false"]);
+			await writeFile(join(origin, "s.txt"), "sub\n");
+			await runGit(origin, ["add", "-A"]);
+			await runGit(origin, ["commit", "-m", "sub initial"]);
+			await runGit(root, ["-c", "protocol.file.allow=always", "submodule", "add", "-q", `file://${origin}`, name]);
+			await runGit(root, ["commit", "-m", `add ${name} submodule`]);
+			return join(root, name);
 		}
 	};
 	return api;
