@@ -293,7 +293,7 @@ window.__ModuleLoader__.load({
 		};
 
 		/**
-		 * Status mark, SHARED BY BOTH SURFACES: the same 12px shape in the same fill
+		 * Status mark, SHARED BY BOTH SURFACES: the same shape in the same fill
 		 * wherever it appears, so the sidebar row and the input chip read
 		 * identically. The FILL is the status colour; the SHAPE carries
 		 * worktree-ness — a circle for a main checkout, a tree for a linked
