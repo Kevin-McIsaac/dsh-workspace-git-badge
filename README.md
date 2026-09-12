@@ -70,6 +70,58 @@ staged has **no unmerged files**, so the mark can be green while `⚔rebase` is
 showing — the token is the only signal that history is mid-rewrite. Tokens
 appear on the input chip only.
 
+## Hover card
+
+The chip is deliberately terse — `↑0 ↓2 ✎3` is three numbers for four different
+things. Hover it for the breakdown the chip has no room for: what the dirty
+count is actually made of, the last three commits, and the stash.
+
+```
+branch        main
+upstream      origin/main
+sync          ↑1 ↓2
+files         2 staged · 1 unstaged · 3 untracked
+operation     rebase
+commits       abc1234 fix the thing · 2 hours ago
+              def5678 add another thing · yesterday
+stash         2 stashed
+```
+
+Two details worth knowing:
+
+- **`✎n` split apart.** "3 files" cannot tell *ready to commit* from *not staged
+  yet*; the card names staged, unstaged, unmerged and untracked separately.
+- **A count it cannot trust says so.** When a huge untracked tree blows the
+  walk's time budget the node half falls back to git's collapsed count; the card
+  marks that `(collapsed)` rather than presenting an under-count as exact.
+
+The card is fetched only when a pointer rests on the chip, so the everyday badge
+never pays for it. It lives on the input chip only — the sidebar row stays status
+and identity, and asks for none of it.
+
+## Pull requests and CI
+
+When the branch has a GitHub pull request, the chip carries its number and CI
+state:
+
+```
+● main ↑0 ↓2 ✎3 PR#142 ✗
+```
+
+The glyph is `✓` passing, `…` running, `✗` failing (and nothing when the PR has
+no checks); a draft PR is marked `draft`. The token also carries an accessible
+name naming the state, so the glyph is not the only channel. The hover card
+spells out the rest — check state, draft, review decision.
+
+This reads the current branch's PR through **your own `gh` CLI**, so the plugin
+never handles a credential: `gh` owns the token. A GitHub remote is required
+(`origin`), and the check is rate-limited to once per ~90s per repository and
+never delays the badge.
+
+**Nothing appears when `gh` cannot answer** — not installed, not logged in, no
+GitHub remote, offline, rate-limited, or a timed-out call all render exactly the
+unchanged chip. If you have no `gh`, you lose nothing and see nothing.
+
 ## Worktrees
 
 When the workspace is a linked `git worktree`, the **mark becomes a tree** and the

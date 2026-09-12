@@ -44,9 +44,14 @@
  *       on the first refresh after each TTL window. `GIT_TERMINAL_PROMPT=0`, the
  *       shared timeout and the TTL bound keep an offline or slow remote harmless;
  *       on failure the stale-ref answer simply stands.
- *     - `detail=1` adds one `log -3` plus a stash count. NOTE: no surface
- *       consumes this yet (see the annotation on gitStatus) — it is kept for
- *       the planned hover card, and never paid for by row refresh.
+ *     - `detail=1` adds one `log -3` plus a stash count, and `pr=1` adds the
+ *       branch's GitHub PR/CI state read through the user's own `gh` CLI. Both
+ *       serve the input chip only — the hover card and the PR token — so a
+ *       sidebar row refresh pays for neither. The PR read is TTL-bounded and
+ *       out of band, like the fetch; it degrades to an ABSENT field rather than
+ *       an error whenever `gh` cannot answer (see the PR region).
+ *     - `pr=1` requires `gh` on PATH and authenticated for a token to appear.
+ *       The plugin never handles the credential: `gh` owns it.
  *
  *   GET /api/git-badge/events   (text/event-stream)
  *     - pushes `{ path }` dirty notifications the moment a workspace's git
@@ -100,29 +105,63 @@ const config = {
 	 * collapsed-fallback branch deterministically — a real sub-millisecond budget
 	 * would just race git's own startup.
 	 */
-	gitRunner: null
+	gitRunner: null,
+	/**
+	 * PR / CI status via the `gh` CLI: "auto" reads it where `gh` can answer and
+	 * silently shows nothing where it cannot; "off" never invokes `gh` at all.
+	 * Only the input chip asks for it, so a sidebar-only view spawns no forge
+	 * process — see the PR region.
+	 */
+	prStatus: "auto",
+	/** minimum interval between forge refreshes per repository */
+	prTtlMs: 90000,
+	/**
+	 * Forge call budget. Unlike git this is a network round trip to GitHub, so
+	 * it gets a more generous budget than the status sample — but it is bounded
+	 * all the same, because nothing here may hang the route.
+	 */
+	prTimeoutMs: 6000,
+	/**
+	 * Invoker for the `gh` CLI; null means the real runCli. The suite substitutes
+	 * one so every degradation path (no gh, logged out, no PR, garbage output,
+	 * timeout) is covered with no gh, no network and no forge.
+	 */
+	prRunner: null
 };
 
 /**
- * Run git in dir. Resolves { stdout } on success; on failure { stdout: null }
- * plus exactly one of: timeout (execFile timeout kill), missing (no git
- * binary), or exitCode (git ran and rejected — e.g. "not a repository").
- * The exitCode/timeout distinction separates a definitive answer (non-repo)
- * from a transient one (degraded).
+ * Run an external command in a directory. Resolves { stdout } on success; on
+ * failure { stdout: null } plus exactly one of: timeout (execFile timeout kill),
+ * missing (no such binary), or exitCode (the command ran and rejected — e.g.
+ * "not a repository", or `gh` reporting no pull request).
+ *
+ * The exitCode/timeout/missing trichotomy is what lets a CALLER tell a
+ * definitive answer from a transient one: a missing `gh` and a `gh` that says
+ * "no PR" are different facts, and only the caller knows which of them it can
+ * act on. Shared by git and `gh` so neither grows its own timeout semantics.
  */
-function runGit(dir, args, opts) {
-	const { env, timeout = config.gitTimeoutMs } = opts ?? {};
+function runCli(cmd, args, opts) {
+	const { cwd, env, timeout = config.gitTimeoutMs } = opts ?? {};
 	// env is a full replacement for execFile; overlay onto process.env so
 	// PATH/HOME (credential helpers, global config) survive
 	const fullEnv = env === void 0 ? void 0 : { ...process.env, ...env };
 	return new Promise((resolve) => {
-		execFile("git", args, { cwd: dir, timeout, env: fullEnv }, (error, stdout) => {
+		execFile(cmd, args, { cwd, timeout, env: fullEnv }, (error, stdout) => {
 			if (error === void 0 || error === null) resolve({ stdout: String(stdout) });
 			else if (error.killed) resolve({ stdout: null, timeout: true });
 			else if (error.code === "ENOENT") resolve({ stdout: null, missing: true });
 			else resolve({ stdout: null, exitCode: error.code });
 		});
 	});
+}
+
+/**
+ * Run git in dir. A thin specialization of runCli: the contract above is
+ * unchanged, and `config.gitRunner` still substitutes for the whole call so the
+ * suite can force the timeout branch.
+ */
+function runGit(dir, args, opts) {
+	return runCli("git", args, { ...opts, cwd: dir });
 }
 
 /** Marker response for a git invocation that failed or timed out (transient). */
@@ -175,6 +214,154 @@ async function maybeFetch(toplevel) {
 	if (state === void 0) fetchState.set(toplevel, { lastAttemptAt: now, inFlight });
 	else state.inFlight = inFlight;
 	return inFlight;
+}
+//#endregion
+
+//#region PR / CI status (gh)
+/**
+ * GitHub pull-request and check state for the current branch, read through the
+ * user's own `gh` CLI.
+ *
+ * Why the CLI and not the REST API: `gh` already owns the user's credentials in
+ * its own config, so this plugin never reads, stores, caches or forwards a
+ * token. There is no secret here to leak and no OAuth flow to maintain — and a
+ * machine that has never authenticated `gh` simply gets no PR token.
+ *
+ * Degradation is a MISSING FIELD, never an error. A machine without `gh`, a
+ * logged-out `gh`, a remote that is not GitHub, an offline network, a forge rate
+ * limit, unparseable output and a timed-out call all produce exactly the same
+ * response: no `pr` key at all. That is the honest answer, because in every one
+ * of those cases the badge has nothing to say — and a caller that could tell
+ * "no PR" from "no gh" would still not know what to draw.
+ *
+ * Like the fetch above this is TTL-bounded and NEVER awaited by the route: the
+ * cached value is served immediately and a refresh that CHANGES it notifies
+ * subscribers, so the request that lapses the window carries the previous answer
+ * and the follow-up carries the new one. A forge round trip must never become
+ * badge latency.
+ */
+/** toplevel -> { lastAttemptAt, inFlight, value }; `value` undefined = nothing to say. */
+const prState = new Map();
+
+/** Test seam: the CLI invoker `gh` calls go through, so no test needs `gh`. */
+function runPrCli(cmd, args, opts) {
+	return (config.prRunner ?? runCli)(cmd, args, opts);
+}
+
+/**
+ * Does `origin` point at github.com? A cheap LOCAL call, so a non-GitHub repo
+ * never pays for a `gh` process. Deliberately scoped to origin: that is the
+ * remote `gh` itself resolves the repository from, so agreeing with it here is
+ * what keeps the two from disagreeing later.
+ */
+async function originIsGitHub(toplevel) {
+	const out = await runGit(toplevel, ["remote", "get-url", "origin"]);
+	if (out.stdout === null) return false;
+	return /(^|[/@.])github\.com[:/]/i.test(out.stdout.trim());
+}
+
+/**
+ * Reduce a `statusCheckRollup` to ONE worst-case state, so the chip needs a
+ * single colour rather than a list.
+ *
+ * Two entry shapes share the array: a CheckRun carries `status` + `conclusion`,
+ * a StatusContext carries `state` alone. A single failure outweighs any number
+ * of successes and pending checks — "mostly passing" is not a thing a red/green
+ * token can express — so failure returns immediately and pending only wins over
+ * an otherwise all-successful set.
+ */
+function summarizeChecks(checks) {
+	let sawAny = false;
+	let sawPending = false;
+	for (const check of checks) {
+		const state = String(check?.state ?? "").toUpperCase();
+		const status = String(check?.status ?? "").toUpperCase();
+		const conclusion = String(check?.conclusion ?? "").toUpperCase();
+		sawAny = true;
+		const failed =
+			["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"].includes(state) ||
+			["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"].includes(conclusion);
+		if (failed) return "failing";
+		// unfinished: a CheckRun that has not completed, or a StatusContext PENDING
+		if (state === "PENDING" || (status !== "" && status !== "COMPLETED")) sawPending = true;
+	}
+	if (!sawAny) return "none";
+	return sawPending ? "pending" : "passing";
+}
+
+/** The compact PR shape the chip renders, or undefined when there is nothing to say. */
+function summarizePr(json) {
+	if (json === null || typeof json !== "object") return void 0;
+	const number = Number.isFinite(json?.number) ? json.number : void 0;
+	if (number === void 0) return void 0;
+	const pr = {
+		number,
+		state: summarizeChecks(Array.isArray(json.statusCheckRollup) ? json.statusCheckRollup : []),
+		// draft and review state are separate from CI: a draft with green checks
+		// is not ready, and a blocked review is not a failing build
+		draft: json.isDraft === true,
+		open: String(json.state ?? "OPEN").toUpperCase() === "OPEN"
+	};
+	// omitted, not present-and-undefined: absence is the contract for "nothing to
+	// say" throughout this half, so a consumer tests the key, never the value
+	if (typeof json.reviewDecision === "string" && json.reviewDecision !== "") pr.review = json.reviewDecision;
+	return pr;
+}
+
+/**
+ * Read PR state for `branch`, or undefined. NEVER throws and never rejects: a
+ * forge is an optional luxury, so every failure path is "nothing to say".
+ */
+async function readPrStatus(toplevel, branch) {
+	// a detached HEAD is not a branch `gh` can resolve a PR for
+	if (typeof branch !== "string" || branch === "" || branch.startsWith("HEAD")) return void 0;
+	if (!(await originIsGitHub(toplevel))) return void 0;
+	const out = await runPrCli("gh", ["pr", "view", branch, "--json", "number,state,isDraft,reviewDecision,statusCheckRollup"], {
+		cwd: toplevel,
+		timeout: config.prTimeoutMs,
+		// GH_PROMPT_DISABLED: an auth prompt must never hang the refresh (the gh
+		// analogue of the git fetch's GIT_TERMINAL_PROMPT=0). The pager vars keep
+		// gh from waiting on a pager that will never answer, and NO_COLOR keeps
+		// escape codes out of the JSON.
+		env: { GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", GH_PAGER: "cat", NO_COLOR: "1" }
+	});
+	if (out.stdout === null) return void 0;
+	let json;
+	try {
+		json = JSON.parse(out.stdout);
+	} catch {
+		return void 0;
+	}
+	return summarizePr(json);
+}
+
+/**
+ * PR state for toplevel: the value to serve NOW (possibly undefined, possibly
+ * stale), spawning an out-of-band refresh when the TTL has lapsed. `notify` is
+ * called only when the refreshed value CHANGES, so an unchanged answer costs one
+ * forge call per TTL and zero SSE traffic.
+ */
+function prStatusFor(toplevel, branch, notify) {
+	if (config.prStatus === "off") return void 0;
+	const now = Date.now();
+	const state = prState.get(toplevel);
+	if (state !== void 0) {
+		// Fresh, or a refresh is already running: serve what we have either way.
+		if (now - state.lastAttemptAt < config.prTtlMs || state.inFlight !== null) return state.value;
+	}
+	const record = { lastAttemptAt: now, inFlight: null, value: state?.value };
+	const inFlight = (async () => {
+		const value = await readPrStatus(toplevel, branch).catch(() => void 0);
+		const changed = JSON.stringify(record.value ?? null) !== JSON.stringify(value ?? null);
+		record.lastAttemptAt = Date.now();
+		record.inFlight = null;
+		record.value = value;
+		if (changed) notify(toplevel);
+		return value;
+	})();
+	record.inFlight = inFlight;
+	prState.set(toplevel, record);
+	return record.value;
 }
 //#endregion
 
@@ -259,11 +446,12 @@ function operationMarker(gitDir) {
  * worktree reports that worktree (the toplevel walk starts above it), which is
  * the same whole-repository rule as above.
  *
- * `wantDetail` has no consumer yet: both surfaces fetch without `detail=1`.
- * The branch is retained for the planned hover card — nothing renders
- * lastCommits / stashCount today.
+ * `wantDetail` serves the input chip's HOVER CARD (recent commits + stash) and
+ * `wantPr` its PR/CI token. They are asked for separately and by the chip only,
+ * so neither is paid for by a sidebar row refresh: a row needs status and
+ * identity, nothing more.
  */
-async function gitStatus(dir, wantDetail) {
+async function gitStatus(dir, wantDetail, wantPr) {
 	// one invocation answers both questions: the repository root (so a
 	// subdirectory workspace reports the whole repo) and the per-worktree git
 	// dir (where the operation markers above live)
@@ -359,6 +547,15 @@ async function gitStatus(dir, wantDetail) {
 			const count = stashOut.stdout.split("\n").filter((l) => l.trim() !== "").length;
 			if (count > 0) info.stashCount = count;
 		}
+	}
+	// PR / CI is the INPUT CHIP's business, so it is asked for explicitly
+	// (`?pr=1`) rather than paid for by every sidebar row: a row that surveys
+	// twenty workspaces must not spawn twenty forge processes. Served from the
+	// TTL cache and refreshed out of band, exactly like the fetch above — the
+	// forge round trip is never route latency.
+	if (wantPr) {
+		const pr = prStatusFor(toplevel, parsed.branch, notifyChange);
+		if (pr !== void 0) info.pr = pr;
 	}
 	return info;
 }
@@ -675,7 +872,8 @@ function apply(ctx) {
 					return;
 				}
 				const detail = url.searchParams.get("detail") === "1";
-				const info = await gitStatus(target.path, detail);
+				const pr = url.searchParams.get("pr") === "1";
+				const info = await gitStatus(target.path, detail, pr);
 				// Echo the resolved workspace id. SSE events identify the workspace,
 				// not the session, so a session-targeted client has no other way to
 				// tell whether an event belongs to it — without this the input chip
@@ -757,9 +955,15 @@ export {
 	operationMarker,
 	outerGitDir,
 	parseStatusV2,
+	runCli,
 	runGit,
 	gitStatus,
 	resolveWorkspace,
+	readPrStatus,
+	summarizePr,
+	summarizeChecks,
+	prStatusFor,
+	prState,
 	watchWorkspace,
 	unwatchWorkspace,
 	syncWatchers,
