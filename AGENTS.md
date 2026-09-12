@@ -11,8 +11,9 @@ seam (a local 32-line patch in `seam/`, proposed upstream — see `PR.md`).
 
 ## Read first
 
-- **Testing any change**: `TESTING.md` — clean-profile boot, seam apply/revert,
-  and the gotchas list. Don't rediscover them.
+- **Testing any change**: `TESTING.md` — run the node suite first
+  (`cd dsh-git-badge && npm test`; no DSH, no restart), then clean-profile boot,
+  seam apply/revert, and the gotchas list. Don't rediscover them.
 - **Architecture**: `README.md` (user view), `SEAM.md` (patch rails),
   `PR.md` (upstream proposal).
 - **Debugging badge values** (curl endpoint vs `git status` ground truth):
@@ -20,11 +21,13 @@ seam (a local 32-line patch in `seam/`, proposed upstream — see `PR.md`).
 
 ## Hard rules learned in development
 
-1. Changing the **node half** (`dsh-git-badge/lib/index.js`) requires restarting the
-   user's dsh web process — it ends your session; tell the user to restart
-   and report back. Client-half changes usually need only a browser refresh,
-   but any patch/bundle-graph change requires a restart before refreshing
-   (bundle URLs are rev-pinned at boot).
+1. Run `cd dsh-git-badge && npm test` before and after touching the **node half**
+   (`dsh-git-badge/lib/index.js`) — the suite covers the parser, `gitStatus`, the
+   allowlist, SSE and the watcher with no DSH boot. Seeing a node-half change live
+   still requires restarting the user's dsh web process, which ends your session;
+   tell the user to restart and report back. Client-half changes usually need only
+   a browser refresh, but any patch/bundle-graph change requires a restart before
+   refreshing (bundle URLs are rev-pinned at boot).
 2. The installed DSH lives at
    `~/.config/nvm/versions/node/v22.23.2/lib/node_modules/@deepseek-ai/dsh`;
    the seam patch targets

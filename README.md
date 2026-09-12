@@ -39,6 +39,23 @@ Red never means merely "behind" — a clean tree one commit behind is a normal
 between-pulls state. See [`docs/badge-explainer.md`](docs/badge-explainer.md)
 for a beginner-friendly walkthrough.
 
+## Suffix tokens
+
+The input chip can carry an operation token after the branch name when git is
+mid-operation:
+
+```
+🟡 main ⚔rebase ↑0 ↓2 ✎3
+```
+
+The token names what git is waiting on: `⚔merge`, `⚔squash`, `⚔cherry-pick`,
+`⚔revert`, `⚔bisect`, `⚔rebase`, `⚔sequencer`.
+
+It is independent of the dot. A paused rebase whose conflicts are all already
+staged has **no unmerged files**, so the dot can be green while `⚔rebase` is
+showing — the token is the only signal that history is mid-rewrite. Tokens
+appear on the input chip only; sidebar rows show dot + branch.
+
 ## Install
 
 ```bash

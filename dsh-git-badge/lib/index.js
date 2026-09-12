@@ -8,17 +8,28 @@
  *       (WorkspaceRegistry records) are ever queried — no filesystem probing
  *       of arbitrary paths.
  *     - one git invocation per sample: `git --no-optional-locks status
- *       --porcelain=v2 --branch` yields branch, ahead/behind, and the
- *       changed / untracked counts in a single call (`--no-optional-locks`
- *       guarantees the read never contends with the user's own git
- *       operations on the index).
+ *       --porcelain=v2 --branch --untracked-files=all` yields branch,
+ *       ahead/behind, and the changed / untracked counts in a single call
+ *       (`--no-optional-locks` guarantees the read never contends with the
+ *       user's own git operations on the index). `--untracked-files=all`
+ *       counts untracked FILES; git's default collapses a new directory into
+ *       one entry, which under-reported `✎n` for anyone who adds a folder.
+ *       If that walk blows the budget the sample is retried collapsed and the
+ *       response reports which mode answered (`untrackedMode`).
+ *     - one `git rev-parse --show-toplevel --absolute-git-dir` resolves both
+ *       the repository root (a subdirectory workspace reports the whole repo)
+ *       and the per-worktree git dir, where the eight in-progress operation
+ *       markers (`MERGE_HEAD`, `rebase-merge`, …) are stat'd — surfaced as
+ *       `operation`, so a paused rebase/cherry-pick is distinguishable from
+ *       ordinary dirty work even when its conflicts are already staged.
  *     - ahead/behind compare against the LOCAL remote-tracking ref, which
  *       only moves on fetch — so a TTL-bounded background fetch (60s per
  *       toplevel) runs before status when the ref can be stale. `GIT_TERMINAL_PROMPT=0`
  *       and the shared timeout keep an offline/slow remote from stalling the
  *       route; on fetch failure the stale-ref answer is served as-is.
- *     - `detail=1` adds one `log -1` for the hover card; row refresh never
- *       pays for it.
+ *     - `detail=1` adds one `log -3` plus a stash count. NOTE: no surface
+ *       consumes this yet (see the annotation on gitStatus) — it is kept for
+ *       the planned hover card, and never paid for by row refresh.
  *
  *   GET /api/git-badge/events   (text/event-stream)
  *     - pushes `{ path }` dirty notifications the moment a workspace's git
@@ -40,6 +51,35 @@ const inject = ["webServer", "workspaceRegistry"];
 const name = "dsh-git-badge";
 
 /**
+ * Runtime tunables. Production code never writes these; the test suite mutates
+ * them to collapse the debounce / backoff / heartbeat windows and to force the
+ * untracked-walk timeout deterministically instead of waiting on a pathological
+ * repository. One exported object rather than scattered consts so tests have a
+ * single documented seam.
+ */
+const config = {
+	/** budget for every git invocation; an expired call is killed */
+	gitTimeoutMs: 3000,
+	/** network fetch budget; worst-case route latency, paid once per TTL */
+	fetchTimeoutMs: 8000,
+	/** minimum interval between background fetches per toplevel */
+	fetchTtlMs: 60000,
+	/** fs-event burst collapse window */
+	debounceMs: 200,
+	/** backoff before re-attempting a failed watcher (or a missing .git) */
+	watchRetryMs: 60000,
+	/** SSE comment heartbeat interval */
+	heartbeatMs: 25000,
+	/**
+	 * Invoker for the status sample; null means the real runGit. The suite
+	 * injects one that reports the `-uall` call as timed out, which exercises the
+	 * collapsed-fallback branch deterministically — a real sub-millisecond budget
+	 * would just race git's own startup.
+	 */
+	gitRunner: null
+};
+
+/**
  * Run git in dir. Resolves { stdout } on success; on failure { stdout: null }
  * plus exactly one of: timeout (execFile timeout kill), missing (no git
  * binary), or exitCode (git ran and rejected — e.g. "not a repository").
@@ -47,7 +87,7 @@ const name = "dsh-git-badge";
  * from a transient one (degraded).
  */
 function runGit(dir, args, opts) {
-	const { env, timeout = 3000 } = opts ?? {};
+	const { env, timeout = config.gitTimeoutMs } = opts ?? {};
 	// env is a full replacement for execFile; overlay onto process.env so
 	// PATH/HOME (credential helpers, global config) survive
 	const fullEnv = env === void 0 ? void 0 : { ...process.env, ...env };
@@ -70,12 +110,11 @@ const GIT_DEGRADED = { git: false, error: "git unavailable (timeout or failure)"
  * `git fetch` — without one, a remote update (push from elsewhere, GitHub
  * edit) is invisible to the badge until the user happens to fetch. A
  * TTL-bounded fetch closes that gap: at most one network round trip per
- * FETCH_TTL_MS per repository, regardless of how often the route is hit
+ * `config.fetchTtlMs` per repository, regardless of how often the route is hit
  * (watcher bursts included). Mirrors what IDEs do (VS Code's throttled
  * auto-fetch), with a TTL rather than a timer: fetch only happens when
  * someone is actually looking at the badge.
  */
-const FETCH_TTL_MS = 60000;
 /** lastFetchAt per toplevel; in-flight promise per toplevel collapses races. */
 const fetchState = new Map();
 
@@ -91,7 +130,7 @@ async function maybeFetch(toplevel) {
 	const state = fetchState.get(toplevel);
 	if (state !== void 0) {
 		if (state.inFlight !== null) return state.inFlight;
-		if (now - state.lastAttemptAt < FETCH_TTL_MS) return false;
+		if (now - state.lastAttemptAt < config.fetchTtlMs) return false;
 	}
 	const inFlight = (async () => {
 		// --no-tags --prune: refs-only refresh, cheapest correct form.
@@ -102,8 +141,8 @@ async function maybeFetch(toplevel) {
 			env: { GIT_TERMINAL_PROMPT: "0" },
 			// measured real-world fetch is ~3s on SSH; the status-call 3s budget
 			// would kill healthy fetches on a slow link. 8s is the worst-case
-			// route latency, paid at most once per FETCH_TTL_MS per workspace.
-			timeout: 8000
+			// route latency, paid at most once per fetchTtlMs per workspace.
+			timeout: config.fetchTimeoutMs
 		});
 		const ok = out.stdout !== null;
 		fetchState.set(toplevel, { lastAttemptAt: Date.now(), inFlight: null });
@@ -152,6 +191,37 @@ function parseStatusV2(out) {
 }
 
 /**
+ * In-progress operation markers, in precedence order. Git drops one of these in
+ * the per-worktree git dir while an operation is paused; the first match names
+ * the operation. `SQUASH_MSG` is listed in its own right because a squash merge
+ * records no `MERGE_HEAD`.
+ */
+const OPERATION_MARKERS = [
+	["MERGE_HEAD", "merge"],
+	["SQUASH_MSG", "squash"],
+	["CHERRY_PICK_HEAD", "cherry-pick"],
+	["REVERT_HEAD", "revert"],
+	["BISECT_LOG", "bisect"],
+	["rebase-merge", "rebase"],
+	["rebase-apply", "rebase"],
+	["sequencer", "sequencer"]
+];
+
+/**
+ * Name of the git operation currently paused in gitDir, or null. Markers live in
+ * the per-worktree git dir (not the shared one), so the caller passes
+ * `rev-parse --absolute-git-dir`. Stat'ing the paths beats eight
+ * `rev-parse --git-path` invocations — these are plain existence checks.
+ */
+function operationMarker(gitDir) {
+	if (gitDir === "") return null;
+	for (const [marker, operation] of OPERATION_MARKERS) {
+		if (existsSync(join(gitDir, marker))) return operation;
+	}
+	return null;
+}
+
+/**
  * Git status for dir; { git: false } when dir is not a repository,
  * GIT_DEGRADED on transient git failure.
  *
@@ -159,18 +229,45 @@ function parseStatusV2(out) {
  * workspace pointing INSIDE a larger repository reports that repository's
  * branch, dirty state, and ahead/behind counts (what git itself considers
  * dirty), not the subdirectory in isolation. Intentional.
+ *
+ * `wantDetail` has no consumer yet: both surfaces fetch without `detail=1`.
+ * The branch is retained for the planned hover card — nothing renders
+ * lastCommits / stashCount today.
  */
 async function gitStatus(dir, wantDetail) {
-	const top = await runGit(dir, ["rev-parse", "--show-toplevel"]);
+	// one invocation answers both questions: the repository root (so a
+	// subdirectory workspace reports the whole repo) and the per-worktree git
+	// dir (where the operation markers above live)
+	const top = await runGit(dir, ["rev-parse", "--show-toplevel", "--absolute-git-dir"]);
 	if (top.stdout === null) {
 		// git ran and rejected ("not a repository") is a definitive answer;
 		// timeout / missing binary is transient
 		return top.exitCode !== void 0 ? { git: false } : GIT_DEGRADED;
 	}
-	const toplevel = top.stdout.trim();
+	const topLines = top.stdout.trim().split("\n");
+	const toplevel = (topLines[0] ?? "").trim();
 	if (toplevel === "") return { git: false };
-	const sample = () => runGit(toplevel, ["--no-optional-locks", "status", "--porcelain=v2", "--branch"]);
-	let statusOut = await sample();
+	const gitDir = (topLines[1] ?? "").trim();
+	// -uall counts untracked FILES; git's default collapses a new directory into
+	// a single entry, which is why `✎n` under-reported anyone who added a folder.
+	// Routed through config.gitRunner so the suite can force the timeout branch.
+	const sample = (untrackedAll) => (config.gitRunner ?? runGit)(toplevel, [
+		"--no-optional-locks",
+		"status",
+		"--porcelain=v2",
+		"--branch",
+		untrackedAll ? "--untracked-files=all" : "--untracked-files=normal"
+	]);
+	let untrackedMode = "all";
+	let statusOut = await sample(true);
+	if (statusOut.timeout) {
+		// A pathological tree (a huge unignored directory) must not cost the whole
+		// badge: retry collapsed and report which answer was served, rather than
+		// degrading — or worse, silently reporting a count the client cannot
+		// interpret.
+		untrackedMode = "collapsed";
+		statusOut = await sample(false);
+	}
 	if (statusOut.stdout === null) return GIT_DEGRADED;
 	let parsed = parseStatusV2(statusOut.stdout);
 	// The upstream header is the cheap gate: no upstream configured → the
@@ -180,7 +277,7 @@ async function gitStatus(dir, wantDetail) {
 	if (parsed.upstream !== void 0) {
 		const fetched = await maybeFetch(toplevel);
 		if (fetched) {
-			statusOut = await sample();
+			statusOut = await sample(untrackedMode === "all");
 			if (statusOut.stdout === null) return GIT_DEGRADED;
 			parsed = parseStatusV2(statusOut.stdout);
 		}
@@ -196,11 +293,13 @@ async function gitStatus(dir, wantDetail) {
 		unstagedFiles: parsed.unstaged,
 		unmergedFiles: parsed.unmerged,
 		untrackedFiles: parsed.untracked,
+		untrackedMode,
+		operation: operationMarker(gitDir),
 		ahead: parsed.ahead,
 		behind: parsed.behind
 	};
 	if (wantDetail) {
-		// last 3 commits (subject + relative age) for the hover card
+		// last 3 commits (subject + relative age) for the planned hover card
 		const logOut = await runGit(toplevel, ["log", "-3", "--format=%h%x09%s%x09%cr"]);
 		if (logOut.stdout !== null && logOut.stdout.trim() !== "") {
 			info.lastCommits = logOut.stdout.trim().split("\n").map((line) => {
@@ -227,8 +326,8 @@ async function gitStatus(dir, wantDetail) {
  */
 const watchers = new Map();
 const changeListeners = new Set();
-const WATCH_RETRY_MS = 60000;
-const DEBOUNCE_MS = 200;
+/** Open SSE responses, so plugin unload can end them instead of leaking them. */
+const openStreams = new Set();
 
 function notifyChange(key) {
 	for (const fn of changeListeners) {
@@ -237,6 +336,22 @@ function notifyChange(key) {
 		} catch {
 			/* a dead SSE subscriber must never break the others */
 		}
+	}
+}
+
+/**
+ * Tear down one SSE stream. Idempotent: `req` and `res` both fire `close` and
+ * the plugin disposer can race them, so membership in openStreams is the single
+ * source of truth for "still open".
+ */
+function closeStream(stream) {
+	if (!openStreams.delete(stream)) return;
+	changeListeners.delete(stream.send);
+	clearInterval(stream.heartbeat);
+	try {
+		stream.res.end();
+	} catch {
+		/* already gone */
 	}
 }
 
@@ -252,7 +367,7 @@ function watchWorkspace(root, key) {
 	const existing = watchers.get(key);
 	if (existing !== void 0) {
 		// live watcher, or a failed attempt still inside its retry backoff
-		if (existing.watcher !== null || Date.now() - existing.failedAt < WATCH_RETRY_MS) return;
+		if (existing.watcher !== null || Date.now() - existing.failedAt < config.watchRetryMs) return;
 		watchers.delete(key);
 	}
 	// only git workspaces need a badge; a missing .git skips the watcher but
@@ -272,7 +387,7 @@ function watchWorkspace(root, key) {
 			const record = watchers.get(key);
 			if (record === void 0) return;
 			clearTimeout(record.timer);
-			record.timer = setTimeout(() => notifyChange(key), DEBOUNCE_MS);
+			record.timer = setTimeout(() => notifyChange(key), config.debounceMs);
 		});
 		watcher.on("error", () => unwatchWorkspace(key));
 		watchers.set(key, { watcher, timer: void 0 });
@@ -328,42 +443,81 @@ function apply(ctx) {
 			}
 		}
 	}));
-	ctx.effect(() => ctx.webServer.register({
-		kind: "exact",
-		path: "/api/git-badge/events",
-		handler: async (req, res) => {
-			// keep the watcher set aligned with the live registry on every connect
-			syncWatchers(ctx);
-			res.writeHead(200, {
-				"content-type": "text/event-stream",
-				"cache-control": "no-cache",
-				connection: "keep-alive"
-			});
-			// flush immediately: staged headers only hit the wire on first write,
-			// and the first real event may be minutes away
-			res.write(": connected\n\n");
-			const send = (key) => {
-				try {
-					res.write(`data: ${JSON.stringify({ path: key })}\n\n`);
-				} catch {
-					/* socket gone; the close handler cleans up */
-				}
-			};
-			changeListeners.add(send);
-			// comment-only heartbeat keeps proxies from idling the stream out
-			const heartbeat = setInterval(() => {
-				try {
-					res.write(": hb\n\n");
-				} catch {
-					/* ignore */
-				}
-			}, 25000);
-			req.on("close", () => {
-				changeListeners.delete(send);
-				clearInterval(heartbeat);
-			});
-		}
-	}));
+	ctx.effect(() => {
+		const dispose = ctx.webServer.register({
+			kind: "exact",
+			path: "/api/git-badge/events",
+			handler: async (req, res) => {
+				// keep the watcher set aligned with the live registry on every connect
+				syncWatchers(ctx);
+				res.writeHead(200, {
+					"content-type": "text/event-stream",
+					"cache-control": "no-cache",
+					connection: "keep-alive",
+					// proxies (nginx et al) buffer responses by default, which holds
+					// event frames back until the buffer fills
+					"x-accel-buffering": "no"
+				});
+				// flush immediately: staged headers only hit the wire on first write,
+				// and the first real event may be minutes away
+				res.write(": connected\n\n");
+				const stream = {
+					res,
+					heartbeat: null,
+					send: (key) => {
+						try {
+							// NAMED frame: the client subscribes with
+							// addEventListener("change", …), which never sees an
+							// unnamed message
+							res.write(`event: change\ndata: ${JSON.stringify({ path: key })}\n\n`);
+						} catch {
+							/* socket gone; the close handler cleans up */
+						}
+					}
+				};
+				changeListeners.add(stream.send);
+				// comment-only heartbeat keeps proxies from idling the stream out
+				stream.heartbeat = setInterval(() => {
+					try {
+						res.write(": hb\n\n");
+					} catch {
+						/* ignore */
+					}
+				}, config.heartbeatMs);
+				openStreams.add(stream);
+				// both fire on a client disconnect; closeStream is idempotent
+				req.on("close", () => closeStream(stream));
+				res.on("close", () => closeStream(stream));
+			}
+		});
+		// unloading the plugin must not leave subscribers holding dead streams,
+		// nor keep process-wide watchers alive
+		return () => {
+			dispose();
+			for (const stream of [...openStreams]) closeStream(stream);
+			for (const key of [...watchers.keys()]) unwatchWorkspace(key);
+		};
+	});
 }
 
 export { apply, inject, name };
+
+// ---------- test-only exports ----------
+// Additive named exports; cordis reads apply/inject/name and ignores the rest.
+// The suite in ./test drives these directly instead of booting DSH, which is
+// what lets a node-half change be verified without a restart.
+export {
+	config,
+	OPERATION_MARKERS,
+	operationMarker,
+	parseStatusV2,
+	runGit,
+	gitStatus,
+	watchWorkspace,
+	unwatchWorkspace,
+	syncWatchers,
+	watchers,
+	changeListeners,
+	openStreams,
+	closeStream
+};
