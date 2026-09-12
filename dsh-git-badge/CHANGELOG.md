@@ -12,6 +12,16 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Changed
 
+- **The sidebar row shows status, not the branch.** The row now renders a small
+  tree whose crown is filled with the status colour, and a linked worktree's name
+  after it — `🌳`, or `🌳 ⑂hotfix-tree`. The tree is drawn as an SVG rather than
+  typed as an emoji because 🌳 is a **colour emoji**: CSS cannot tint its leaves,
+  and a tree that carries the status has to be paintable. The crown colours come
+  from the app's own `--dsw-alias-state-{success,warn,error}-primary` tokens, so
+  the row follows light/dark and custom themes — which the chip's hardcoded dot
+  emoji cannot do. Colour is not the only channel: the crown carries an
+  accessible name. The branch, sync counts and operation token stay on the input
+  chip, the surface scoped to the current conversation.
 - **The status endpoint no longer accepts a filesystem path.** The caller now says
   *who it is* and the server resolves the workspace itself: `?session=<id>` for the
   input chip, `?workspace=<id>` for a sidebar row. `?path=` is refused with

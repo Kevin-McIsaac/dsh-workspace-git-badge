@@ -3,6 +3,10 @@
 The badge shows a **colored dot**, your **branch name**, and sometimes
 **small numbers** like `↑2 ↓1 ✎3`. Here's what each piece means.
 
+In the input box you get all of that. On a **sidebar row** the same status
+appears as a small **tree** — its leaves take the status colour — followed by the
+worktree's name when the folder is a linked `git worktree`, and no branch.
+
 ## The colored dot — "is there something I need to do?"
 
 The dot summarizes your whole git situation in three levels:
@@ -59,8 +63,9 @@ back to yellow — or green. The ⚔ word is the only part of the badge saying g
 is still mid-operation and waiting for you to continue or undo it
 (`git rebase --continue`, `git rebase --abort`, …).
 
-Only the chip in the input box shows the token. The sidebar rows show just the
-dot and the branch.
+Only the chip in the input box shows the token. A sidebar row shows a small
+status **tree** — the crown takes the same three colours — plus the worktree's
+name when the folder is a linked worktree. It does not show the branch.
 
 ## A worked example
 

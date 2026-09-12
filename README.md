@@ -18,19 +18,26 @@ The Git status badge for a project in the:
   workspace after each project name. (May require the seam patch to enable)
 
 ```
-Project 1   | 🟡 main
-Project 2   | 🟢 main
+Project 1   | 🌳
+Project 2   | 🌳 ⑂hotfix-tree
 ```
+
+  The row shows a **status tree** (the crown is filled with the status colour)
+  and, for a linked worktree, the worktree's name. The branch is deliberately not
+  repeated here — the input chip is the surface that names it.
   </li>
 </ul>
 Git status is updated within seconds of any commit, checkout, stage, or file edit — including inside a linked worktree.
 
-## Dot colors
+## Status colours
 
-The dot encodes a three-state summary (checked top-down, first match wins):
+One three-state summary drives both the chip's dot and the sidebar row's tree
+crown (checked top-down, first match wins). The tree is drawn as an SVG rather
+than typed as an emoji precisely so its crown can take these theme colours —
+🌳 is a colour emoji and cannot be tinted.
 
-| Dot | When | What to do |
-|-----|------|------------|
+| Colour | When | What to do |
+|--------|------|------------|
 | 🔴 red | Unmerged files (merge/rebase conflict in progress), **or** a dirty tree that is also behind upstream | Resolve conflicts, or commit your edits before pulling |
 | 🟡 yellow | Dirty files, or any ahead/behind (sync pending) | Commit (✎), push (↑), or pull (↓) when convenient |
 | 🟢 green | Clean and in sync with the upstream | Nothing |
@@ -54,7 +61,7 @@ The token names what git is waiting on: `⚔merge`, `⚔squash`, `⚔cherry-pick
 It is independent of the dot. A paused rebase whose conflicts are all already
 staged has **no unmerged files**, so the dot can be green while `⚔rebase` is
 showing — the token is the only signal that history is mid-rewrite. Tokens
-appear on the input chip only; sidebar rows show dot + branch.
+appear on the input chip only.
 
 ## Worktrees
 
@@ -70,7 +77,8 @@ same `🟡 main`:
 name. The name is dropped when the branch already implies it (a `repo-feat-x`
 directory on branch `feat-x` shows a bare `⑂`), and a main checkout carries no
 token at all — so the everyday chip is unchanged. Like the operation token, this
-is chip-only; sidebar rows show dot + branch.
+is chip-only; a sidebar row instead names the worktree after its status tree
+(`🌳 ⑂hotfix-tree`) and shows no branch.
 
 ## Install
 

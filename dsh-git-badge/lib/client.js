@@ -2,7 +2,10 @@
  * dsh-git-badge — client half.
  *
  * Surfaces:
- *  - sidebar.workspaces.row (seam): row badge — dot + branch
+ *  - sidebar.workspaces.row (seam): row badge — workspace name, then a status
+ *    tree whose crown colour is the status, then `⑂<name>` for a linked
+ *    worktree. Deliberately shows NO branch: the chip is the surface that
+ *    names it.
  *  - conversation.input.left (upstream): chip — dot + branch + linked-worktree
  *    token + in-progress operation token + sync/dirty suffix
  * The hover card is intentionally untouched.
@@ -148,30 +151,58 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Three-state dot color, shared by the sidebar row badge and the
-		 * composer chip. Checked top-down, first match wins:
-		 *  - RED: unmerged files (mid-conflict, git is blocked) — or a dirty
+		 * Three-state status, checked top-down, first match wins:
+		 *  - "error": unmerged files (mid-conflict, git is blocked) — or a dirty
 		 *    tree that is ALSO behind upstream (unsaved edits on an outdated
 		 *    base: commit-then-pull friction ahead).
-		 *  - YELLOW: dirty files, or any ahead/behind (routine work or sync
+		 *  - "warn": dirty files, or any ahead/behind (routine work or sync
 		 *    pending — including the previously "quiet" green-but-↓1 case).
-		 *  - GREEN: clean and in sync.
+		 *  - "ok": clean and in sync.
 		 * Red never means merely "behind": a clean tree one commit behind is
 		 * normal between pulls, not an alarm.
+		 *
+		 * The single source of truth for that summary. The chip renders it as a
+		 * dot emoji; the sidebar row renders it as the tree crown's colour.
 		 */
-		function badgeDot(info) {
+		function badgeStatus(info) {
 			const dirty = info.dirty === true;
 			const behind = (info.behind || 0) > 0;
 			const ahead = (info.ahead || 0) > 0;
 			const conflict = (info.unmergedFiles || 0) > 0;
-			if (conflict || (dirty && behind)) return "\uD83D\uDD34";
-			if (dirty || ahead || behind) return "\uD83D\uDFE1";
+			if (conflict || (dirty && behind)) return "error";
+			if (dirty || ahead || behind) return "warn";
+			return "ok";
+		}
+
+		/** Three-state dot — INPUT CHIP ONLY; the sidebar row shows the tree. */
+		function badgeDot(info) {
+			const status = badgeStatus(info);
+			if (status === "error") return "\uD83D\uDD34";
+			if (status === "warn") return "\uD83D\uDFE1";
 			return "\uD83D\uDFE2";
 		}
 
 		/**
-		 * Sync/dirty suffix — INPUT CHIP ONLY. The sidebar row badge shows
-		 * status + branch alone; the chip is the detailed surface. Rule set:
+		 * Crown colour per status, from the app's own semantic tokens so the row
+		 * follows light/dark and custom themes — which the chip's hardcoded dot
+		 * emoji cannot do. The literals are only fallbacks for use outside DSH.
+		 */
+		const CROWN_COLOR = {
+			error: "var(--dsw-alias-state-error-primary, #e5484d)",
+			warn: "var(--dsw-alias-state-warn-primary, #d29922)",
+			ok: "var(--dsw-alias-state-success-primary, #30a46c)"
+		};
+
+		/** Accessible name per status: the crown colour must not be the only channel. */
+		const STATUS_LABEL = {
+			error: "git: conflict, or uncommitted changes on an outdated base",
+			warn: "git: uncommitted changes, or out of sync with upstream",
+			ok: "git: clean and in sync"
+		};
+
+		/**
+		 * Sync/dirty suffix — INPUT CHIP ONLY. The sidebar row shows status alone;
+		 * the chip is the surface that carries the numbers. Rule set:
 		 *  - dirty files render as ✎n (pencil = worktree files, distinct from
 		 *    the ↑/↓ commit-sync axis)
 		 *  - while dirty, BOTH sync counts render including zeros (↑0 ↓2 ✎3),
@@ -192,9 +223,9 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * In-progress operation token — INPUT CHIP ONLY (the row badge stays
-		 * dot + branch). A paused rebase or cherry-pick whose conflicts are all
-		 * already staged has no unmerged files, so the three-state dot cannot
+		 * In-progress operation token — INPUT CHIP ONLY (the row shows the status
+		 * tree alone). A paused rebase or cherry-pick whose conflicts are all
+		 * already staged has no unmerged files, so the three-state summary cannot
 		 * distinguish it from ordinary dirty work; this says which
 		 * history-rewriting operation git is waiting on.
 		 */
@@ -215,17 +246,19 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Linked-worktree token — INPUT CHIP ONLY, like the operation token (the
-		 * row badge stays dot + branch). The chip carries no workspace identity at
-		 * all, so several worktrees of one repository all render the same `🟡 main`
-		 * and there is no way to tell which checkout a conversation is in. The node
-		 * half reports whether this is a linked worktree plus its directory NAME
-		 * (never a path).
+		 * Linked-worktree token — INPUT CHIP ONLY (the row marks a worktree its own
+		 * way: `⑂<name>` after the status tree). The chip carries no workspace
+		 * identity at all, so several worktrees of one repository all render the
+		 * same `🟡 main` and there is no way to tell which checkout a conversation
+		 * is in. The node half reports whether this is a linked worktree plus its
+		 * directory NAME (never a path).
 		 *
 		 * The glyph always shows for a linked worktree — that fact is worth knowing
 		 * on its own — and the name is appended only when it says something the
 		 * branch does not. The usual `repo-feat-x` directory sitting on branch
-		 * `feat-x` would otherwise read as stutter.
+		 * `feat-x` would otherwise read as stutter. (The ROW needs no such rule:
+		 * it shows the name instead of the branch, so there is nothing to stutter
+		 * against.)
 		 */
 		const WORKTREE_GLYPH = "\u2442";
 
@@ -262,13 +295,57 @@ window.__ModuleLoader__.load({
 		};
 
 		/**
-		 * Row badge — three-state dot + branch (sync/dirty detail lives on
-		 * the input chip):
-		 *   the_paragliding_app  | 🟢 main
-		 * Dot color via badgeDot(): green clean+synced, yellow dirty or
+		 * Sidebar-row status tree: a 12px tree whose crown is filled with the
+		 * status token and whose trunk inherits the surrounding muted row colour.
+		 *
+		 * Drawn rather than typed because 🌳 is a COLOUR EMOJI — CSS cannot tint
+		 * its leaves, so a tree that carries the status has to be an SVG. Three
+		 * overlapping crown lobes plus a trunk stay legible at 12px, where a
+		 * single circle would just read as the status dot it replaces. Colour is
+		 * not the only channel: the accessible name states the status.
+		 */
+		function StatusTree({ info }) {
+			const status = badgeStatus(info);
+			const crown = CROWN_COLOR[status];
+			return react_jsx_runtime.jsxs("svg", {
+				width: 12,
+				height: 12,
+				viewBox: "0 0 12 12",
+				role: "img",
+				"aria-label": STATUS_LABEL[status],
+				focusable: "false",
+				style: { flex: "none", display: "block", marginRight: "4px", color: META_STYLE.color },
+				children: [
+					// trunk first, so the crown's lobes overlap and join it
+					react_jsx_runtime.jsx("rect", { key: "trunk", x: 5.35, y: 7.1, width: 1.3, height: 3.6, rx: 0.55, fill: "currentColor" }),
+					react_jsx_runtime.jsx("circle", { key: "crown-1", cx: 6, cy: 3.9, r: 3.1, fill: crown }),
+					react_jsx_runtime.jsx("circle", { key: "crown-2", cx: 3.6, cy: 5.5, r: 2.2, fill: crown }),
+					react_jsx_runtime.jsx("circle", { key: "crown-3", cx: 8.4, cy: 5.5, r: 2.2, fill: crown })
+				]
+			});
+		}
+
+		/**
+		 * Text after the status tree. A main checkout shows NOTHING — the row is a
+		 * survey of status, and the branch lives on the input chip — while a linked
+		 * worktree shows `⑂<name>`: the one thing the row's own label (the worktree
+		 * directory by default) cannot be trusted to say once a workspace is renamed.
+		 */
+		function rowLabel(info) {
+			if (info.isWorktree !== true) return "";
+			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
+			return WORKTREE_GLYPH + name;
+		}
+
+		/**
+		 * Row badge — workspace name, then the status tree, plus a linked
+		 * worktree's name (never the branch):
+		 *   the_paragliding_app  | 🌳
+		 *   worktree_thing       | 🌳 ⑂hotfix-tree
+		 * Crown colour via badgeStatus(): green clean+synced, amber dirty or
 		 * out-of-sync, red conflict or dirty-and-behind.
 		 * Always renders the workspace name (so the row keeps its identity);
-		 * appends the muted `| emoji branch` part only for git workspaces.
+		 * appends the muted `| tree [name]` part only for git workspaces.
 		 *
 		 * Targets the row's `workspaceId`. The seam also passes `cwd`, which is
 		 * deliberately ignored: the node half resolves the directory itself, so
@@ -277,16 +354,15 @@ window.__ModuleLoader__.load({
 		 * name-only.
 		 */
 		function WorkspaceGitBadge({ label, workspaceId }) {
-			// no detail=1: the row renders dot + branch only, and the extra log /
-			// stash calls have no consumer yet
+			// no detail=1: the row needs status and identity only, and the extra
+			// log / stash calls have no consumer yet
 			const info = useGitStatus(workspaceId === void 0 ? void 0 : { kind: "workspace", id: workspaceId });
 			const children = [react_jsx_runtime.jsx("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: label })];
 			if (workspaceId !== void 0 && info !== void 0 && info.git === true) {
-				children.push(
-					react_jsx_runtime.jsx("span", { style: { ...META_STYLE, margin: "0 7px" }, children: "|" }),
-					react_jsx_runtime.jsx("span", { style: { ...META_STYLE, marginRight: "4px" }, children: badgeDot(info) }),
-					react_jsx_runtime.jsx("span", { style: META_STYLE, children: info.branch })
-				);
+				children.push(react_jsx_runtime.jsx("span", { style: { ...META_STYLE, margin: "0 7px" }, children: "|" }));
+				children.push(react_jsx_runtime.jsx(StatusTree, { info }));
+				const worktree = rowLabel(info);
+				if (worktree !== "") children.push(react_jsx_runtime.jsx("span", { style: META_STYLE, children: worktree }));
 			}
 			return react_jsx_runtime.jsx("span", { style: { display: "flex", alignItems: "center", minWidth: 0 }, children });
 		}
