@@ -1,2 +1,4 @@
 backup-*.js
 .npm-cache/
+# local-only reference clone (prior-art study; never publish)
+.reference/

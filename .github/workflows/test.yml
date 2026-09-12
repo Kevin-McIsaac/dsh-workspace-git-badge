@@ -1,0 +1,30 @@
+# Runs the dsh-git-badge node-half suite.
+#
+# No DSH, no browser, no network: the tests drive apply() with a fake cordis
+# context and build real temporary git repositories, so the whole node half —
+# status parsing, the workspace allowlist, SSE framing and the fs watcher — is
+# verified without restarting anyone's web process.
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # package.json declares engines.node >= 20
+        node-version: [20, 22, 24]
+    defaults:
+      run:
+        working-directory: dsh-git-badge
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: npm test

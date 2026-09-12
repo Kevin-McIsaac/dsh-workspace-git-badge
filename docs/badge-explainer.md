@@ -29,7 +29,9 @@ The rules are checked top-down: red wins over yellow, yellow over green.
 ```
 
 - **✎ (pencil) = uncommitted changes.** Files you edited, added, or
-  deleted since your last commit. Committing makes this go to zero.
+  deleted since your last commit. Committing makes this go to zero. Every new
+  file counts, including each file inside a brand-new folder — so dropping in a
+  folder of 3 files shows `✎3`, not `✎1`.
 
 - **↑ (up) = ahead.** Commits that exist only on your machine.
   Fix: `git push`.
@@ -37,6 +39,28 @@ The rules are checked top-down: red wins over yellow, yellow over green.
 - **↓ (down) = behind.** Commits that exist on the remote but not on
   your machine — usually a teammate pushed, or you merged a pull
   request on GitHub. Fix: `git pull`.
+
+## The ⚔ token — "git is in the middle of something"
+
+Sometimes the badge shows a word with a little sword in front of it, right after
+the branch name:
+
+```
+🟡 main ⚔rebase ↑0 ↓2 ✎3
+```
+
+That means git started an operation and has not finished it. The word says
+which one: `⚔merge`, `⚔squash`, `⚔cherry-pick`, `⚔revert`, `⚔bisect`,
+`⚔rebase`, `⚔sequencer`.
+
+This matters because the **colored dot cannot tell you this**. When you pause a
+rebase and stage the files you fixed, no conflicts are left, so the dot goes
+back to yellow — or green. The ⚔ word is the only part of the badge saying git
+is still mid-operation and waiting for you to continue or undo it
+(`git rebase --continue`, `git rebase --abort`, …).
+
+Only the chip in the input box shows the token. The sidebar rows show just the
+dot and the branch.
 
 ## A worked example
 
@@ -63,4 +87,5 @@ an extra merge).
 | 🟡 main ✎2 | 2 files changed, not committed | `git add` + `git commit` |
 | 🔴 main ✎2 ↓1 | Uncommitted edits *and* behind — commit before pulling | `git add` + `git commit`, then `git pull` |
 | 🟡 main ↑2 ↓1 ✎3 | Unsaved edits, plus unsynced commits both ways | Commit your edits, then `git pull` and `git push` |
+| 🟡 main ⚔rebase | A rebase is paused, waiting on you | Finish it (`git rebase --continue`) or undo it (`git rebase --abort`) |
 | 🔴 main | Merge conflict in progress | Resolve the conflicted files, then commit |

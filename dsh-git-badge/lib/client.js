@@ -2,8 +2,9 @@
  * dsh-git-badge — client half.
  *
  * Surfaces:
- *  - sidebar.workspaces.row (seam): full row badge — emoji, branch, sync, ✎files
- *  - conversation.input.left (upstream): compact chip — emoji + branch only
+ *  - sidebar.workspaces.row (seam): row badge — dot + branch
+ *  - conversation.input.left (upstream): chip — dot + branch + in-progress
+ *    operation token + sync/dirty suffix
  * The hover card is intentionally untouched.
  */
 window.__ModuleLoader__.load({
@@ -22,6 +23,19 @@ window.__ModuleLoader__.load({
 		/** Slow safety-net poll: refreshes even if the SSE stream is silently dead. */
 		const FALLBACK_POLL_MS = 60000;
 
+		/**
+		 * Path equality for SSE notifications. The node half notifies with the
+		 * registered workspace path, while a surface may hold a variant spelling
+		 * (a trailing slash). A bare === there would silently kill that row's
+		 * freshness, so normalise the one difference we can cheaply normalise.
+		 */
+		function samePath(a, b) {
+			if (a === b) return true;
+			if (typeof a !== "string" || typeof b !== "string") return false;
+			const trim = (value) => value.length > 1 ? value.replace(/\/+$/, "") : value;
+			return trim(a) === trim(b);
+		}
+
 		//#region SSE change feed (one EventSource per page, ref-counted)
 		const eventListeners = new Set();
 		let eventSource = null;
@@ -32,7 +46,9 @@ window.__ModuleLoader__.load({
 			eventRefs += 1;
 			if (eventSource === null) {
 				eventSource = new EventSource("/api/git-badge/events");
-				eventSource.onmessage = (message) => {
+				// NAMED frames: the node half writes `event: change`, and onmessage
+				// never fires for a named event
+				eventSource.addEventListener("change", (message) => {
 					let path;
 					try {
 						path = JSON.parse(message.data).path;
@@ -41,7 +57,7 @@ window.__ModuleLoader__.load({
 					}
 					// invalidate every cache entry for this workspace, then refetch
 					for (const key of [...GIT_CACHE.keys()]) {
-						if (key === path) GIT_CACHE.delete(key);
+						if (samePath(key, path)) GIT_CACHE.delete(key);
 					}
 					for (const fn of [...eventListeners]) {
 						try {
@@ -50,7 +66,7 @@ window.__ModuleLoader__.load({
 							/* one bad subscriber must not starve the rest */
 						}
 					}
-				};
+				});
 			}
 			return () => {
 				eventListeners.delete(onChange);
@@ -98,7 +114,7 @@ window.__ModuleLoader__.load({
 			load();
 			// this workspace's watcher events → refetch
 			const unsubscribe = subscribeGitEvents((path) => {
-				if (path === cwd) load();
+				if (samePath(path, cwd)) load();
 			});
 			const fallback = setInterval(load, FALLBACK_POLL_MS);
 			return () => {
@@ -154,6 +170,29 @@ window.__ModuleLoader__.load({
 			return parts.length > 0 ? " " + parts.join(" ") : "";
 		}
 
+		/**
+		 * In-progress operation token — INPUT CHIP ONLY (the row badge stays
+		 * dot + branch). A paused rebase or cherry-pick whose conflicts are all
+		 * already staged has no unmerged files, so the three-state dot cannot
+		 * distinguish it from ordinary dirty work; this says which
+		 * history-rewriting operation git is waiting on.
+		 */
+		const OPERATION_LABELS = {
+			merge: "\u2694merge",
+			squash: "\u2694squash",
+			"cherry-pick": "\u2694cherry-pick",
+			revert: "\u2694revert",
+			bisect: "\u2694bisect",
+			rebase: "\u2694rebase",
+			sequencer: "\u2694sequencer"
+		};
+
+		/** ` ⚔rebase` when an operation is paused, else "". */
+		function formatOperationToken(info) {
+			const label = OPERATION_LABELS[info.operation];
+			return label === void 0 ? "" : " " + label;
+		}
+
 		const META_STYLE = {
 			color: "var(--dsw-alias-label-tertiary, #9ea7ad)",
 			fontSize: "12px",
@@ -172,7 +211,9 @@ window.__ModuleLoader__.load({
 		 * appends the muted `| emoji branch` part only for git workspaces.
 		 */
 		function WorkspaceGitBadge({ label, cwd }) {
-			const info = useGitStatus(cwd, false);
+			// no detail=1: the row renders dot + branch only, and the extra log /
+			// stash calls have no consumer yet
+			const info = useGitStatus(cwd);
 			const children = [react_jsx_runtime.jsx("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: label })];
 			if (cwd !== void 0 && info !== void 0 && info.git === true) {
 				children.push(
@@ -220,9 +261,11 @@ window.__ModuleLoader__.load({
 		 */
 		function ComposerGitChip({ sessionId }) {
 			const cwd = useSessionWorkspaceCwd(sessionId);
-			const info = useGitStatus(cwd, true);
+			// no detail=1 either: nothing renders lastCommits / stashCount yet, and
+			// asking for them would add a log -3 plus a stash list to every refresh
+			const info = useGitStatus(cwd);
 			if (cwd === void 0 || info === void 0 || info.git !== true) return null;
-			const text = badgeDot(info) + " " + info.branch + formatGitSuffix(info);
+			const text = badgeDot(info) + " " + info.branch + formatOperationToken(info) + formatGitSuffix(info);
 			return react_jsx_runtime.jsx("span", {
 				style: {
 					display: "inline-flex",
