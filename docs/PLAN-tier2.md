@@ -180,6 +180,54 @@ Verification, in order:
 | 5s polling on a failed watcher costs git calls | Failure-only, per workspace, non-`-uall`, injectable interval |
 | Poll misses untracked-dir additions | Documented; 60s client poll is the backstop |
 
+## Deltas as implemented
+
+1. **`CHANGELOG.md` lives in `dsh-git-badge/`, not the repo root.** The plan said
+   root *and* add it to package `files` — mutually exclusive, because npm's `files`
+   cannot reach outside the package directory. Shipping it (the stated intent)
+   forced the package directory. It is in `files` now, and the package README
+   links it.
+2. **`0.5.x` history is not reconstructed.** The plan said "brief backfill from the
+   release notes and `git log`", but the history does not map onto published
+   versions — `d294ea3` landed after the 0.5.5 bump commit yet shipped in 0.6.0.
+   Guessing per-version entries would have manufactured a record, so the file says
+   plainly that earlier versions predate it.
+3. **The poll's first tick fires immediately.** The plan did not mention baseline
+   timing. The first test draft wrote a file before the initial tick, so the change
+   became part of the baseline and was never announced — a real behaviour bug, not
+   just a test artifact. `startFallbackPoll` now baselines at once.
+4. **A live-verification finding, fixed here:** the client's `surfaces:` console
+   line reported `sidebar rows = off (seam absent)` while five row badges were
+   visibly rendering. It sampled `slots.spec()` at `apply()` time, before the
+   workspace browser declares the seam — a boot race printed as a verdict.
+   `AGENTS.md` and `TESTING.md` both send debuggers to that line, so it was fixed
+   rather than documented around.
+5. **Four stale references the resolution change invalidated**, all corrected:
+   `test-profile.sh`'s 403 probe, `TESTING.md`'s curl examples, `AGENTS.md` rules 1
+   and 6 (the "allowlist" the suite covers, and the 403 contract that no longer
+   exists), and the package README's "only answers registered workspace paths".
+
+### Found, deliberately not fixed (out of scope)
+
+`seam/apply.sh revert` restores `backup-client.js` unconditionally. If a DSH update
+replaced `lib/client.js` in the meantime, `revert` would **downgrade** the installed
+file to the pre-patch bytes of the previous version. `status` now makes that state
+visible ("SEAM PRESENT, but not this repo's artifact"), but `revert` itself should
+refuse unless the installed file is this repo's patched artifact. Left alone because
+changing `revert`'s semantics was not in the approved scope.
+
+### Verification status
+
+Item 1 was verified **live**, not just by tests: the node contract (`?session` →
+404 `session-not-found`, `?path` → 400 `target-required`, `?workspace=<uuid>` →
+200), the served client bundle (new markers present, old absent), and the rendered
+UI — confirmed over CDP against the real GUI at 1680×1050, where 5 row separators
+and 6 dots appeared across two different branches. An earlier 800×600 probe showed
+no rows at all; that was a window-size artifact, not a breakage.
+
+Items 2–4 are verified by suite (51/51, stable over four runs) and clean-profile
+boot, but need a restart to be seen live.
+
 ## Out of scope
 
 Static preview page (skipped by decision), hover card consuming `detail=1`, write
