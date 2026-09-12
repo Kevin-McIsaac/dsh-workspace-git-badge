@@ -38,6 +38,16 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Fixed
 
+- **The TTL fetch no longer delays the status response.** `ahead`/`behind` are
+  read from the local remote-tracking ref, and the fetch that refreshes it was
+  awaited before answering, so any request arriving after the 60s TTL had lapsed
+  paid a full network fetch first (~3.3s measured) — which is the first request
+  after every TTL window, i.e. constantly while editing. Badge updates triggered
+  by an edit took seconds for a repo with a remote. The response is now served
+  from the refs at hand and the fetch runs out of band; when it succeeds it
+  notifies subscribers, which reconverge in ~40ms. Same call, expired TTL: 27ms.
+  The trade is that `ahead`/`behind` can lag by up to one fetch — branch, dirty
+  state and file counts are never delayed.
 - The plugin's `surfaces:` console line reported the boot-time race instead of the
   outcome: it printed `sidebar rows = off (seam absent)` while row badges were
   visibly rendering, because it sampled the seam declaration before the workspace

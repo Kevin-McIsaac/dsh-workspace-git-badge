@@ -12,8 +12,12 @@ contract updated 2026-09 for server-side resolution):
 #      ?workspace=<uuid>   a sidebar row's workspace (a generated uuid)
 #      ?session=<id>       the input chip's conversation
 #    Take an id from a plugin SSE notification (its payload is
-#    {path, workspace}) or from the GUI's workspaces store. Curl BEFORE any
-#    manual git fetch, so you also exercise the TTL auto-fetch + resample:
+#    {path, workspace}) or from the GUI's workspaces store.
+#
+#    For a repo with a remote, the response comes from the LOCAL
+#    remote-tracking refs and a TTL-bounded fetch runs out of band — so
+#    ahead/behind may lag by up to one fetch. To compare against freshly
+#    fetched refs, `git fetch` yourself first, then curl:
 curl -s "http://127.0.0.1:3080/api/git-badge?workspace=<workspaceId>"
 
 # Unknown target — the stable error shape that replaced the old path 403:

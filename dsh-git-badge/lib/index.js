@@ -28,11 +28,14 @@
  *       markers (`MERGE_HEAD`, `rebase-merge`, …) are stat'd — surfaced as
  *       `operation`, so a paused rebase/cherry-pick is distinguishable from
  *       ordinary dirty work even when its conflicts are already staged.
- *     - ahead/behind compare against the LOCAL remote-tracking ref, which
- *       only moves on fetch — so a TTL-bounded background fetch (60s per
- *       toplevel) runs before status when the ref can be stale. `GIT_TERMINAL_PROMPT=0`
- *       and the shared timeout keep an offline/slow remote from stalling the
- *       route; on fetch failure the stale-ref answer is served as-is.
+ *     - ahead/behind compare against the LOCAL remote-tracking ref, which only
+ *       moves on fetch. A TTL-bounded fetch (60s per toplevel) keeps that ref
+ *       fresh, but it runs OUT OF BAND: the answer is served from the refs at
+ *       hand and a successful fetch notifies subscribers so the next refresh
+ *       carries corrected ahead/behind. Awaiting it here cost ~3.3s per request
+ *       on the first refresh after each TTL window. `GIT_TERMINAL_PROMPT=0`, the
+ *       shared timeout and the TTL bound keep an offline or slow remote harmless;
+ *       on failure the stale-ref answer simply stands.
  *     - `detail=1` adds one `log -3` plus a stash count. NOTE: no surface
  *       consumes this yet (see the annotation on gitStatus) — it is kept for
  *       the planned hover card, and never paid for by row refresh.
@@ -280,18 +283,26 @@ async function gitStatus(dir, wantDetail) {
 		statusOut = await sample(false);
 	}
 	if (statusOut.stdout === null) return GIT_DEGRADED;
-	let parsed = parseStatusV2(statusOut.stdout);
-	// The upstream header is the cheap gate: no upstream configured → the
-	// fetch would be a no-op probe, skip it entirely. When it fires and the
-	// fetch succeeds, re-sample so this very response already carries the
-	// fresh ahead/behind instead of lagging one cycle behind.
+	const parsed = parseStatusV2(statusOut.stdout);
+	// The upstream header is the cheap gate: with no upstream the fetch would be a
+	// no-op probe, so skip it. With one, refresh the remote-tracking refs OUT OF
+	// BAND rather than before the answer.
+	//
+	// Blocking here cost ~3.3s per request (measured: `git fetch` over SSH) on every
+	// request whose TTL had lapsed — and that is the first refresh after each 60s
+	// window, i.e. constantly while someone is editing, which made an edit-triggered
+	// badge update take seconds. So: answer now from the refs we already have, and
+	// when the background fetch succeeds, notify subscribers — the client refetches,
+	// finds the TTL fresh, and picks up the corrected ahead/behind in ~50ms. The
+	// cost of the trade is that ahead/behind can lag by up to one fetch.
 	if (parsed.upstream !== void 0) {
-		const fetched = await maybeFetch(toplevel);
-		if (fetched) {
-			statusOut = await sample(untrackedMode === "all");
-			if (statusOut.stdout === null) return GIT_DEGRADED;
-			parsed = parseStatusV2(statusOut.stdout);
-		}
+		void maybeFetch(toplevel)
+			.then((fetched) => {
+				if (fetched) notifyChange(toplevel);
+			})
+			.catch(() => {
+				/* a failed fetch just means the stale-ref answer stands */
+			});
 	}
 	const dirtyFiles = parsed.staged + parsed.unstaged + parsed.unmerged + parsed.untracked;
 	const info = {

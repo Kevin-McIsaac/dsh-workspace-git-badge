@@ -60,6 +60,17 @@ not move the key** — that case waits for the 60s client poll on a broken-watch
 workspace. The alternative was an `-uall` walk every 5 seconds, which is not worth
 it for a degraded path.
 
+Separately, **ahead/behind converge out of band.** They are read from the local
+remote-tracking ref, which only a fetch moves, so a repo with an upstream gets a
+TTL-bounded fetch (60s per toplevel) — but it is *not* awaited: the response is
+served from the refs at hand, and a successful fetch notifies subscribers so the
+next refresh carries corrected counts. Awaiting it used to cost ~3.3s per request
+(measured `git fetch` over SSH) on the first request after each TTL window, which
+made an edit-triggered badge update take seconds. The trade is that ahead/behind
+can lag by up to one fetch; branch, dirty state and counts are never delayed by it.
+If you are verifying counts against ground truth, fetch yourself first, then curl
+(see `docs/VERIFICATION.md`).
+
 Pattern credit: the fake-ctx / fake-stream / temp-repo shape is adapted from
 `@wongzexu/dsh-git-status` (MIT).
 

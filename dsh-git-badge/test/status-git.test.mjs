@@ -6,8 +6,28 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { config, gitStatus, runGit as pluginRunGit } from "../lib/index.js";
-import { makeRepo, makeTempDir } from "../test-support/repo.mjs";
+import { changeListeners, config, gitStatus, runGit as pluginRunGit } from "../lib/index.js";
+import { makeRepo, makeTempDir, runGit } from "../test-support/repo.mjs";
+
+/** Subscribe to change notifications; released with the test. */
+function spyOn(t) {
+	const seen = [];
+	const spy = (payload) => seen.push(payload);
+	changeListeners.add(spy);
+	t.after(() => changeListeners.delete(spy));
+	return seen;
+}
+
+/** Poll to a deadline — fs/git timing is not deterministic. */
+async function waitFor(fn, { timeoutMs = 3000, intervalMs = 25 } = {}) {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		const value = fn();
+		if (value) return value;
+		if (Date.now() >= deadline) return value;
+		await new Promise((resolve) => setTimeout(resolve, intervalMs));
+	}
+}
 
 test("a non-repository directory is a definitive { git: false }", async (t) => {
 	const dir = await makeTempDir(t, "dsh-git-badge-nonrepo-");
@@ -149,4 +169,38 @@ test("detail=1 adds the last commits and the stash count", async (t) => {
 	assert.equal(info.lastCommits.length, 1);
 	assert.match(info.lastCommits[0].hash, /^[0-9a-f]+$/);
 	assert.equal(info.lastCommits[0].subject, "initial");
+});
+
+test("the TTL fetch is out of band: it never delays the answer", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	const bare = await repo.withUpstream();
+
+	// advance the remote WITHOUT touching this repo's refs, so origin/main here
+	// is stale until a fetch runs
+	const other = await makeTempDir(t, "dsh-git-badge-clone-");
+	await runGit(other, ["clone", "--quiet", bare, "clone"]);
+	const clone = join(other, "clone");
+	await runGit(clone, ["config", "user.email", "t@e.com"]);
+	await runGit(clone, ["config", "user.name", "T"]);
+	await writeFile(join(clone, "b.txt"), "b\n");
+	await runGit(clone, ["add", "-A"]);
+	await runGit(clone, ["commit", "-m", "remote advance"]);
+	await runGit(clone, ["push", "--quiet", "origin", "main"]);
+
+	const seen = spyOn(t);
+
+	// The first answer must come from the refs at hand. If the fetch were awaited
+	// this would already report behind=1 — and in production that await cost ~3.3s.
+	const first = await gitStatus(repo.root);
+	assert.equal(first.upstream, "origin/main");
+	assert.equal(first.behind, 0, "the response must not wait for the fetch");
+
+	// ...and the out-of-band fetch must announce itself so clients reconverge
+	const hit = await waitFor(() => seen.length > 0, { timeoutMs: 5000 });
+	assert.ok(hit, "a successful background fetch must notify subscribers");
+
+	// after which the corrected count is served without another fetch
+	const second = await gitStatus(repo.root);
+	assert.equal(second.behind, 1);
 });
