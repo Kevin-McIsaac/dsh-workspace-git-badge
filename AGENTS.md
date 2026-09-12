@@ -7,7 +7,7 @@ Notes for coding agents working in this repo.
 `dsh-git-badge` — a DeepSeek Harness cordis plugin (npm-published) providing
 git status badges: an input-row chip (`conversation.input.left`, works
 everywhere) and sidebar workspace-row badges via the `sidebar.workspaces.row`
-seam (a local 32-line patch in `seam/`, proposed upstream — see `PR.md`).
+seam (a local +40/−8 patch in `seam/`, proposed upstream — see `PR.md`).
 
 ## Read first
 

@@ -150,6 +150,11 @@ dsh-git-badge/test/
 
 ## Verification
 
+> **Superseded in part.** Step 5's curl uses the `?path=` form that Tier 2 removed
+> — the route now takes `?session=<id>` or `?workspace=<id>`. See
+> [`PLAN-tier2.md`](PLAN-tier2.md) and the current procedure in
+> [`VERIFICATION.md`](VERIFICATION.md). The rest of this section still applies.
+
 1. `cd dsh-git-badge && npm test` → green, with no DSH running and no restart.
 2. Targeted: nested-untracked repo → count equals the real file count and
    `untrackedMode: "all"`; forced tiny timeout → `untrackedMode: "collapsed"`.
