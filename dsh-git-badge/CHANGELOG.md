@@ -15,7 +15,7 @@ npm. 0.6.0 is the first release recorded here.
 ### Changed
 
 - **Both surfaces draw the same status mark.** The input chip no longer leads with
-  a 🔴/🟡/🟢 emoji dot: it renders the SAME 12px SVG mark as the sidebar row — a
+  a 🔴/🟡/🟢 emoji dot: it renders the SAME SVG mark as the sidebar row — a
   filled **circle**, or a **tree** for a linked `git worktree` — so the shape says
   *worktree or not* and the fill says *status*, identically wherever the badge
   appears. The `⑂` worktree glyph is gone with the emoji: the tree shape already
