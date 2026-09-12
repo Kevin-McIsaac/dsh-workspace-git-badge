@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { changeListeners, config, gitStatus, runGit as pluginRunGit } from "../lib/index.js";
+import { changeListeners, config, gitStatus, outerGitDir, runGit as pluginRunGit } from "../lib/index.js";
 import { makeRepo, makeTempDir, runGit } from "../test-support/repo.mjs";
 
 /** Subscribe to change notifications; released with the test. */
@@ -237,4 +237,20 @@ test("a subdirectory of a linked worktree reports the worktree, not itself", asy
 	const info = await gitStatus(sub);
 	assert.equal(info.isWorktree, true);
 	assert.equal(info.worktreeName, "nested-tree");
+});
+
+test("a submodule is NOT a worktree, though its git dir is out-of-tree too", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	const sub = await repo.submoduleAdd({ name: "sub" });
+	const info = await gitStatus(sub);
+	assert.equal(info.git, true);
+	// A submodule's `.git` is a gitfile exactly like a worktree's, so the gitfile
+	// alone must not be the test: worktree-ness is the `commondir` marker, and
+	// reporting a submodule as a worktree would put a tree on the row.
+	assert.equal(info.isWorktree, false);
+	assert.equal(info.worktreeName, "sub");
+	// ...while the watcher still has to look outside the directory, as for a worktree
+	assert.match(outerGitDir(sub), /[\\/]\.git[\\/]modules[\\/]sub$/);
+	assert.equal((await gitStatus(repo.root)).isWorktree, false, "the hosting checkout is unaffected");
 });

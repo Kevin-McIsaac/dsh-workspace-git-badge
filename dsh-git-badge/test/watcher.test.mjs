@@ -260,3 +260,22 @@ test("unwatchWorkspace releases the linked worktree's git-dir watcher too", asyn
 	await settle();
 	assert.equal(seen.length, 0, "a released worktree must stop notifying");
 });
+
+test("a submodule's out-of-tree git dir is watched too", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	const sub = await repo.submoduleAdd({ name: "sub" });
+	// Dirty the tracked file BEFORE the watch exists, so no root-watch event can
+	// arrive afterwards and only the git-dir watcher can possibly notify.
+	writeFileSync(join(sub, "s.txt"), "changed\n");
+	releaseWatchers(t);
+	const seen = spyOn(t);
+	watchWorkspace(sub, sub, "ws-sub");
+	const record = watchers.get(sub);
+	assert.notEqual(record.watcher, null, "the submodule directory is watched");
+	assert.notEqual(record.extra, null, "and its git dir outside it is watched too");
+	await runGit(sub, ["add", "s.txt"]);
+	const hit = await waitFor(() => seen.length > 0, { timeoutMs: 3000 });
+	assert.ok(hit, "staging in a submodule must notify via the git-dir watcher");
+	assert.equal(seen[0].workspace, "ws-sub");
+});

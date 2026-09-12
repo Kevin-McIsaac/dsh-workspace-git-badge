@@ -2,24 +2,30 @@
 
 Verified procedures from development. Read this before testing changes.
 
-## Node tests (no DSH, no restart)
+## The suite (no DSH, no restart)
 
 ```bash
 cd dsh-git-badge && npm test      # node --test, no dependencies
 ```
 
-Run this first for **any** node-half change. It verifies the status parser,
-`gitStatus` against real temporary repositories, request→workspace resolution, SSE
-framing and the fs watcher without booting DSH — so it costs no restart and
-cannot end your session. CI runs the same command on Node 20/22/24
+Run this first for **any** change to either lib half. For the node half it
+verifies the status parser, `gitStatus` against real temporary repositories,
+request→workspace resolution, SSE framing and the fs watcher. For the client half
+it loads `lib/client.js` — the real bundle — behind a stub module loader and
+renders both registered surfaces, so the mark's shape/colour rules, the row's
+"never show the branch" rule and the worktree-name suppression are asserted
+rather than eyeballed. Nothing boots DSH, so it costs no restart and cannot end
+your session. CI runs the same command on Node 20/22/24
 (`.github/workflows/test.yml`).
 
 Layout:
 
 - `dsh-git-badge/test/*.test.mjs` — the suite.
 - `dsh-git-badge/test-support/` — `harness.mjs` (fake cordis ctx, fake req/res,
-  SSE frame parsing) and `repo.mjs` (throwaway git repositories). Deliberately
-  outside `test/`, so `node --test` discovers exactly the suite.
+  SSE frame parsing), `repo.mjs` (throwaway git repositories, including linked
+  worktrees and submodules) and `client.mjs` (stub `__ModuleLoader__` + react, so
+  the browser bundle runs under node). Deliberately outside `test/`, so
+  `node --test` discovers exactly the suite.
 
 House rules for extending it: keep helpers out of `test/`; release every watcher
 and SSE stream in `t.after` (an open handle keeps the process alive and hangs the
@@ -93,9 +99,13 @@ The feature has three independently testable layers:
 1. **Node half** (`dsh-git-badge/lib/index.js`) — pure functions and git plumbing;
    covered by the suite above without booting DSH. A restart is only needed to see
    the change live.
-2. **Published plugin** (`dsh-git-badge` from npm) — the customer experience;
+2. **Client half** (`dsh-git-badge/lib/client.js`) — the rendered badge: mark
+   shape and colour, the row/chip composition, the accessible names. Covered by the
+   same suite through `test-support/client.mjs`; only the bundle actually being
+   served to a browser is left to a refresh.
+3. **Published plugin** (`dsh-git-badge` from npm) — the customer experience;
    test in a **clean profile**.
-3. **Seam patch** (`seam/apply.sh`) — the sidebar rows; only meaningful on
+4. **Seam patch** (`seam/apply.sh`) — the sidebar rows; only meaningful on
    top of a working plugin install.
 
 ## Clean-profile test (customer simulation)
@@ -193,8 +203,9 @@ hard-refresh. DevTools console confirms which code is live via the
 - **Node half changed** → run `npm test` first; a restart is then only needed to
   see it live (the suite already covers the parser, `gitStatus` against real
   repos, resolution, SSE and the watcher).
-- **Client half only** → usually a browser refresh suffices; after patch or
-  bundle-graph changes, restart first (see above).
+- **Client half changed** → `npm test` covers the rendering rules (mark shape and
+  colour, row/chip composition); a browser refresh is then only needed to see it
+  live. After patch or bundle-graph changes, restart first (see above).
 
 ## Publishing a new version
 

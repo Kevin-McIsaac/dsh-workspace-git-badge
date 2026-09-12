@@ -44,6 +44,14 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Added
 
+- **A client-half test suite, plus submodule coverage.** `test/client.test.mjs`
+  loads the real `lib/client.js` behind a stub module loader and renders both
+  registered surfaces, so the mark's shape/colour rules, the row's "never show the
+  branch" rule, the right-float and the worktree-name suppression are asserted in
+  CI rather than eyeballed. The node half gains a real-submodule fixture: a
+  submodule is asserted **not** to be a worktree (its gitfile alone must not decide
+  it — worktree-ness is the `commondir` marker) while its out-of-tree git dir is
+  still watched, like a linked worktree's.
 - **The input chip now says which working tree a conversation is in.** A linked
   `git worktree`'s directory name is appended after the branch —
   `🌳 main hotfix-tree ↑0 ↓2 ✎3` — because several worktrees of one repository
