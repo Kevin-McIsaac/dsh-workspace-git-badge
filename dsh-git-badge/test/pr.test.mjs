@@ -121,6 +121,25 @@ test("a PR is summarized to number, CI state, draft and review", () => {
 	});
 });
 
+test("the PR's web URL is carried, so the chip's token can link to it", () => {
+	const url = "https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/pull/16";
+	assert.equal(summarizePr({ ...JSON.parse(OPEN_PR), url }).url, url);
+});
+
+test("only an http(s) URL is carried: no payload value reaches an href unchecked", () => {
+	for (const url of [
+		"javascript:alert(1)",
+		"data:text/html,<script>alert(1)</script>",
+		"file:///etc/passwd",
+		"not a url at all",
+		""
+	]) {
+		assert.equal("url" in summarizePr({ ...JSON.parse(OPEN_PR), url }), false, `must be omitted: ${url}`);
+	}
+	// absent is absent, like every other nothing-to-say field in this half
+	assert.equal("url" in summarizePr(JSON.parse(OPEN_PR)), false);
+});
+
 test("a merged or closed PR is not open", () => {
 	assert.equal(summarizePr({ number: 1, state: "MERGED" }).open, false);
 	assert.equal(summarizePr({ number: 1, state: "CLOSED" }).open, false);
@@ -309,6 +328,17 @@ test("gitStatus attaches pr only when asked", async (t) => {
 	await gitStatus(repo.root, false, true);
 	await waitFor(() => calls.length >= 1);
 	assert.equal(calls.length, 1, "pr=1 is what asks for it");
+});
+
+test("gh is asked for the URL the chip links to", async (t) => {
+	clearPr(t);
+	const repo = await githubRepo(t);
+	const calls = stubPr(t, { stdout: OPEN_PR });
+	await readPrStatus(repo.root, "main");
+	assert.equal(calls.length, 1);
+	// the field list is one comma-joined argument, so assert on its members
+	const fields = calls[0].args[calls[0].args.indexOf("--json") + 1].split(",");
+	assert.ok(fields.includes("url"), `--json must request url, got: ${fields.join(",")}`);
 });
 
 test("the route refuses to wait for the forge", async (t) => {

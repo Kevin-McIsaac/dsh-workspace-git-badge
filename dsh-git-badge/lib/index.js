@@ -305,6 +305,19 @@ function summarizePr(json) {
 	// omitted, not present-and-undefined: absence is the contract for "nothing to
 	// say" throughout this half, so a consumer tests the key, never the value
 	if (typeof json.reviewDecision === "string" && json.reviewDecision !== "") pr.review = json.reviewDecision;
+	// The chip links the token to the PR, so `url` is the one field that becomes an
+	// `href`: only http(s) is emitted, and anything else is omitted like every
+	// other "nothing to say" field, so a payload value cannot reach an anchor as a
+	// `javascript:` URL. The client re-checks before it builds the href — this half
+	// is the authority on what it vouches for, not the only guard.
+	if (typeof json.url === "string" && json.url !== "") {
+		try {
+			const { protocol } = new URL(json.url);
+			if (protocol === "http:" || protocol === "https:") pr.url = json.url;
+		} catch {
+			// not a URL at all — omitted, exactly like an absent one
+		}
+	}
 	return pr;
 }
 
@@ -316,7 +329,7 @@ async function readPrStatus(toplevel, branch) {
 	// a detached HEAD is not a branch `gh` can resolve a PR for
 	if (typeof branch !== "string" || branch === "" || branch.startsWith("HEAD")) return void 0;
 	if (!(await originIsGitHub(toplevel))) return void 0;
-	const out = await runPrCli("gh", ["pr", "view", branch, "--json", "number,state,isDraft,reviewDecision,statusCheckRollup"], {
+	const out = await runPrCli("gh", ["pr", "view", branch, "--json", "number,state,isDraft,reviewDecision,statusCheckRollup,url"], {
 		cwd: toplevel,
 		timeout: config.prTimeoutMs,
 		// GH_PROMPT_DISABLED: an auth prompt must never hang the refresh (the gh
