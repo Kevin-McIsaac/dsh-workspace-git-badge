@@ -29,6 +29,15 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Added
 
+- **The input chip now says which working tree a conversation is in.** A linked
+  `git worktree` is marked with `⑂` plus the checkout's directory name —
+  `🟡 main ⑂hotfix-tree ↑0 ↓2 ✎3` — because several worktrees of one repository
+  otherwise render identical `🟡 main` chips and the chip carries no workspace
+  identity at all. The name is dropped when the branch already implies it
+  (`repo-feat-x` on `feat-x` shows a bare `⑂`), a main checkout is not marked, and
+  the response reports `isWorktree` / `worktreeName` from one stat of the git dir
+  the existing `rev-parse` already returned — no extra git invocation. Chip-only,
+  like the operation token. The value is a directory NAME, never a path.
 - **A server-side poll fallback for workspaces whose file watcher failed.** A
   workspace whose recursive `fs.watch` could not be established, or which later
   errored, is polled every 5s on a state key (status + refs fingerprint +
@@ -45,6 +54,15 @@ npm. 0.6.0 is the first release recorded here.
   only updated when it remounted (switching conversations) or on the 60s fallback
   poll. The status response now echoes the resolved workspace id and the client
   matches on that. This was a regression in the server-side resolution change.
+- **A linked worktree's badge only refreshed on a file edit.** The watcher watched
+  the workspace root, but a linked worktree's git dir lives OUTSIDE it
+  (`<main>/.git/worktrees/<name>`), so `git add`, `git commit` and `git checkout`
+  there wrote nothing the root watch could see: the badge stayed stale until a
+  worktree file changed or the client's 60s poll fired. The per-worktree git dir
+  now gets its own watcher, resolved from the `.git` gitfile (which covers
+  submodules too), and either watcher erroring drops both and hands over to the
+  degraded poll. A regression test that stages a file written before the watch
+  existed fails without the second watcher.
 - **The TTL fetch no longer delays the status response.** `ahead`/`behind` are
   read from the local remote-tracking ref, and the fetch that refreshes it was
   awaited before answering, so any request arriving after the 60s TTL had lapsed

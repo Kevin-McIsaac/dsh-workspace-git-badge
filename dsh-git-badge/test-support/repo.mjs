@@ -61,6 +61,7 @@ export async function makeTempDir(t, prefix = "dsh-git-badge-") {
  *   branch(name, start?)      checkout(name, args?)  stashPush(args?)
  *   headHash()                currentBranch()        gitDir()      git(args)
  *   untrackedTree(n)          makeSubdir(name?)      withUpstream()
+ *   worktreeAdd({ name?, branch? })
  */
 export async function makeRepo(t, { userName = "Test User", userEmail = "test@example.com" } = {}) {
 	const root = await makeTempDir(t);
@@ -138,6 +139,19 @@ export async function makeRepo(t, { userName = "Test User", userEmail = "test@ex
 			await runGit(root, ["remote", "add", "origin", bare]);
 			await runGit(root, ["push", "-u", "origin", "main"]);
 			return bare;
+		},
+
+		/**
+		 * Add a LINKED worktree on a new branch, in a sibling temp directory, and
+		 * return its root. It is a real one: its `.git` is a gitfile pointing at
+		 * `<root>/.git/worktrees/<name>`, so its index/HEAD/reflogs live OUTSIDE
+		 * the worktree root — the case the watcher must cover.
+		 */
+		async worktreeAdd({ name = "linked", branch = "linked-branch" } = {}) {
+			const parent = await makeTempDir(t, "dsh-git-badge-worktree-");
+			const worktreeRoot = join(parent, name);
+			await runGit(root, ["worktree", "add", "-q", worktreeRoot, "-b", branch]);
+			return worktreeRoot;
 		}
 	};
 	return api;

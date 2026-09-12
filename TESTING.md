@@ -43,7 +43,13 @@ baseline and is correctly never announced.
 Three mechanisms, in order of preference, all **event-driven by default**:
 
 1. A recursive `fs.watch` per registered workspace, debounced (200ms) — the normal
-   path. A commit, checkout, stage or worktree edit pushes one SSE frame.
+   path. A commit, checkout, stage or worktree edit pushes one SSE frame. A
+   **linked worktree** gets a **second** watcher on its git dir, because that git
+   dir lives outside the worktree root (`<main>/.git/worktrees/<name>`): without
+   it, a stage, commit or checkout there moved nothing the root watch could see,
+   and the badge waited for a file edit or the 60s client poll. Either watcher
+   erroring closes both and hands over to the poll below. Both are released by
+   `unwatchWorkspace`.
 2. **Degraded mode:** a workspace whose watcher could not be established, or which
    later errored, gets a server-side state-key poll every `config.pollFallbackMs`
    (5s). The key is `status --porcelain=v2 --branch` (collapsed untracked mode)
@@ -52,6 +58,12 @@ Three mechanisms, in order of preference, all **event-driven by default**:
    `unwatchWorkspace`, by the plugin-unload disposer, and when a retry re-
    establishes a real watcher.
 3. The client's 60s safety-net poll, for when the SSE stream itself has died.
+
+`repo.mjs`'s `worktreeAdd()` builds a real linked worktree in a sibling temp dir
+for the two watcher tests below and the identity tests in `status-git.test.mjs`.
+Write a file BEFORE `watchWorkspace` when a test must prove that only the git-dir
+watcher (not the root watch) produced a notification — otherwise a root-watch
+event from the setup can satisfy the assertion.
 
 Two deliberate limits: a workspace with **no `.git` is never polled** (it is not a
 repository; the retry backoff covers it), and because degraded mode uses the cheap

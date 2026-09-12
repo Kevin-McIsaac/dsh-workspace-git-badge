@@ -23,7 +23,7 @@ Project 2   | 🟢 main
 ```
   </li>
 </ul>
-Git status is updated within seconds of any commit, checkout, stage, or file edit.
+Git status is updated within seconds of any commit, checkout, stage, or file edit — including inside a linked worktree.
 
 ## Dot colors
 
@@ -55,6 +55,22 @@ It is independent of the dot. A paused rebase whose conflicts are all already
 staged has **no unmerged files**, so the dot can be green while `⚔rebase` is
 showing — the token is the only signal that history is mid-rewrite. Tokens
 appear on the input chip only; sidebar rows show dot + branch.
+
+## Worktrees
+
+When the workspace is a linked `git worktree`, the chip says which checkout the
+conversation is in — several worktrees of one repository otherwise all render the
+same `🟡 main`:
+
+```
+🟡 main ⑂hotfix-tree ↑0 ↓2 ✎3
+```
+
+`⑂` marks a linked worktree and the name after it is the checkout's directory
+name. The name is dropped when the branch already implies it (a `repo-feat-x`
+directory on branch `feat-x` shows a bare `⑂`), and a main checkout carries no
+token at all — so the everyday chip is unchanged. Like the operation token, this
+is chip-only; sidebar rows show dot + branch.
 
 ## Install
 

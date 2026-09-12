@@ -3,8 +3,8 @@
  *
  * Surfaces:
  *  - sidebar.workspaces.row (seam): row badge — dot + branch
- *  - conversation.input.left (upstream): chip — dot + branch + in-progress
- *    operation token + sync/dirty suffix
+ *  - conversation.input.left (upstream): chip — dot + branch + linked-worktree
+ *    token + in-progress operation token + sync/dirty suffix
  * The hover card is intentionally untouched.
  */
 window.__ModuleLoader__.load({
@@ -214,6 +214,45 @@ window.__ModuleLoader__.load({
 			return label === void 0 ? "" : " " + label;
 		}
 
+		/**
+		 * Linked-worktree token — INPUT CHIP ONLY, like the operation token (the
+		 * row badge stays dot + branch). The chip carries no workspace identity at
+		 * all, so several worktrees of one repository all render the same `🟡 main`
+		 * and there is no way to tell which checkout a conversation is in. The node
+		 * half reports whether this is a linked worktree plus its directory NAME
+		 * (never a path).
+		 *
+		 * The glyph always shows for a linked worktree — that fact is worth knowing
+		 * on its own — and the name is appended only when it says something the
+		 * branch does not. The usual `repo-feat-x` directory sitting on branch
+		 * `feat-x` would otherwise read as stutter.
+		 */
+		const WORKTREE_GLYPH = "\u2442";
+
+		/**
+		 * True when the worktree name is already implied by the branch name, so
+		 * showing both is pure repetition. Compared on a normalized form —
+		 * case-folded, with `/` and `_` folded to `-` — because directory and
+		 * branch conventions differ without changing the meaning (`feat/x` in a
+		 * `repo-feat-x` directory).
+		 */
+		function worktreeNameIsRedundant(name, branch) {
+			if (typeof name !== "string" || name === "" || typeof branch !== "string") return true;
+			const normalize = (value) => value.toLowerCase().replace(/[/_]/g, "-");
+			const normalizedName = normalize(name);
+			const normalizedBranch = normalize(branch);
+			return normalizedName === normalizedBranch
+				|| normalizedName.endsWith("-" + normalizedBranch)
+				|| normalizedBranch.endsWith("-" + normalizedName);
+		}
+
+		/** ` ⑂name` for a linked worktree, ` ⑂` when the name would be stutter, else "". */
+		function formatWorktreeToken(info) {
+			if (info.isWorktree !== true) return "";
+			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
+			return " " + WORKTREE_GLYPH + (worktreeNameIsRedundant(name, info.branch) ? "" : name);
+		}
+
 		const META_STYLE = {
 			color: "var(--dsw-alias-label-tertiary, #9ea7ad)",
 			fontSize: "12px",
@@ -267,7 +306,7 @@ window.__ModuleLoader__.load({
 			// for them would add a log -3 plus a stash list to every refresh
 			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId });
 			if (info === void 0 || info.git !== true) return null;
-			const text = badgeDot(info) + " " + info.branch + formatOperationToken(info) + formatGitSuffix(info);
+			const text = badgeDot(info) + " " + info.branch + formatWorktreeToken(info) + formatOperationToken(info) + formatGitSuffix(info);
 			return react_jsx_runtime.jsx("span", {
 				style: {
 					display: "inline-flex",
