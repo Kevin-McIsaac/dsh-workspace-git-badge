@@ -180,6 +180,68 @@ test("the detail fields appear only once detail has been fetched", () => {
 
 //#endregion
 
+//#region the inferred worktree
+
+test("the card names WHICH worktree the badge describes", () => {
+	// The chip shows the branch alone, so this row is the only place a tree is
+	// identified — and an inferred follow also says why, since "which tree" and
+	// "why this tree" are different questions.
+	const client = createClient({ tooltip: true });
+	const inferred = card(client, {
+		...BASE,
+		branch: "chore/global-skills-tiering",
+		isWorktree: true,
+		worktreeName: "global-skills-tiering",
+		worktreeInferred: true
+	});
+	assert.ok(inferred.includes("worktree"), `expected the worktree row: ${inferred}`);
+	assert.ok(
+		inferred.includes("global-skills-tiering (inferred from its open pull request)"),
+		`expected the tree's name and the reason: ${inferred}`
+	);
+	// a worktree the session is genuinely in is named without the explanation
+	const own = card(client, { ...BASE, branch: "feat/x", isWorktree: true, worktreeName: "hotfix-tree" });
+	assert.ok(own.includes("hotfix-tree"), `expected the tree's name: ${own}`);
+	assert.ok(!own.includes("inferred"), `no explanation when nothing was inferred: ${own}`);
+	// and a main checkout has no tree to name
+	assert.ok(!card(client, BASE).includes("worktree"));
+});
+
+test("the card names the conversation's OWN checkout when the badge followed a worktree", () => {
+	// Once the chip's branch and counts describe an inferred worktree, the
+	// checkout's own state is nowhere else on screen — that is the whole reason
+	// this row exists. It is detail-gated like every other expensive field.
+	const client = createClient({ tooltip: true });
+	const inferred = {
+		...BASE,
+		branch: "chore/global-skills-tiering",
+		isWorktree: true,
+		worktreeName: "global-skills-tiering",
+		worktreeInferred: true,
+		checkout: { branch: "main", dirty: true, changedFiles: 2, untrackedFiles: 1, ahead: 1, behind: 2 }
+	};
+	const body = card(client, inferred);
+	assert.ok(body.includes("checkout"), `expected the checkout row: ${body}`);
+	assert.ok(body.includes("main \u00B7 \u270E3 \u00B7 \u21911 \u21932"), `expected the checkout's own state: ${body}`);
+	assert.ok(body.includes("chore/global-skills-tiering"), "while the badge's own branch is still the worktree's");
+});
+
+test("the card has no checkout row when the badge describes the conversation's own directory", () => {
+	const client = createClient({ tooltip: true });
+	const body = card(client, { ...BASE, checkout: { branch: "main", dirty: false } });
+	assert.ok(!body.includes("checkout"), `the row would be pure repetition: ${body}`);
+});
+
+test("an inferred checkout with no checkout payload yet shows no empty row", () => {
+	// the base request carries worktreeInferred but NOT checkout: the row must wait
+	// for the detail response rather than render a blank
+	const client = createClient({ tooltip: true });
+	const body = card(client, { ...BASE, isWorktree: true, worktreeName: "linked-tree", worktreeInferred: true });
+	assert.ok(!body.includes("checkout"), `expected no row before detail lands: ${body}`);
+});
+
+//#endregion
+
 //#region the PR / CI token
 
 test("the chip carries the PR number and CI state", () => {
@@ -224,12 +286,17 @@ test("no PR field renders exactly the chip it rendered before gh existed", () =>
 	assert.ok(!withoutPr.includes("PR#"), "no token, no trace");
 });
 
-test("the row ignores a PR field entirely", () => {
-	// the row is status and identity only, and it never asks for pr=1
+test("the session row shows an ACTION, never a PR token or a branch", () => {
+	// Third shape for this contract, and each move had a reason: rows ignored `pr`
+	// entirely while the badge lived on a WORKSPACE row (one forge read per row was
+	// unaffordable); then the badge became per CONVERSATION and the row carried the
+	// PR token; now the row's job is triage, so it carries the imperative alone. The
+	// PR number and CI state moved to the row's hover line; the chip keeps both.
 	const client = createClient();
-	const rendered = text(client.row({ branch: "main", dirty: false, pr: { number: 142, state: "failing" } }, "Project 1"));
-	assert.ok(!rendered.includes("PR#"), `the row must not grow a PR token: ${rendered}`);
-	assert.equal(rendered, "Project 1");
+	const rendered = text(client.row({ branch: "SECRET/BRANCH", dirty: false, pr: { number: 142, state: "failing" } }));
+	assert.equal(rendered, "fix CI", `expected the action alone: ${rendered}`);
+	assert.ok(!rendered.includes("PR#"), "the token belongs to the chip now");
+	assert.ok(!rendered.includes("SECRET/BRANCH"), `the row must not name the branch: ${rendered}`);
 });
 
 test("the card describes the PR in words, including review and draft", () => {

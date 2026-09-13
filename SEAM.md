@@ -1,39 +1,49 @@
-# SEAM.md — the `sidebar.workspaces.row` seam
+# SEAM.md — the `sidebar.workspaces.sessionRow` seam
 
-The sidebar row badge needs one small additive slot in the workspace browser; a
-second, experimental slot exposes row detail in the hover card (item 4 below).
-This file documents what the patch does, how to apply it, and why it is safe.
+The sidebar badge needs two small additive slots in the workspace browser: one on
+each **session** row (the badge) and one in that row's existing hover card (the
+badge's provenance line). This file documents what the patch does, how to apply
+it, and why it is safe.
+
+## Why the session row, not the workspace row
+
+A workspace row cannot know which worktree a conversation is working in — DSH
+records no session→worktree link at all (session cwd is immutable creation
+metadata, and `attachSession` requires it to equal the workspace path) — so a
+per-workspace badge must either guess or report the main checkout while the work
+happens in a tree. A **session** row carries a session id, and the plugin's status
+route resolves that id to the checkout the conversation is actually working in.
+The badge therefore belongs where the identity is.
 
 ## What the patch is
 
-`diff seam/pristine-client.js seam/patched-client.js` — +40/−8 lines against
+`diff seam/pristine-client.js seam/patched-client.js` — +39/−3 lines against
 `@deepseek-ai/dsh-client-ui-workspace/lib/client.js`:
 
-1. Declares one child on the existing `sidebar.workspaces` slot registration:
+1. Declares two children on the existing `sidebar.workspaces` slot registration:
 
    ```js
-   "sidebar.workspaces.row": { kind: "list", scope: "root" }
+   "sidebar.workspaces.sessionRow":        { kind: "list", scope: "root" },
+   "sidebar.workspaces.sessionRow.detail": { kind: "list", scope: "root" }
    ```
 
    — the same additive pattern as `conversation.composer.dock`.
 
-2. Renders it inside `ProjectRowItem`'s title area via the props-face
-   `renderSlot`, passing the row owner share `{ workspaceId, cwd, label }`,
-   with the upstream title span as the empty-list fallback.
+2. Renders the badge inside `SessionNodeItem`'s children, immediately after the
+   title span, through the props-face `renderSlot` with the row owner share
+   `{ sessionId, workspaceId, label }`. It returns **`null`** — not a fallback
+   element — when no plugin occupies the seam, so a pristine install renders
+   exactly as upstream.
 
-3. Threads `renderSlot` through `WorkspaceBrowser → SessionTree → ProjectRowItem`.
+3. Renders the detail slot inside `SessionHoverContent`, the card upstream already
+   opens for a session row. A badge that opened its own tooltip there would nest
+   two cards, so the provenance line goes *into* the existing one.
 
-4. Declares and renders a second additive list slot,
-   `sidebar.workspaces.row.detail`, in the workspace hover card, with the same
-   `{ workspaceId, cwd, label }` owner shape and the **raw** host path as `cwd`
-   (the card abbreviates its own display copy separately). No published plugin
-   occupies it yet. Its original intended consumer was the node half's `?detail=1`
-   response (last commits + stash), which is now consumed instead by the **input
-   chip's own hover card** — a surface that needs no seam at all, because the
-   `Tooltip` primitive is seeded by the shell and `conversation.input.left` is
-   upstream. So this detail slot is an optional extension for row-scoped detail,
-   not the only route to those fields, and nothing in the repo depends on it.
-   `PR.md` scopes the upstream proposal to the row slot only.
+4. Threads `renderSlot` and `workspaceId` into `SessionNodeItem` from the **tree
+   call site only** (`workspaceId: group.workspaceId`). The flat "all sessions"
+   list and the search-result list render the same component without either prop,
+   so `renderSessionRowSeam` returns `null` for them and those lists stay bare
+   without needing a guard of their own.
 
 With no plugin registered the rows render byte-identically to upstream. The
 full write-up for maintainers is in [`PR.md`](PR.md).
@@ -43,18 +53,18 @@ full write-up for maintainers is in [`PR.md`](PR.md).
 `seam/apply.sh` patches the installed package in place:
 
 ```bash
-seam/apply.sh status    # inspect: patched / pristine / upstream-landed / drift
-seam/apply.sh apply     # patch + install hints
-seam/apply.sh revert    # restore the pristine files from backup
+seam/apply.sh status    # inspect: patched / out of date / pristine / upstream-landed / drift
+seam/apply.sh apply     # patch (and upgrade an older patch of ours in place)
+seam/apply.sh revert    # restore the upstream files from backup
 ```
 
 `status` mutates nothing and is the first thing to run **after a DSH update**,
 because a DSH release rewrites `lib/client.js` and invalidates the hash-guard. It
-reports the installed hash, whether it matches the pinned baseline or this repo's
-patched artifact, whether a revert backup exists, and whether the seam is
-declared — then gives a verdict. It exits `0` for a recognised state (patched /
-pristine / upstream-landed) and `1` for drift, so it is usable in a script. On
-drift it prints the exact rebuild commands.
+reports the installed hash, whether it matches the pinned baseline, this repo's
+current patched artifact, or an older artifact of ours, whether a revert backup
+exists, and whether the seam is declared — then gives a verdict. It exits `0` for
+a recognised state (patched / out of date / pristine / upstream-landed) and `1`
+for drift, so it is usable in a script. On drift it prints the rebuild commands.
 
 Note the tell it encodes: **hashes, not version strings.** The package version is
 read from whichever copy is installed and says nothing about which bytes they
@@ -62,22 +72,41 @@ are — the same trap that made a dev-install look current when it was not.
 
 Safety rails:
 
-- **Hash-guard**: refuses to patch unless the installed `lib/client.js`
-  matches the sha256 pinned in the script (`seam/stamp-hash.sh` re-pins it after a
-  rebuild). An upstream update is never blind-overwritten.
-- **Seam detection**: once upstream declares the seam itself, `apply` becomes
-  a no-op and the plugin keeps working unchanged.
-- **Reversible, but downgrade-guarded**: `revert` restores the exact pre-patch
-  bytes from the backup taken at apply time — but only while the installed file is
-  still this repo's patched artifact (or already the backup). The backup *is* the
-  previous upstream build, so after a DSH update has replaced `lib/client.js`,
-  restoring it would overwrite a newer file with an older one. `revert` therefore
-  refuses in that case, changes nothing, and exits 1; `status` flags it in advance
-  under `revert: would REFUSE`. The upstream host half is a no-op stub
-  (`seam/pristine-index.js`).
+- **Occupant errors cannot cost the sidebar.** The host wraps each registered
+  *entry* in an error boundary, but the outlet a row renders is not covered by it:
+  a throw in an occupant's render path propagates into the workspace browser, and
+  the shell **abdicates that browser entry** — blanking the whole sidebar. Both
+  seam renders are therefore wrapped in the patch's own boundary, which renders
+  `null` and logs `[dsh-git-badge] seam entry failed; badge omitted:`. A broken
+  occupant loses its badge, never the region. (Learned the hard way: the first
+  session-row patch blanked the sidebar a second after boot, and the revert did
+  not say why.)
+- **Hash-guard**: `apply` proceeds only when the installed `lib/client.js` is the
+  sha256 pinned in the script (`seam/stamp-hash.sh` re-pins it after a rebuild),
+  **or** an artifact this repo built (`PREVIOUS_PATCHED_HASHES`, plus the marker
+  comment every generated artifact carries). An upstream update is never
+  blind-overwritten.
+- **Own-artifact vs upstream-landed**: the two used to be indistinguishable,
+  because both make the seam string appear in the file — and the old
+  "seam present → skip" test therefore silently refused to install every *rebuilt*
+  patch. Now `apply` upgrades an older artifact of ours in place, and skips only
+  when the seam is present in a file that is **not** ours (a genuine upstream
+  landing), which is what the `dsh-git-badge:seam-patch` marker is for.
+- **Reversible, but downgrade-guarded**: `revert` restores the **upstream**
+  baseline — taken from `pristine-client.js`, not from the bytes being replaced,
+  so reverting from a stale patch of ours lands on upstream rather than on the
+  older seam. It refuses when the installed file is neither an artifact of ours
+  nor the backup, because after a DSH update that would overwrite a newer upstream
+  file with an older one. `status` flags that in advance under `revert: would
+  REFUSE`. The upstream host half is a no-op stub (`seam/pristine-index.js`), and
+  `backup-*.js` is gitignored, so any checkout can apply and revert on its own.
 
 `seam/make-patch.sh` regenerates `patched-client.js` from `pristine-client.js`
 (anchor-asserted, so upstream drift fails loudly instead of mispatching).
+
+Migrating from the old workspace-row patch needs nothing special: the previous
+artifact's hash is listed in `apply.sh`, so `apply` recognises it as ours, backs
+up upstream, and installs the session-row seams in its place.
 
 ## Rebuilding after a DSH upgrade
 
@@ -96,17 +125,15 @@ seam/apply.sh apply                               # 4. patch the installed packa
 Upstream refactors can rename props or reorder call sites while the seam
 concept is unchanged. `make-patch.sh` stops on the first anchor it cannot find;
 edit the anchor string there to match the new upstream text — never hand-edit
-`patched-client.js`, it is generated.
-
-If a patch is already applied and you only want to change the patch itself,
-`seam/apply.sh revert` **first**: `apply` short-circuits on seam detection
-*before* the hash-guard, so it would otherwise leave the old patched file in
-place.
+`patched-client.js`, it is generated. Changing the patch itself does **not**
+require a `revert` first: `apply` upgrades its own artifacts in place (that was
+the old behaviour's trap, and the marker exists to keep it fixed).
 
 ## Why it should be upstream
 
-The sidebar has no per-row additive seam today (`sidebar.workspaces` is a
-single slot; its only child is a `single`-kind directory flow). A `list`-kind
-`sidebar.workspaces.row` mirrors the proven `conversation.composer.dock`
-pattern and unlocks row annotations — git badges being the first — as pure
-plugins.
+The sidebar has no per-row additive seam today (`sidebar.workspaces` is a single
+slot; its only child is a `single`-kind directory flow). List-kind children on
+`sidebar.workspaces` mirror the proven `conversation.composer.dock` pattern and
+unlock row annotations — git badges being the first — as pure plugins. The
+session row is the one that matters for anything git-related, because a session
+is the unit that knows which checkout it is using.

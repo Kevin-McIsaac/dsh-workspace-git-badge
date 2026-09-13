@@ -6,19 +6,23 @@
  * identically wherever they appear.
  *
  * Surfaces:
- *  - sidebar.workspaces.row (seam): row badge — workspace name, the status mark
- *    floated right, and a worktree's name beside it. Deliberately shows NO
- *    branch: the chip is the surface that names it.
+ *  - sidebar.workspaces.sessionRow (seam): session-row badge — the status mark
+ *    and the PR/CI token, immediately after the session title. Deliberately shows
+ *    NO branch and no worktree name: the row lists conversations, and which
+ *    checkout the badge describes is the hover card's business.
+ *  - sidebar.workspaces.sessionRow.detail (seam): the hover-card line that names
+ *    that checkout, rendered inside the card upstream ALREADY shows for a session
+ *    row rather than in a tooltip nested inside it.
  *  - conversation.input.left (upstream): chip — status mark + branch + a
  *    worktree's name + in-progress operation token + sync/dirty suffix + the
  *    PR/CI token, with a HOVER CARD carrying the breakdown the chip has no room
- *    for (file detail, recent commits, stash, PR state).
+ *    for (file detail, recent commits, stash, PR state, and the conversation's own
+ *    checkout when the badge followed a worktree).
  *
- * The hover card is the INPUT CHIP's, not the sidebar row's, and it needs
- * nothing but the upstream slot: the Tooltip primitive is seeded by the shell
- * itself, so the card works on a PRISTINE install with no seam patch. Its extra
- * fields are fetched only once a pointer rests on the chip, so the everyday
- * badge pays for none of them.
+ * The chip's hover card needs nothing but the upstream slot: the Tooltip
+ * primitive is seeded by the shell itself, so the card works on a PRISTINE
+ * install with no seam patch. Its extra fields are fetched only once a pointer
+ * rests on the chip, so the everyday badge pays for none of them.
  */
 window.__ModuleLoader__.load({
 	id: "dsh-git-badge",
@@ -340,43 +344,12 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Linked-worktree NAME token — INPUT CHIP ONLY, and only the name: worktree-
-		 * ness itself is carried by the status mark's shape (a tree instead of a
-		 * circle) on both surfaces. The chip has no other workspace identity, so
-		 * several worktrees of one repository would otherwise render identical chips
-		 * with no way to tell which checkout a conversation is in. The node half
-		 * reports whether this is a linked worktree plus its directory NAME (never a
-		 * path).
-		 *
-		 * The name is appended only when it says something the branch does not: the
-		 * usual `repo-feat-x` directory sitting on branch `feat-x` would otherwise
-		 * read as stutter. (The ROW needs no such rule — it shows the name instead
-		 * of the branch, so there is nothing to stutter against.)
+		 * NOTE: a worktree's NAME is deliberately NOT part of the chip's text. It is
+		 * long, it competes with the branch for the same glance, and the chip already
+		 * says THAT the checkout is a worktree through the mark's shape. WHICH tree it
+		 * is belongs to the hover card's `worktree` row — see worktreeDetail. (The
+		 * old append-unless-redundant rule lived here; it is gone with the name.)
 		 */
-
-		/**
-		 * True when the worktree name is already implied by the branch name, so
-		 * showing both is pure repetition. Compared on a normalized form —
-		 * case-folded, with `/` and `_` folded to `-` — because directory and
-		 * branch conventions differ without changing the meaning (`feat/x` in a
-		 * `repo-feat-x` directory).
-		 */
-		function worktreeNameIsRedundant(name, branch) {
-			if (typeof name !== "string" || name === "" || typeof branch !== "string") return true;
-			const normalize = (value) => value.toLowerCase().replace(/[/_]/g, "-");
-			const normalizedName = normalize(name);
-			const normalizedBranch = normalize(branch);
-			return normalizedName === normalizedBranch
-				|| normalizedName.endsWith("-" + normalizedBranch)
-				|| normalizedBranch.endsWith("-" + normalizedName);
-		}
-
-		/** ` name` for a worktree whose name the branch does not already say, else "". */
-		function formatWorktreeToken(info) {
-			if (info.isWorktree !== true) return "";
-			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
-			return worktreeNameIsRedundant(name, info.branch) ? "" : " " + name;
-		}
 
 		const META_STYLE = {
 			color: "var(--dsw-alias-label-tertiary, #9ea7ad)",
@@ -412,7 +385,12 @@ window.__ModuleLoader__.load({
 				height: 14,
 				viewBox: "0 0 12 12",
 				role: "img",
-				"aria-label": (isWorktree ? "git worktree: " : "git: ") + STATUS_LABEL[status],
+				"aria-label":
+					(isWorktree ? "git worktree: " : "git: ") +
+					STATUS_LABEL[status] +
+					// an inferred checkout is not where the conversation lives, so the
+					// accessible name says where the fact came from
+					(info.worktreeInferred === true ? " (inferred from an open pull request in this repository)" : ""),
 				focusable: "false",
 				style: { flex: "none", display: "block", color: META_STYLE.color }
 			};
@@ -436,52 +414,135 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * A linked worktree's directory name, or null when there is nothing to
-		 * show. A main checkout shows NO text: the row surveys status and identity,
-		 * and the branch lives on the input chip — which is why the branch is never
-		 * rendered here. The name is the one thing the row's own label (the
-		 * worktree directory by default) cannot be trusted to say once a workspace
-		 * has been renamed.
+		 * The ONE thing this conversation needs from you, or "" when it needs
+		 * nothing.
+		 *
+		 * A session row's job is TRIAGE — "does this need me?" — so this is not the
+		 * chip's status restated: it is a short imperative, present only when an
+		 * action is genuinely warranted, first match wins. Silence is the common and
+		 * correct answer: uncommitted work is a state rather than a chore, and DRAFT,
+		 * BLOCKED, BEHIND, UNSTABLE and UNKNOWN are things to wait for, not to do.
+		 *
+		 * `merge` keys on GitHub's OWN verdict (`mergeStateStatus === "CLEAN"`) rather
+		 * than a checks-plus-reviews judgement assembled here: mergeability depends on
+		 * branch protection and required reviews, which is the forge's business. A PR
+		 * read that could not answer has no `mergeState`, so it stays silent.
 		 */
-		function rowName(info) {
-			if (info.isWorktree !== true) return null;
-			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
-			return name === "" ? null : name;
+		function actionToken(info) {
+			if (info === void 0 || info === null || info.git !== true) return "";
+			if ((info.unmergedFiles || 0) > 0) return "resolve";
+			const pr = info.pr === void 0 || info.pr === null ? void 0 : info.pr;
+			if (pr !== void 0) {
+				if (pr.state === "failing") return "fix CI";
+				if (pr.review === "CHANGES_REQUESTED") return "review";
+				if (pr.mergeState === "CLEAN") return "merge";
+			}
+			// diverged counts as behind: reconciling is the action either way
+			if ((info.behind || 0) > 0) return "pull";
+			if ((info.ahead || 0) > 0) return "push";
+			return "";
 		}
 
 		/**
-		 * Row badge — workspace name on the left, the status mark floated right:
-		 *   the_paragliding_app                       ●
-		 *   worktree_thing                  hotfix-tree 🌳
-		 * Fill colour via badgeStatus(): green clean+synced, amber dirty or
-		 * out-of-sync, red conflict or dirty-and-behind. Shape via the node half's
-		 * isWorktree: circle = main checkout, tree = linked worktree.
-		 * Always renders the workspace name (so the row keeps its identity) and
-		 * appends the right-hand mark only for git workspaces. No branch, and no
-		 * `|` separator.
+		 * Session-row badge — the ACTION, and nothing else:
+		 *   Session title…                                        merge
 		 *
-		 * Targets the row's `workspaceId`. The seam also passes `cwd`, which is
-		 * deliberately ignored: the node half resolves the directory itself, so
-		 * the client never has to name one. A row with no workspaceId (the
-		 * ungrouped bucket) has no workspace to report on, so it renders
-		 * name-only.
+		 * An experiment in what a sidebar row is FOR. It used to carry the chip's mark
+		 * plus a PR token; it now answers exactly one question — does this conversation
+		 * need me? — in one word, and says nothing otherwise. The chip keeps the mark,
+		 * the branch, the counts and the PR/CI token, because that is the surface for
+		 * "where am I, and what is the state".
+		 *
+		 * Consequences, all deliberate: the row no longer shows local status (clean /
+		 * dirty / ahead / behind) at a glance, no longer carries the worktree's tree
+		 * SHAPE, and a silent row cannot distinguish "nothing to do" from "no PR" or
+		 * "no gh". Those answers live in the hover line below, which also names the
+		 * pull request the action refers to.
+		 *
+		 * Targets the row's `sessionId`: the node half resolves the session to the
+		 * checkout it is working in. `workspaceId` arrives in the owner share and is
+		 * deliberately unused — the flat and search lists render without one, which is
+		 * what keeps badges off them.
+		 *
+		 * `pr: true` is what makes an action possible at all (`merge` especially). It
+		 * costs one forge read per (repository, branch) per TTL, and the detail line
+		 * below reuses THIS request rather than issuing its own.
 		 */
-		function WorkspaceGitBadge({ label, workspaceId }) {
-			// no detail=1: the row needs status and identity only, and the extra
-			// log / stash calls have no consumer yet
-			const info = useGitStatus(workspaceId === void 0 ? void 0 : { kind: "workspace", id: workspaceId });
-			const children = [react_jsx_runtime.jsx("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: label })];
-			if (workspaceId !== void 0 && info !== void 0 && info.git === true) {
-				// marginLeft:auto floats the mark to the right edge, so the status
-				// shape holds a fixed right-hand column and a worktree's name grows
-				// leftwards from it instead of shoving the shape around.
-				const meta = [];
-				const name = rowName(info);
-				if (name !== null) meta.push(react_jsx_runtime.jsx("span", { key: "name", style: META_STYLE, children: name }));
-				meta.push(react_jsx_runtime.jsx(StatusMark, { key: "mark", info }));
-				children.push(react_jsx_runtime.jsx("span", { style: { display: "inline-flex", alignItems: "center", gap: "6px", flex: "none", marginLeft: "auto", paddingLeft: "8px" }, children: meta }));
+		/**
+		 * Action -> colour. Colour here means SEVERITY — how much this needs you —
+		 * rather than identity: a broken build and a conflict are the loud ones, a
+		 * requested review is a nudge, `merge` is the all-clear, and routine sync
+		 * stays quiet so the loud rows keep meaning something. The WORD remains the
+		 * channel (colour only reinforces it), and the tokens are the app's own, so
+		 * both themes work.
+		 */
+		const ACTION_COLOUR = {
+			resolve: "var(--dsw-alias-state-error-primary, #e5484d)",
+			"fix CI": "var(--dsw-alias-state-error-primary, #e5484d)",
+			review: "var(--dsw-alias-state-warn-primary, #d29922)",
+			merge: "var(--dsw-alias-state-success-primary, #30a46c)",
+			pull: "var(--dsw-alias-label-secondary, #5b6570)",
+			push: "var(--dsw-alias-label-secondary, #5b6570)"
+		};
+
+		/**
+		 * The action's own style, on top of META_STYLE:
+		 *  - `marginLeft: auto` floats it right, so a column of actions lines up down
+		 *    the sidebar — that alignment is what makes the list scannable;
+		 *  - `marginRight` keeps it clear of the relative time beside it (the first cut
+		 *    sat flush and read `merge11m`);
+		 *  - weight 500 rather than the timestamp's own treatment, because an action
+		 *    rendered in tertiary grey reads as metadata.
+		 */
+		const ACTION_STYLE = { flex: "none", marginLeft: "auto", marginRight: "8px", fontWeight: 500 };
+
+		/** The action badge: floated, weighted, and coloured by severity. */
+		function SessionGitBadge({ sessionId }) {
+			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId }, { pr: true });
+			if (sessionId === void 0 || info === void 0 || info.git !== true) return null;
+			const action = actionToken(info);
+			if (action === "") return null;
+			const colour = ACTION_COLOUR[action];
+			return react_jsx_runtime.jsx("span", {
+				style: colour === void 0 ? { ...META_STYLE, ...ACTION_STYLE } : { ...META_STYLE, ...ACTION_STYLE, color: colour },
+				children: action
+			});
+		}
+
+		/**
+		 * Session-row hover-card line — everything the action word cannot say: which
+		 * checkout the row's status describes, and which pull request the action
+		 * refers to. It renders through the sessionRow.detail seam, inside the card
+		 * upstream already opens for a row.
+		 *
+		 * This matters MORE now that the row shows only an imperative: `merge` with no
+		 * way to see merge WHAT would be a nag rather than a hint, so the line appears
+		 * whenever there is something to name — a worktree, a pull request, or both.
+		 *
+		 * It makes no request of its own: the same `{ pr: true }` query as the badge
+		 * above resolves to the same cache key, so a card that mounts for every row
+		 * still costs one fetch per row, and a cold cache is served by the badge's
+		 * own in-flight request. That is why the badge must keep asking for `pr=1`.
+		 *
+		 * Only a WORKTREE's checkout is spelled out. For a main checkout the branch is
+		 * the ordinary case and repeating it on every session's card would be noise;
+		 * a tree, by contrast, is exactly what the row's own title cannot tell you.
+		 */
+		function SessionGitDetail({ sessionId }) {
+			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId }, { pr: true });
+			if (info === void 0 || info.git !== true) return null;
+			const bits = [];
+			if (info.isWorktree === true) {
+				const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
+				const checkout = [name === "" ? String(info.branch) : name + " on " + info.branch];
+				// the node half followed this tree because it is the one whose branch
+				// has the open PR — say so, because nothing on the row can
+				if (info.worktreeInferred === true) checkout.push("its branch has the open pull request");
+				bits.push("checkout: " + checkout.join(" \u00B7 "));
 			}
-			return react_jsx_runtime.jsx("span", { style: { display: "flex", alignItems: "center", minWidth: 0, width: "100%" }, children });
+			const pr = formatPrDetail(info.pr);
+			if (pr !== void 0) bits.push("pull request " + pr);
+			return bits.length === 0 ? null : react_jsx_runtime.jsx("span", { style: META_STYLE, children: bits.join(" \u00B7 ") });
 		}
 
 		/**
@@ -510,6 +571,38 @@ window.__ModuleLoader__.load({
 			if (pr.review !== void 0) bits.push(String(pr.review).toLowerCase().replace(/_/g, " "));
 			if (pr.open === false) bits.push("not open");
 			return bits.join(" \u00B7 ");
+		}
+
+		/**
+		 * The `checkout` row: the directory the CONVERSATION itself names, present
+		 * only when the badge is describing an inferred worktree instead. The chip's
+		 * branch and counts are the tree's in that case, so without this row the
+		 * checkout's own state is nowhere on screen. Branch, then files (or "clean"),
+		 * then sync counts only when they are nonzero — the chip's own rule.
+		 */
+		function formatCheckoutDetail(checkout) {
+			if (checkout === void 0 || checkout === null || typeof checkout.branch !== "string") return void 0;
+			const files = (checkout.changedFiles || 0) + (checkout.untrackedFiles || 0);
+			const bits = [checkout.branch, files > 0 ? "\u270E" + files : "clean"];
+			if ((checkout.ahead || 0) > 0 || (checkout.behind || 0) > 0) {
+				bits.push("\u2191" + (checkout.ahead || 0) + " \u2193" + (checkout.behind || 0));
+			}
+			return bits.join(" \u00B7 ");
+		}
+
+		/**
+		 * The `worktree` row: WHICH linked worktree the badge is describing. The chip
+		 * names only the branch (see the note above formatOperationToken), so the
+		 * card is the one place a tree is identified — the mark's shape can only say
+		 * *that* the checkout is a worktree, never which. An inferred follow also says
+		 * why, because "which tree" and "why this tree" are different questions and
+		 * the second is the one a reader will ask.
+		 */
+		function worktreeDetail(info) {
+			if (info === void 0 || info === null || info.isWorktree !== true) return void 0;
+			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
+			if (name === "") return void 0;
+			return info.worktreeInferred === true ? name + " (inferred from its open pull request)" : name;
 		}
 
 		const CARD_CONTAINER = {
@@ -555,6 +648,14 @@ window.__ModuleLoader__.load({
 			add("files", formatFileBreakdown(info));
 			add("operation", info.operation === void 0 || info.operation === null ? void 0 : String(info.operation));
 			add("pull request", formatPrDetail(data.pr));
+			// WHICH checkout the badge describes, when it is a worktree. The chip shows
+			// the branch alone, so this row is the only place the tree is named.
+			add("worktree", worktreeDetail(data));
+			// The conversation's OWN directory, present only when the badge is
+			// describing an inferred worktree — the chip's branch and counts are the
+			// tree's in that case, so this is where the checkout's own state stays
+			// visible. Absent until the `detail=1` response lands, like commits/stash.
+			if (data.worktreeInferred === true) add("checkout", formatCheckoutDetail(data.checkout));
 			if (Array.isArray(data.lastCommits) && data.lastCommits.length > 0) {
 				rows.push(
 					react_jsx_runtime.jsxs("div", {
@@ -611,7 +712,7 @@ window.__ModuleLoader__.load({
 			// the mark is an element now rather than a leading glyph in the string, so
 			// the SAME StatusMark the sidebar row draws carries the status here too;
 			// the container's 4px gap supplies the space the emoji's own did
-			const text = info.branch + formatWorktreeToken(info) + formatOperationToken(info) + formatGitSuffix(info);
+			const text = info.branch + formatOperationToken(info) + formatGitSuffix(info);
 			const prToken = formatPrToken(info);
 			const prUrl = prLinkUrl(info);
 			const chip = react_jsx_runtime.jsxs("span", {
@@ -619,7 +720,10 @@ window.__ModuleLoader__.load({
 					display: "inline-flex",
 					alignItems: "center",
 					flex: "none",
-					gap: "4px",
+					// 6px, not 4px: the PR token leads with a space, and CSS drops
+					// leading whitespace at the start of a flex item, so 4px read as no
+					// separation at all between the branch and `PR#…`
+					gap: "6px",
 					color: "var(--dsw-alias-label-secondary, #5b6570)",
 					fontSize: "12px",
 					lineHeight: "24px",
@@ -692,15 +796,15 @@ window.__ModuleLoader__.load({
 		const inject = ["slots"];
 
 		/**
-		 * Register the badge into both seams. The seam owner hands each entry the
-		 * row owner share as props; the badge destructures { workspaceId, label }
-		 * and deliberately ignores the cwd it is also given.
+		 * Register the badge into the seams. The seam owner hands each entry the row
+		 * owner share as props; the row badge destructures `{ sessionId }` and
+		 * deliberately ignores the cwd it may also be given.
 		 */
 		function apply(ctx) {
 			// inject() re-evaluates when a seam's declaration appears, so boot
 			// order relative to the workspace browser does not matter. On an
-			// unpatched install the row seam is never declared, so this callback
-			// never fires and the row badge simply never renders.
+			// unpatched install the seam is never declared, so this callback never
+			// fires and the row badge simply never renders.
 			//
 			// The registration is reported from INSIDE the callback on purpose: a
 			// `spec()` check here at apply() time runs before the workspace browser
@@ -708,16 +812,24 @@ window.__ModuleLoader__.load({
 			// outcome. That mistake made the old one-shot line claim "sidebar rows
 			// = off" while five row badges were rendering.
 			let rowsReported = false;
-			ctx.slots.inject("sidebar.workspaces.row", () => {
+			ctx.slots.inject("sidebar.workspaces.sessionRow", () => {
 				if (!rowsReported) {
 					rowsReported = true;
-					console.info("[dsh-git-badge] surfaces: sidebar rows = on (seam present).");
+					console.info("[dsh-git-badge] surfaces: sidebar session rows = on (seam present).");
 				}
 				return ctx.slots.register({
-					name: "sidebar.workspaces.row",
-					id: "git-badge"
-				}, WorkspaceGitBadge);
+					name: "sidebar.workspaces.sessionRow",
+					id: "git-badge-row"
+				}, SessionGitBadge);
 			});
+			// The row is ALREADY a HoverCard anchor upstream, so a badge that opened
+			// its own tooltip would nest two cards. This additive slot renders the
+			// provenance line inside that card instead — the same pattern the
+			// workspace-row detail slot used. It issues no request of its own.
+			ctx.slots.inject("sidebar.workspaces.sessionRow.detail", () => ctx.slots.register({
+				name: "sidebar.workspaces.sessionRow.detail",
+				id: "git-badge-row-detail"
+			}, SessionGitDetail));
 			// Input-row chip: upstream additive slot rendered in the input bar's
 			// leading cluster, right after the access picker — the git state sits
 			// with the controls that govern the conversation. Present on every
@@ -729,8 +841,8 @@ window.__ModuleLoader__.load({
 				id: "git-badge-chip",
 				inject: (sessionId) => ({ sessionId })
 			}, ComposerGitChip));
-			const seamDeclared = ctx.slots.spec("sidebar.workspaces.row") !== void 0;
-			console.info("[dsh-git-badge] surfaces: input chip = on; sidebar rows = " + (seamDeclared ? "on (seam present)." : "awaiting the sidebar.workspaces.row seam — the line above reports it if it appears."));
+			const seamDeclared = ctx.slots.spec("sidebar.workspaces.sessionRow") !== void 0;
+			console.info("[dsh-git-badge] surfaces: input chip = on; sidebar session rows = " + (seamDeclared ? "on (seam present)." : "awaiting the sidebar.workspaces.sessionRow seam — the line above reports it if it appears."));
 			// The hover card depends on a primitive the SHELL seeds, not on anything
 			// this plugin declares. Report the outcome rather than letting a missing
 			// seed look like a missing feature: the try/catch above deliberately keeps
@@ -749,7 +861,7 @@ window.__ModuleLoader__.load({
 		// Additive; the host reads apply/inject and ignores the rest. The suite
 		// drives these to assert the REQUEST contract — which surface asks for the
 		// expensive extras — without a browser, a fetch or a network.
-		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail };
+		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, actionToken };
 		return module.exports;
 	}
 });

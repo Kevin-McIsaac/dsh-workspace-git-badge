@@ -46,6 +46,14 @@ function clearPr(t) {
 	t.after(() => prState.clear());
 }
 
+/**
+ * The key `prStatusFor` caches under: the toplevel AND the branch. Pinned here
+ * rather than reached for with a bare root, because keying by root alone served a
+ * checkout the PR of the branch it was on when the window opened — see the
+ * branch-key test below.
+ */
+const prKey = (root, branch) => root + "\u0000" + branch;
+
 /** A repo whose `origin` looks like GitHub, with no upstream (so no fetch). */
 async function githubRepo(t) {
 	const repo = await makeRepo(t);
@@ -124,6 +132,29 @@ test("a PR is summarized to number, CI state, draft and review", () => {
 test("the PR's web URL is carried, so the chip's token can link to it", () => {
 	const url = "https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/pull/16";
 	assert.equal(summarizePr({ ...JSON.parse(OPEN_PR), url }).url, url);
+});
+
+test("GitHub's own merge verdict is carried through, verbatim", () => {
+	// A sidebar row's `merge` action keys on this, so it has to be the forge's
+	// verdict rather than a checks-plus-reviews judgement assembled here: whether a
+	// PR is mergeable depends on branch protection and required reviews. `gh pr
+	// list` does not ask for it, so absence is normal and simply means "no verdict",
+	// exactly like every other omitted field in this half.
+	assert.equal(summarizePr({ ...JSON.parse(OPEN_PR), mergeStateStatus: "clean" }).mergeState, "CLEAN");
+	assert.equal(summarizePr({ ...JSON.parse(OPEN_PR), mergeStateStatus: "BLOCKED" }).mergeState, "BLOCKED");
+	assert.equal("mergeState" in summarizePr(JSON.parse(OPEN_PR)), false, "absent when gh did not report it");
+	assert.equal("mergeState" in summarizePr({ ...JSON.parse(OPEN_PR), mergeStateStatus: "" }), false, "and when it is blank");
+});
+
+test("the PR read asks gh for the merge verdict it needs", async (t) => {
+	clearPr(t);
+	const repo = await githubRepo(t);
+	const calls = stubPr(t, { stdout: JSON.stringify({ ...JSON.parse(OPEN_PR), mergeStateStatus: "CLEAN" }) });
+	const pr = await readPrStatus(repo.root, "main");
+	const at = calls[0].args.indexOf("--json");
+	assert.ok(at !== -1, "the call must ask for JSON fields");
+	assert.match(calls[0].args[at + 1], /mergeStateStatus/, "including the merge verdict the action needs");
+	assert.equal(pr.mergeState, "CLEAN");
 });
 
 test("only an http(s) URL is carried: no payload value reaches an href unchecked", () => {
@@ -253,9 +284,9 @@ test("an unchanged refresh notifies nobody", async (t) => {
 	await waitFor(() => prStatusFor(repo.root, "main", () => {}) !== void 0);
 	const notifications = [];
 	// force the TTL to lapse without waiting 90s
-	prState.get(repo.root).lastAttemptAt = 0;
+	prState.get(prKey(repo.root, "main")).lastAttemptAt = 0;
 	prStatusFor(repo.root, "main", (key) => notifications.push(key));
-	await waitFor(() => prState.get(repo.root).inFlight === null);
+	await waitFor(() => prState.get(prKey(repo.root, "main")).inFlight === null);
 	assert.deepEqual(notifications, [], "an unchanged answer must not push SSE traffic");
 });
 
@@ -268,12 +299,12 @@ test("a changed refresh notifies subscribers", async (t) => {
 		config.prRunner = null;
 	});
 	prStatusFor(repo.root, "main", () => {});
-	await waitFor(() => prState.get(repo.root).value !== void 0);
+	await waitFor(() => prState.get(prKey(repo.root, "main")).value !== void 0);
 	stdout = JSON.stringify({ number: 142, state: "OPEN", statusCheckRollup: [{ status: "COMPLETED", conclusion: "FAILURE" }] });
-	prState.get(repo.root).lastAttemptAt = 0;
+	prState.get(prKey(repo.root, "main")).lastAttemptAt = 0;
 	const notifications = [];
 	prStatusFor(repo.root, "main", (key) => notifications.push(key));
-	await waitFor(() => prState.get(repo.root).value?.state === "failing");
+	await waitFor(() => prState.get(prKey(repo.root, "main")).value?.state === "failing");
 	assert.deepEqual(notifications, [repo.root], "a CI state change must reach the chip");
 });
 
@@ -298,7 +329,7 @@ test("concurrent requests share one forge call", async (t) => {
 	await waitFor(() => calls >= 1);
 	assert.equal(calls, 1, "a burst of badge refreshes must not stampede the forge");
 	release({ stdout: OPEN_PR });
-	await waitFor(() => prState.get(repo.root).value !== void 0);
+	await waitFor(() => prState.get(prKey(repo.root, "main")).value !== void 0);
 	assert.equal(calls, 1);
 });
 
@@ -360,7 +391,7 @@ test("the route refuses to wait for the forge", async (t) => {
 	assert.equal(body.git, true);
 	assert.equal("pr" in body, false, "the first request has nothing cached and must not block to get it");
 	release({ stdout: OPEN_PR });
-	await waitFor(() => prState.get(repo.root)?.value !== void 0);
+	await waitFor(() => prState.get(prKey(repo.root, "main"))?.value !== void 0);
 });
 
 test("the route serves a cached PR, and a row request never spawns gh", async (t) => {
@@ -382,7 +413,7 @@ test("the route serves a cached PR, and a row request never spawns gh", async (t
 	assert.equal(calls.length, 0);
 	// a chip request spawns the refresh; the NEXT one serves the cached value
 	await get(`?workspace=${WORKSPACE_ID}&pr=1`);
-	await waitFor(() => prState.get(repo.root)?.value !== void 0);
+	await waitFor(() => prState.get(prKey(repo.root, "main"))?.value !== void 0);
 	const res = await get(`?workspace=${WORKSPACE_ID}&pr=1`);
 	const body = JSON.parse(res.text());
 	assert.equal(body.pr.number, 142);

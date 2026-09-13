@@ -166,10 +166,15 @@ export function createClient({ tooltip = false, hover = false } = {}) {
 		internals: client.__internals,
 		/** The boot diagnostics apply() emitted, one string per console.info call. */
 		logs,
-		/** Render the sidebar row. */
-		row(data, label = "project") {
+		/** Render the sidebar SESSION-row badge (mark + PR token). */
+		row(data) {
 			feed(data);
-			return expand(registered["sidebar.workspaces.row"]({ label, workspaceId: "ws-1" }));
+			return expand(registered["sidebar.workspaces.sessionRow"]({ sessionId: "s-1", workspaceId: "ws-1", label: "Session 1" }));
+		},
+		/** Render the session row's hover-card detail line (the badge's provenance). */
+		rowDetail(data) {
+			feed(data);
+			return expand(registered["sidebar.workspaces.sessionRow.detail"]({ sessionId: "s-1", workspaceId: "ws-1", label: "Session 1" }));
 		},
 		/** Render the composer chip. */
 		chip(data, detail) {

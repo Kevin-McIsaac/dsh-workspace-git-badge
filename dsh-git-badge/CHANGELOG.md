@@ -10,6 +10,83 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Added
+
+- **A session's badge follows the worktree its work is in.** A conversation's
+  directory is fixed when it is created, and DSH records no session→worktree link
+  at all (`attachSession` requires the stored cwd to equal the workspace path), so
+  a conversation started in the main checkout reported `main` — including "no pull
+  request" — while its work and its PR lived in a linked worktree.
+  Now, when a **session**-targeted badge resolves to a main checkout whose
+  repository has exactly one linked worktree whose branch has an **open** pull
+  request, the badge describes that worktree instead: its branch, dirty counts,
+  ahead/behind, tree-shaped mark, and PR/CI token. The `workspace` id in the
+  response is unchanged, so SSE attribution is unaffected.
+  The selection is deliberately the only one that cannot be ambiguous — one open
+  PR is a candidate, two are a reason to say nothing — the worktree is **named**
+  on the chip even when the branch would make the name look redundant, the mark's
+  accessible name states that the checkout was inferred, and the hover card gains
+  a `checkout` row carrying the conversation's OWN directory (branch · files ·
+  sync) so the main checkout's state stays visible. A workspace-targeted sidebar
+  row never follows a worktree: a row surveys the checkout the registry owns.
+- **An inferred worktree is watched.** Its working tree and git dir get the same
+  event-driven treatment as a registered workspace's, and its events carry the
+  **owning workspace id**, so the badge refreshes within ~1s of a stage, commit or
+  checkout in the tree — including a worktree that is not itself a registered
+  workspace, which the main checkout's recursive watch would never see.
+- **Identical concurrent status reads are collapsed** into one `git status` per
+  directory, which is the shape a burst of badges mounting together produces.
+  `statusCacheMs` (default 0) optionally extends that to serial bursts; the 0
+  default keeps a read taken after a mutation honest. New config: `worktreeStatus`
+  (`"auto"` | `"off"`), `prListLimit`, `statusCacheMs`.
+- The repository-wide open-PR read (`gh pr list`) happens at most once per TTL per
+  repository, and never at all for a repository with no linked worktree.
+
+### Changed
+
+- **The sidebar session row is an ACTION token, not a status badge.** It shows
+  the one thing that conversation needs — `merge`, `fix CI`, `review`, `resolve`,
+  `pull`, `push` — and nothing when there is nothing to do. `merge` keys on
+  GitHub's own `mergeStateStatus: CLEAN` rather than a verdict assembled here; a
+  draft, blocked, behind, unstable or unknown PR stays silent, because waiting is
+  not an action. This is deliberately a trade: the row no longer shows local
+  status or the worktree's tree shape, and the hover line — which now names the
+  pull request as well as the checkout — is where that detail lives. The word floats right so a column of actions lines
+  up down the sidebar, sits heavier than the timestamp beside it, and is coloured
+  by SEVERITY with the app's own state tokens — error for `resolve` and `fix CI`,
+  warn for `review`, success for `merge`, quiet secondary for `pull` and `push` —
+  so the loud rows keep meaning something. The chip is unchanged. Revert this
+  commit to go back to the mark-plus-token row.
+- **The sidebar badge moved from the workspace row to the session row.** A
+  workspace row cannot know which worktree its conversations are using, so a
+  per-workspace badge could only guess or report the main checkout. Each session
+  row now carries the status mark plus the PR/CI token when the branch has one
+  (`🌳 PR#391 ✓`), and never a branch — hovering the row adds a line naming the
+  checkout that badge describes (`checkout: hotfix-tree on feat/x`, and for an
+  inferred worktree, why it was followed). Rows still issue no request of their
+  own beyond the badge's: the hover line resolves to the same cache key, so a card
+  that mounts for every row cannot multiply git or forge work.
+- The `seam/` patch now declares `sidebar.workspaces.sessionRow` and
+  `sidebar.workspaces.sessionRow.detail` instead of the old
+  `sidebar.workspaces.row` pair, and the row is rendered from the **tree** call
+  site only, which keeps the flat and search lists badge-free with no guard of
+  their own. `seam/apply.sh` recognises its own older artifacts by a marker
+  comment (and the previous hash), so rebuilding the patch installs it instead of
+  being skipped as "upstream landed" — and `revert` now restores the upstream
+  baseline rather than an older patch.
+
+### Fixed
+
+- **A failing seam occupant could blank the whole sidebar.** The host guards each
+  registered *entry* with an error boundary, but not the outlet a row renders
+  itself, so a throw in an occupant's render path reached the workspace browser —
+  and the shell abdicates that entry, removing the entire sidebar region about a
+  second after boot. The seam patch now wraps both session-row renders in its own
+  boundary: a broken occupant loses its badge and logs the error instead.
+- **The PR cache served the wrong branch.** `prStatusFor` was keyed by toplevel
+  only, so a checkout that changed branch inside the TTL window was served the
+  previous branch's pull request. It is now keyed by toplevel **and** branch.
+
 ## [0.8.0] - 2026-09-12
 
 ### Added

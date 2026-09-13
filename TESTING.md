@@ -104,6 +104,22 @@ that workspace yourself: the token is *supposed* to be invisible when `gh` canno
 answer. `config.prRunner` substitutes for the CLI in the suite, so no test needs
 `gh`, a network or a forge.
 
+**Worktree selection rides the same TTL, with one more input.** A SESSION-targeted
+badge may follow the one linked worktree whose branch has an open PR: the route
+resolves the session to its workspace, then — only when the repository actually has
+a linked worktree *and* the caller asked for PR state — swaps the status directory
+for that worktree's. Two consequences are easy to miss. The selected worktree is
+watched like a workspace is, and its events carry the **owning** workspace id,
+because that is what a session-targeted client matches its events against; and a
+repository with no linked worktree must spawn **no** `gh` process at all (asserted,
+because the probe runs before the forge is consulted). The probe is
+`rev-parse --show-toplevel` plus `worktree list --porcelain`, both local, collapsed
+for concurrent callers like `gitStatus`. `selectSessionWorktree` is pure and takes
+the worktree list plus the branch→PR map, so every ambiguity case — two candidates,
+a detached/bare/prunable entry, the checkout itself, a branch with no PR — is a
+one-line unit test with no repository at all. `config.worktreeStatus = "off"`
+removes the feature entirely and is the switch's own test.
+
 Pattern credit: the fake-ctx / fake-stream / temp-repo shape is adapted from
 `@wongzexu/dsh-git-status` (MIT).
 
@@ -120,8 +136,8 @@ The feature has three independently testable layers:
    served to a browser is left to a refresh.
 3. **Published plugin** (`dsh-git-badge` from npm) — the customer experience;
    test in a **clean profile**.
-4. **Seam patch** (`seam/apply.sh`) — the sidebar rows; only meaningful on
-   top of a working plugin install.
+4. **Seam patch** (`seam/apply.sh`) — the sidebar session-row badge; only
+   meaningful on top of a working plugin install.
 
 ## Clean-profile test (customer simulation)
 
@@ -192,9 +208,10 @@ curl -s "http://127.0.0.1:3100/api/git-badge?session=__no_such_session__"
 
 Then in a browser: no sidebar badges (no seam in a clean profile), input chip
 present, console shows
-`[dsh-git-badge] surfaces: input chip = on; sidebar rows = off (seam absent …)`.
+`[dsh-git-badge] surfaces: input chip = on; sidebar session rows = off (seam absent …)`.
 Open the URL the server printed (the one carrying `?token=`) — a bare
-`http://127.0.0.1:3100` will not authenticate.
+`http://127.0.0.1:3000`-style URL will not authenticate, and the launch token is
+per-process, so it cannot be recovered from the boot log after the fact.
 
 Clean up: stop the server and delete the profile directory; `test-profile.sh`
 prints both commands with the real paths.
@@ -202,16 +219,31 @@ prints both commands with the real paths.
 ## Seam-patched test (full badges)
 
 ```bash
-seam/apply.sh apply     # hash-guarded; refuses unknown upstream builds
-seam/apply.sh revert    # restore pristine
+seam/apply.sh status    # patched / out of date / pristine / upstream-landed / drift
+seam/apply.sh apply     # installs, upgrading an older patch of OURS in place
+seam/apply.sh revert    # restore the UPSTREAM baseline
 ```
+
+`apply` tells its own artifacts from an upstream landing by the
+`dsh-git-badge:seam-patch` marker (plus the previous artifact's hash), so a
+rebuilt patch installs instead of being skipped as "the seam is already there";
+it refuses an unrecognised upstream file rather than overwriting it. `revert`
+restores `pristine-client.js` — upstream — not whatever bytes the patch replaced,
+so reverting from a stale patch lands on upstream rather than on the older seam.
 
 After apply, **restart the dsh web process** — the workspace bundle URL
 carries a `?rev=` hash that only changes at boot, so a browser refresh alone
 can keep serving stale JS (and the composed boot graph is what the browser
 trusts). If the UI looks stale after a patch change: restart, THEN
 hard-refresh. DevTools console confirms which code is live via the
-`[dsh-git-badge] surfaces:` line.
+`[dsh-git-badge] surfaces:` line, which now reports the SESSION rows.
+
+What the patch buys: an action token on each session row (`merge`, `fix CI`, …),
+plus the line in that row's hover card naming the checkout and the pull request. The **project** rows stay bare — by
+design, since a workspace cannot know which worktree its sessions use. The flat
+"all sessions" and search lists are bare too, and that one is structural: they
+render the same component without a `workspaceId`, so the seam helper returns
+`null`.
 
 ## What "verified" means per change
 
@@ -229,6 +261,15 @@ hard-refresh. DevTools console confirms which code is live via the
   request to carry `pr=1` only. And `pr=1` requires `gh` on PATH, authenticated,
   and a `github.com` `origin` — verify with `gh pr view` in the same directory
   before concluding the token is broken.
+- **Worktree selection changed** → the suite covers the parser, the selection rule,
+  the open-PR read's caching and every failure shape, the watcher a follow needs,
+  the route's swap/no-swap split, and the inferred rendering rules. The live proof
+  has a precondition that is easy to trip over: it needs a repository that HAS a
+  linked worktree **whose branch has an open PR**. Without one — the common state
+  after a PR merges and its worktree is removed — the badge correctly stays on the
+  session's own checkout, so "no swap" is not evidence of a bug. Check with
+  `git worktree list` and `gh pr list --state open` in the same repo first, then
+  compare a session target against a workspace target (`docs/VERIFICATION.md`).
 
 ## Publishing a new version
 

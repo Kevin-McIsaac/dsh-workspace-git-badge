@@ -89,6 +89,15 @@ const config = {
 	fetchTtlMs: 60000,
 	/** fs-event burst collapse window */
 	debounceMs: 200,
+	/**
+	 * Coalescing window for identical status reads. 0 (the default) collapses only
+	 * CONCURRENT identical reads — which is exactly what a burst of sidebar
+	 * session rows mounting together produces — and leaves sequential reads
+	 * honest, so a caller that mutates a repository and asks again always sees the
+	 * new state. Raise it to also absorb serial bursts, at the cost of serving a
+	 * change up to that many milliseconds late.
+	 */
+	statusCacheMs: 0,
 	/** backoff before re-attempting a failed watcher (or a missing .git) */
 	watchRetryMs: 60000,
 	/**
@@ -126,7 +135,22 @@ const config = {
 	 * one so every degradation path (no gh, logged out, no PR, garbage output,
 	 * timeout) is covered with no gh, no network and no forge.
 	 */
-	prRunner: null
+	prRunner: null,
+	/**
+	 * Bound on the repository-wide open-PR read (`gh pr list`). Only one page is
+	 * read, so a repository with more open PRs than this simply has the excess
+	 * invisible to worktree selection; the checkout's own PR read is unaffected.
+	 */
+	prListLimit: 50,
+	/**
+	 * Worktree-aware status: "auto" lets a SESSION-targeted badge follow the one
+	 * linked worktree whose branch has an open PR, so a conversation doing its
+	 * work in a worktree reports that tree instead of the main checkout its
+	 * directory names; "off" always reports the session's own directory. A
+	 * workspace-targeted row never follows a worktree whatever this is set to — a
+	 * row surveys the checkout the registry owns. See effectiveTarget.
+	 */
+	worktreeStatus: "auto"
 };
 
 /**
@@ -305,6 +329,13 @@ function summarizePr(json) {
 	// omitted, not present-and-undefined: absence is the contract for "nothing to
 	// say" throughout this half, so a consumer tests the key, never the value
 	if (typeof json.reviewDecision === "string" && json.reviewDecision !== "") pr.review = json.reviewDecision;
+	// GitHub's OWN merge verdict (CLEAN / BLOCKED / BEHIND / DIRTY / DRAFT /
+	// UNSTABLE / HAS_HOOKS / UNKNOWN), passed through rather than re-derived here:
+	// whether a PR is mergeable depends on branch protection and required reviews,
+	// which is the forge's business and not this plugin's to interpret. `gh pr list`
+	// does not ask for it, so a worktree-candidate entry simply has no `mergeState`
+	// — absence is the contract, as everywhere else in this half.
+	if (typeof json.mergeStateStatus === "string" && json.mergeStateStatus !== "") pr.mergeState = json.mergeStateStatus.toUpperCase();
 	// The chip links the token to the PR, so `url` is the one field that becomes an
 	// `href`: only http(s) is emitted, and anything else is omitted like every
 	// other "nothing to say" field, so a payload value cannot reach an anchor as a
@@ -329,7 +360,7 @@ async function readPrStatus(toplevel, branch) {
 	// a detached HEAD is not a branch `gh` can resolve a PR for
 	if (typeof branch !== "string" || branch === "" || branch.startsWith("HEAD")) return void 0;
 	if (!(await originIsGitHub(toplevel))) return void 0;
-	const out = await runPrCli("gh", ["pr", "view", branch, "--json", "number,state,isDraft,reviewDecision,statusCheckRollup,url"], {
+	const out = await runPrCli("gh", ["pr", "view", branch, "--json", "number,state,isDraft,reviewDecision,statusCheckRollup,url,mergeStateStatus"], {
 		cwd: toplevel,
 		timeout: config.prTimeoutMs,
 		// GH_PROMPT_DISABLED: an auth prompt must never hang the refresh (the gh
@@ -348,16 +379,121 @@ async function readPrStatus(toplevel, branch) {
 	return summarizePr(json);
 }
 
+/** toplevel -> { lastAttemptAt, inFlight, value: Map<branch, pr> }. */
+const prListState = new Map();
+
+/**
+ * Every OPEN pull request in `toplevel`'s repository, keyed by its head branch.
+ * ONE `gh pr list` answers the whole repository, which is what makes worktree
+ * selection affordable: N worktrees cost one forge call, not N.
+ *
+ * Degrades exactly like readPrStatus, and for the same reason: a non-array body,
+ * unparseable output, a logged-out `gh`, a non-GitHub `origin` and a timeout all
+ * resolve an empty map. "No PRs" and "no forge" are the same answer here — both
+ * mean no worktree can be shown to be the one the session is working in.
+ */
+async function readOpenPrs(toplevel) {
+	if (!(await originIsGitHub(toplevel))) return new Map();
+	const out = await runPrCli("gh", ["pr", "list", "--state", "open", "--limit", String(config.prListLimit), "--json", "number,headRefName,state,isDraft,reviewDecision,statusCheckRollup,url"], {
+		cwd: toplevel,
+		timeout: config.prTimeoutMs,
+		env: { GH_PROMPT_DISABLED: "1", GH_NO_UPDATE_NOTIFIER: "1", GH_PAGER: "cat", NO_COLOR: "1" }
+	});
+	if (out.stdout === null) return new Map();
+	let json;
+	try {
+		json = JSON.parse(out.stdout);
+	} catch {
+		return new Map();
+	}
+	if (!Array.isArray(json)) return new Map();
+	const byBranch = new Map();
+	for (const row of json) {
+		const branch = row?.headRefName;
+		if (typeof branch !== "string" || branch === "") continue;
+		const pr = summarizePr(row);
+		if (pr !== void 0) byBranch.set(branch, pr);
+	}
+	return byBranch;
+}
+
+/** Order-insensitive identity for an open-PR set, so "did it change?" is exact. */
+function prListKey(byBranch) {
+	if (byBranch === void 0) return "";
+	return JSON.stringify([...byBranch].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
+/**
+ * Open PRs for toplevel: the value to serve NOW (possibly undefined), spawning an
+ * out-of-band refresh when the TTL has lapsed — the same shape and the same
+ * reasoning as prStatusFor, because the forge is never route latency.
+ *
+ * `notify` fires only when the set CHANGES: a changed set can change which
+ * worktree a session badge follows, so the client has to be told to refetch
+ * rather than waiting for its 60s safety-net poll.
+ */
+function openPrsFor(toplevel, notify) {
+	if (config.prStatus === "off") return void 0;
+	const now = Date.now();
+	const state = prListState.get(toplevel);
+	if (state !== void 0) {
+		// Fresh, or a refresh is already running: serve what we have either way.
+		if (now - state.lastAttemptAt < config.prTtlMs || state.inFlight !== null) return state.value;
+	}
+	const record = { lastAttemptAt: now, inFlight: null, value: state?.value };
+	const inFlight = (async () => {
+		const value = await readOpenPrs(toplevel).catch(() => void 0);
+		if (value !== void 0) {
+			const changed = prListKey(record.value) !== prListKey(value);
+			record.value = value;
+			if (changed) notify(toplevel);
+		}
+		record.lastAttemptAt = Date.now();
+		record.inFlight = null;
+		return value;
+	})();
+	record.inFlight = inFlight;
+	prListState.set(toplevel, record);
+	return record.value;
+}
+
+/**
+ * The one linked worktree a session badge may follow: exactly one entry other
+ * than the checkout itself that is checked out on a branch with an OPEN PR.
+ *
+ * Exactly one, because the plugin cannot know which tree a session uses — DSH
+ * records no session→worktree link at all — so an ambiguous repository stays on
+ * its own checkout rather than guessing. A second open PR is a reason to say
+ * nothing, not a reason to pick one. Detached, bare and prunable entries are
+ * never candidates: they have no branch a PR could belong to.
+ */
+function selectSessionWorktree(worktrees, openPrs, checkoutPath) {
+	if (openPrs === void 0 || openPrs.size === 0) return void 0;
+	const candidates = worktrees.filter((wt) =>
+		wt.path !== checkoutPath &&
+		wt.detached !== true &&
+		wt.bare !== true &&
+		wt.prunable !== true &&
+		typeof wt.branch === "string" &&
+		openPrs.has(wt.branch)
+	);
+	return candidates.length === 1 ? candidates[0] : void 0;
+}
+
 /**
  * PR state for toplevel: the value to serve NOW (possibly undefined, possibly
  * stale), spawning an out-of-band refresh when the TTL has lapsed. `notify` is
  * called only when the refreshed value CHANGES, so an unchanged answer costs one
  * forge call per TTL and zero SSE traffic.
+ *
+ * Keyed by BRANCH as well as toplevel: a checkout inside the TTL window would
+ * otherwise be served the PR of the branch it was on when the window opened.
  */
 function prStatusFor(toplevel, branch, notify) {
 	if (config.prStatus === "off") return void 0;
 	const now = Date.now();
-	const state = prState.get(toplevel);
+	const key = toplevel + "\u0000" + branch;
+	const state = prState.get(key);
 	if (state !== void 0) {
 		// Fresh, or a refresh is already running: serve what we have either way.
 		if (now - state.lastAttemptAt < config.prTtlMs || state.inFlight !== null) return state.value;
@@ -373,7 +509,7 @@ function prStatusFor(toplevel, branch, notify) {
 		return value;
 	})();
 	record.inFlight = inFlight;
-	prState.set(toplevel, record);
+	prState.set(key, record);
 	return record.value;
 }
 //#endregion
@@ -412,6 +548,86 @@ function parseStatusV2(out) {
 		else if (line.startsWith("? ")) untracked += 1;
 	}
 	return { branch, upstream, ahead, behind, staged, unstaged, unmerged, untracked };
+}
+
+/**
+ * Parse `git worktree list --porcelain`. Blocks of `key value` lines separated by
+ * a blank line: `worktree <path>`, `HEAD <sha>`, `branch refs/heads/<name>` (the
+ * line is ABSENT when the entry is detached), and the flag lines `bare`, `locked`
+ * and `prunable`, which may carry a reason after the key.
+ *
+ * The last field is the checkout's directory NAME, which is all the badge ever
+ * reports — never the path (AGENTS.md rule 7). Git prints the main worktree first,
+ * but the caller identifies the checkout it is standing in by comparing `path`
+ * against its own toplevel rather than by list position.
+ */
+function parseWorktreeList(stdout) {
+	const entries = [];
+	let entry = null;
+	const flush = () => {
+		if (entry !== null) entries.push({ ...entry, name: basename(entry.path) });
+		entry = null;
+	};
+	for (const raw of String(stdout ?? "").split("\n")) {
+		const line = raw.trim();
+		if (line === "") {
+			flush();
+			continue;
+		}
+		const at = line.indexOf(" ");
+		const key = at === -1 ? line : line.slice(0, at);
+		const value = at === -1 ? "" : line.slice(at + 1);
+		if (key === "worktree") {
+			flush();
+			entry = { path: value, head: "", branch: void 0, detached: false, bare: false, locked: false, prunable: false };
+			continue;
+		}
+		if (entry === null) continue;
+		if (key === "HEAD") entry.head = value;
+		else if (key === "branch") entry.branch = value.replace(/^refs\/heads\//, "");
+		else if (key === "detached") entry.detached = true;
+		else if (key === "bare") entry.bare = true;
+		else if (key === "locked") entry.locked = true;
+		else if (key === "prunable") entry.prunable = true;
+	}
+	flush();
+	return entries;
+}
+
+/**
+ * The worktree landscape of the repository `dir` sits in: its toplevel in GIT's
+ * own spelling (so it compares exactly against the listed paths, with no
+ * spelling guesswork) and every worktree of that repository, main one included.
+ *
+ * Two cheap local invocations. A failure of either degrades to "no linked
+ * worktrees", which leaves the badge on the directory the session actually names
+ * rather than substituting a guess.
+ */
+async function readWorktrees(dir) {
+	const top = await runGit(dir, ["rev-parse", "--show-toplevel"]);
+	const toplevel = top.stdout === null ? "" : top.stdout.trim();
+	if (toplevel === "") return { toplevel: "", worktrees: [] };
+	const list = await runGit(dir, ["worktree", "list", "--porcelain"]);
+	return { toplevel, worktrees: list.stdout === null ? [] : parseWorktreeList(list.stdout) };
+}
+
+/** In-flight worktree probes, so a burst of callers shares one pair of calls. */
+const worktreeInFlight = new Map();
+
+/**
+ * `readWorktrees` with identical CONCURRENT calls collapsed, the same way
+ * `gitStatus` collapses status reads: every session row of one workspace probes
+ * the same directory at the same moment. Deliberately no TTL — the probe is two
+ * local git calls, and a worktree created a moment ago must be visible at once.
+ */
+function worktreesFor(dir) {
+	const pending = worktreeInFlight.get(dir);
+	if (pending !== void 0) return pending;
+	const run = readWorktrees(dir).finally(() => {
+		worktreeInFlight.delete(dir);
+	});
+	worktreeInFlight.set(dir, run);
+	return run;
 }
 
 /**
@@ -464,7 +680,7 @@ function operationMarker(gitDir) {
  * so neither is paid for by a sidebar row refresh: a row needs status and
  * identity, nothing more.
  */
-async function gitStatus(dir, wantDetail, wantPr) {
+async function gitStatusUncached(dir, wantDetail, wantPr) {
 	// one invocation answers both questions: the repository root (so a
 	// subdirectory workspace reports the whole repo) and the per-worktree git
 	// dir (where the operation markers above live)
@@ -571,6 +787,42 @@ async function gitStatus(dir, wantDetail, wantPr) {
 		if (pr !== void 0) info.pr = pr;
 	}
 	return info;
+}
+
+/** In-flight status reads, so N callers asking at once share one `git status`. */
+const statusInFlight = new Map();
+/** Completed reads inside `config.statusCacheMs`; unused at the 0 default. */
+const statusCache = new Map();
+
+/**
+ * Status for dir, with identical CONCURRENT reads collapsed into one. That is the
+ * shape a burst of sidebar session rows produces when they mount together: N rows
+ * of one workspace resolve to the same directory, and without this they would run
+ * N `git status` walks of the same tree at the same instant.
+ *
+ * The optional `statusCacheMs` window extends the collapse to serial bursts. It
+ * defaults to 0 on purpose: a cache that outlives the call would let a caller
+ * that mutates a repository and asks again read a stale answer, and correctness
+ * of a *status* badge outranks saving a walk.
+ */
+function gitStatus(dir, wantDetail, wantPr) {
+	const key = dir + "\u0000" + (wantDetail === true) + "\u0000" + (wantPr === true);
+	if (config.statusCacheMs > 0) {
+		const hit = statusCache.get(key);
+		if (hit !== void 0 && Date.now() - hit.at < config.statusCacheMs) return Promise.resolve(hit.value);
+	}
+	const pending = statusInFlight.get(key);
+	if (pending !== void 0) return pending;
+	const run = gitStatusUncached(dir, wantDetail, wantPr)
+		.then((value) => {
+			if (config.statusCacheMs > 0) statusCache.set(key, { at: Date.now(), value });
+			return value;
+		})
+		.finally(() => {
+			statusInFlight.delete(key);
+		});
+	statusInFlight.set(key, run);
+	return run;
 }
 
 //#region git-state watcher
@@ -806,6 +1058,49 @@ function watchWorkspace(root, key, workspaceId) {
 	}
 }
 
+/**
+ * Workspace path -> { worktreePath, workspaceId, owned } for the inferred
+ * worktree a session badge is currently following. One per workspace: selection
+ * is a single choice by construction (selectSessionWorktree), so following a
+ * different tree retires the previous one here.
+ */
+const selectedWorktrees = new Map();
+
+/**
+ * Keep the watcher set aligned with the worktree a session badge has been told to
+ * follow.
+ *
+ * A selected worktree is usually NOT a registered workspace, so nothing else
+ * watches it — and freshness would then depend on the owning checkout's recursive
+ * watch happening to cover it (true for a worktree nested inside the repository,
+ * false for a sibling directory). Its events must also carry the OWNING workspace
+ * id, because that is what a session-targeted client matches its events against:
+ * `notifyChange` reads the id off the watcher record for the path it watched.
+ *
+ * `owned` records whether this call created the watcher. A worktree can itself be
+ * a registered workspace (someone may have opened one as a workspace), and
+ * retiring the selection must never tear down a watcher the registry owns.
+ *
+ * Idempotent and cheap: called on every session request, and a no-op while the
+ * selection is unchanged. `chosenPath === undefined` retires whatever was
+ * selected — the "the worktree is gone, or its PR closed" path.
+ */
+function selectWorktreeWatch(ownerPath, workspaceId, chosenPath) {
+	const previous = selectedWorktrees.get(ownerPath);
+	if (previous !== void 0 && previous.worktreePath === chosenPath) {
+		previous.workspaceId = workspaceId;
+		return;
+	}
+	if (previous !== void 0) {
+		if (previous.owned) unwatchWorkspace(previous.worktreePath);
+		selectedWorktrees.delete(ownerPath);
+	}
+	if (chosenPath === undefined) return;
+	const owned = !watchers.has(chosenPath);
+	watchWorkspace(chosenPath, chosenPath, workspaceId);
+	selectedWorktrees.set(ownerPath, { worktreePath: chosenPath, workspaceId, owned });
+}
+
 /** Reconcile the watcher set with the current workspace registry. */
 function syncWatchers(ctx) {
 	const wanted = new Set();
@@ -814,6 +1109,17 @@ function syncWatchers(ctx) {
 		if (typeof entity?.path !== "string") continue;
 		wanted.add(entity.path);
 		watchWorkspace(entity.path, entity.path, entity.id === void 0 ? void 0 : String(entity.id));
+	}
+	// An inferred worktree is watched because a session request selected it, not
+	// because the registry owns it. Keep the ones whose owner is still registered
+	// and retire the rest, so this reconcile never tears down a live selection.
+	for (const [ownerPath, entry] of selectedWorktrees) {
+		if (!wanted.has(ownerPath)) {
+			if (entry.owned) unwatchWorkspace(entry.worktreePath);
+			selectedWorktrees.delete(ownerPath);
+			continue;
+		}
+		wanted.add(entry.worktreePath);
 	}
 	for (const key of [...watchers.keys()]) if (!wanted.has(key)) unwatchWorkspace(key);
 }
@@ -870,6 +1176,46 @@ async function resolveWorkspace(ctx, params) {
 	return { status: 404, error: { code: "session-not-found", message: "no registered workspace owns that session" } };
 }
 
+/**
+ * The directory a request is ABOUT.
+ *
+ * A SESSION-targeted chip may follow the one linked worktree its repository can be
+ * shown to be working in (selectSessionWorktree): DSH records no session→worktree
+ * link at all — session cwd is immutable creation metadata and `attachSession`
+ * requires it to equal the workspace path — so a conversation started in the main
+ * checkout would otherwise report `main` while its work, and its pull request,
+ * live in a tree. The tree's watcher is reconciled HERE, because this is the only
+ * place that knows which tree was chosen.
+ *
+ * A WORKSPACE-targeted row never follows a worktree: a row surveys the checkout
+ * the registry owns, and substituting a tree would make the row lie about the
+ * branch it is on.
+ *
+ * Gated three ways so the common case costs nothing: the caller must name a
+ * session, must be asking about PR state at all (selection is defined by an open
+ * PR, so a caller not asking cannot benefit), and the repository must actually
+ * have a linked worktree. Only then is the forge consulted.
+ */
+async function effectiveTarget(target, bySession, wantPr, notify) {
+	if (bySession !== true || wantPr !== true || config.worktreeStatus === "off") return { id: target.id, path: target.path };
+	const { toplevel, worktrees } = await worktreesFor(target.path);
+	// Git lists the main worktree first, so `main.path === toplevel` is the exact
+	// test for "the session's own directory is the main checkout". A session whose
+	// directory IS a linked worktree is its own answer and is never swapped
+	// sideways onto a sibling.
+	const main = worktrees[0];
+	if (toplevel === "" || main === void 0 || main.path !== toplevel || worktrees.length <= 1) {
+		selectWorktreeWatch(target.path, target.id, void 0);
+		return { id: target.id, path: target.path };
+	}
+	const openPrs = openPrsFor(toplevel, notify);
+	const chosen = selectSessionWorktree(worktrees, openPrs, toplevel);
+	selectWorktreeWatch(target.path, target.id, chosen === void 0 ? void 0 : chosen.path);
+	if (chosen === void 0) return { id: target.id, path: target.path };
+	// The name and branch travel; the PATH never does (AGENTS.md rule 7).
+	return { id: target.id, path: chosen.path, worktree: { name: chosen.name, branch: chosen.branch } };
+}
+
 /** Host plugin body — register the status route and the SSE change feed. */
 function apply(ctx) {
 	ctx.effect(() => ctx.webServer.register({
@@ -886,13 +1232,43 @@ function apply(ctx) {
 				}
 				const detail = url.searchParams.get("detail") === "1";
 				const pr = url.searchParams.get("pr") === "1";
-				const info = await gitStatus(target.path, detail, pr);
+				// WHO asked decides whether a linked worktree may stand in for the
+				// session's own directory — see effectiveTarget. A workspace-targeted
+				// row never leaves the checkout the registry owns.
+				const session = url.searchParams.get("session");
+				const effective = await effectiveTarget(target, session !== null && session !== "", pr, notifyChange);
+				const info = await gitStatus(effective.path, detail, pr);
+				const body = { ...info, workspace: target.id };
+				if (effective.worktree !== void 0 && info.git === true) {
+					// The status describes a worktree the SESSION's directory does not
+					// name. Saying so is the whole honesty of the feature: the chip's
+					// mark says "worktree", its name says which, and this flag tells the
+					// card why the checkout below differs from the branch beside it.
+					body.worktreeInferred = true;
+					if (detail) {
+						// The session's OWN directory, for the card's `checkout` row, so the
+						// main checkout stays visible once the badge follows a tree. Gated
+						// by detail=1 (a pointer resting on the chip), so nothing at rest
+						// pays for the second read.
+						const own = await gitStatus(target.path, false, false);
+						if (own.git === true) {
+							body.checkout = {
+								branch: own.branch,
+								dirty: own.dirty,
+								changedFiles: own.changedFiles,
+								untrackedFiles: own.untrackedFiles,
+								ahead: own.ahead,
+								behind: own.behind
+							};
+						}
+					}
+				}
 				// Echo the resolved workspace id. SSE events identify the workspace,
 				// not the session, so a session-targeted client has no other way to
 				// tell whether an event belongs to it — without this the input chip
 				// only ever refreshed on remount or the 60s poll.
 				res.writeHead(200, { "content-type": "application/json" });
-				res.end(JSON.stringify({ ...info, workspace: target.id }));
+				res.end(JSON.stringify(body));
 			} catch (error) {
 				res.writeHead(400, { "content-type": "application/json" });
 				res.end(JSON.stringify({ git: false, error: { code: "bad-request", message: String(error?.message ?? error) } }));
@@ -968,15 +1344,27 @@ export {
 	operationMarker,
 	outerGitDir,
 	parseStatusV2,
+	parseWorktreeList,
+	readWorktrees,
+	worktreesFor,
 	runCli,
 	runGit,
 	gitStatus,
+	gitStatusUncached,
 	resolveWorkspace,
+	effectiveTarget,
 	readPrStatus,
 	summarizePr,
 	summarizeChecks,
 	prStatusFor,
 	prState,
+	readOpenPrs,
+	openPrsFor,
+	prListState,
+	selectSessionWorktree,
+	selectWorktreeWatch,
+	selectedWorktrees,
+	statusInFlight,
 	watchWorkspace,
 	unwatchWorkspace,
 	syncWatchers,
