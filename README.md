@@ -10,11 +10,13 @@ Most agent workflow failures happen quietly: branches drift, uncommitted files a
 and approved PRs or failed builds sit unnoticed. This plugin brings repository 
 awareness directly into your workflow:
 
-**At-a-glance session status**: View your branch, file counts, and PR/CI state directly on the input box.
-<img alt="The git badge chip in the DSH input box, showing a clean main branch with sync counts and a failing pull request" src="https://github.com/user-attachments/assets/a5a9a405-a515-491f-a21a-e53d7e52eca1" />
+1. **At-a-glance session status**: branch, file counts and PR/CI state on the input box. When the session is working in a linked `git worktree`, the badge follows that tree rather than the main checkout.
 
-**Actionable session overveiew**: Pinpoints the session requiring attention (merge, fix CI, resolve) without context switching.
-![Sidebar session rows: one asking you to fix CI in red, one asking you to merge in green, and one with nothing to do showing no token at all](docs/images/session-rows.svg)
+![Dark-mode input chip: a tree mark with the worktree branch feat/worktree-aware-chip and a passing PR#18, above a main checkout showing sync and file counts and a failing check](docs/images/chip.svg)
+
+2. **Actionable session overview**: pinpoints the session requiring attention (`merge`, `fix CI`, `resolve`) without a context switch.
+
+![Dark-mode sidebar session rows: one asking you to merge in green, one asking you to fix CI in red, and one with nothing to do showing no token](docs/images/session-rows.svg)
 
 Both are updated within seconds of any commit, checkout, stage or file
 edit — including inside a linked worktree.

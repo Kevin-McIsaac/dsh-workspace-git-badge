@@ -12,9 +12,9 @@ are. Treat them as illustrations.
 
 1. Keep the filename and the alt text in the README; drop the new bytes in place.
    Nothing else needs editing.
-2. Capture with a system in dark mode **and** light mode if you want both; the
-   READMEs currently reference one image each, so a second variant needs a
-   `*-dark.svg`/`.png` sibling plus a `<picture>` element in the README.
+2. These are drawn for the **dark** theme, which is what the READMEs reference.
+   A light variant is a `*-light.*` sibling plus a `<picture>` element in the
+   README — worth doing if the repo is read in light mode as often as dark.
 3. Show the state, not an empty shell: a dirty tree with counts, an operation
    token, and a PR whose checks are failing read better than "all green".
 4. Crop to the surface itself (the chip, the card, the row) — no desktop chrome,
@@ -22,5 +22,5 @@ are. Treat them as illustrations.
 
 | File | Shows |
 |---|---|
-| `chip.svg` | the input chip: clean main with a failing PR, a linked worktree, shape/colour channels |
-| `session-rows.svg` | sidebar session rows with `fix CI`, `merge`, and a row with nothing to do |
+| `chip.svg` | the input chip from this repo's own session: a linked worktree with a passing PR, above a main checkout with counts and a failing check |
+| `session-rows.svg` | sidebar session rows: `merge` (green), `fix CI` (red), and a row with nothing to do |
