@@ -29,7 +29,9 @@ Project 2
   The row keeps the workspace name on the left and, when the conversation needs
   something from you, floats the **one action** to the right — `merge`, `fix CI`,
   `review`, `resolve`, `pull`, `push`. Nothing shown means nothing to do; hovering
-  names the checkout and the pull request the action refers to. The branch is never
+  names the checkout and the pull request the action refers to. It is coloured by
+  urgency — red for a conflict or a failing build, amber for a review, green for
+  `merge`, quiet grey for routine sync. The branch is never
   shown here — the input chip names it, and the chip is where the shared status
   mark lives.
   </li>

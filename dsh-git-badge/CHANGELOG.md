@@ -51,8 +51,12 @@ npm. 0.6.0 is the first release recorded here.
   draft, blocked, behind, unstable or unknown PR stays silent, because waiting is
   not an action. This is deliberately a trade: the row no longer shows local
   status or the worktree's tree shape, and the hover line — which now names the
-  pull request as well as the checkout — is where that detail lives. The chip is
-  unchanged. Revert this commit to go back to the mark-plus-token row.
+  pull request as well as the checkout — is where that detail lives. The word floats right so a column of actions lines
+  up down the sidebar, sits heavier than the timestamp beside it, and is coloured
+  by SEVERITY with the app's own state tokens — error for `resolve` and `fix CI`,
+  warn for `review`, success for `merge`, quiet secondary for `pull` and `push` —
+  so the loud rows keep meaning something. The chip is unchanged. Revert this
+  commit to go back to the mark-plus-token row.
 - **The sidebar badge moved from the workspace row to the session row.** A
   workspace row cannot know which worktree its conversations are using, so a
   per-workspace badge could only guess or report the main checkout. Each session

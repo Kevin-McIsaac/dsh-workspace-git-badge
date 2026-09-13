@@ -468,12 +468,45 @@ window.__ModuleLoader__.load({
 		 * costs one forge read per (repository, branch) per TTL, and the detail line
 		 * below reuses THIS request rather than issuing its own.
 		 */
+		/**
+		 * Action -> colour. Colour here means SEVERITY — how much this needs you —
+		 * rather than identity: a broken build and a conflict are the loud ones, a
+		 * requested review is a nudge, `merge` is the all-clear, and routine sync
+		 * stays quiet so the loud rows keep meaning something. The WORD remains the
+		 * channel (colour only reinforces it), and the tokens are the app's own, so
+		 * both themes work.
+		 */
+		const ACTION_COLOUR = {
+			resolve: "var(--dsw-alias-state-error-primary, #e5484d)",
+			"fix CI": "var(--dsw-alias-state-error-primary, #e5484d)",
+			review: "var(--dsw-alias-state-warn-primary, #d29922)",
+			merge: "var(--dsw-alias-state-success-primary, #30a46c)",
+			pull: "var(--dsw-alias-label-secondary, #5b6570)",
+			push: "var(--dsw-alias-label-secondary, #5b6570)"
+		};
+
+		/**
+		 * The action's own style, on top of META_STYLE:
+		 *  - `marginLeft: auto` floats it right, so a column of actions lines up down
+		 *    the sidebar — that alignment is what makes the list scannable;
+		 *  - `marginRight` keeps it clear of the relative time beside it (the first cut
+		 *    sat flush and read `merge11m`);
+		 *  - weight 500 rather than the timestamp's own treatment, because an action
+		 *    rendered in tertiary grey reads as metadata.
+		 */
+		const ACTION_STYLE = { flex: "none", marginLeft: "auto", marginRight: "8px", fontWeight: 500 };
+
+		/** The action badge: floated, weighted, and coloured by severity. */
 		function SessionGitBadge({ sessionId }) {
 			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId }, { pr: true });
 			if (sessionId === void 0 || info === void 0 || info.git !== true) return null;
 			const action = actionToken(info);
 			if (action === "") return null;
-			return react_jsx_runtime.jsx("span", { style: META_STYLE, children: action });
+			const colour = ACTION_COLOUR[action];
+			return react_jsx_runtime.jsx("span", {
+				style: colour === void 0 ? { ...META_STYLE, ...ACTION_STYLE } : { ...META_STYLE, ...ACTION_STYLE, color: colour },
+				children: action
+			});
 		}
 
 		/**

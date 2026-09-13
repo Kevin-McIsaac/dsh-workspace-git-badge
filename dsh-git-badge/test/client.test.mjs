@@ -9,7 +9,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createClient, mark, markFill, markShape, text } from "../test-support/client.mjs";
+import { createClient, elements, mark, markFill, markShape, text } from "../test-support/client.mjs";
 
 /** A main checkout and a linked worktree, differing only in that one field. */
 const MAIN = { branch: "main", isWorktree: false, worktreeName: "repo" };
@@ -117,6 +117,34 @@ test("the action token maps each state to the one thing to do", () => {
 	assert.equal(action({ dirty: true }), "", "uncommitted work is not a chore");
 	assert.equal(action({ pr: { number: 18, state: "passing" } }), "", "no merge verdict yet is not an action");
 	assert.equal(client.internals.actionToken({ git: false }), "", "nothing to say without a repository");
+});
+
+test("the action floats clear of the time and is coloured by SEVERITY", () => {
+	const client = createClient();
+	const styleFor = (info) => {
+		const row = client.row({ ...MAIN, ...info });
+		const found = elements(row).find((element) => element.props?.style?.marginLeft === "auto");
+		assert.ok(found !== void 0, `expected an action badge for ${JSON.stringify(info)}`);
+		return found.props.style;
+	};
+	// the gap: the first cut sat flush against the relative time and read `merge11m`
+	const merge = styleFor({ pr: { number: 1, state: "passing", mergeState: "CLEAN" } });
+	assert.equal(merge.marginLeft, "auto", "floated right, so a column of actions lines up");
+	assert.equal(merge.marginRight, "8px", "and never flush against the time label");
+	assert.equal(merge.fontWeight, 500, "heavier than the timestamp it outranks");
+	// colour means how much this needs you, using the same state tokens the mark does
+	assert.match(merge.color, /state-success-primary/, "merge is the all-clear");
+	assert.match(styleFor({ pr: { state: "failing" } }).color, /state-error-primary/, "a broken build is loud");
+	assert.match(styleFor({ unmergedFiles: 1 }).color, /state-error-primary/, "so is a conflict");
+	assert.match(
+		styleFor({ pr: { state: "passing", review: "CHANGES_REQUESTED" } }).color,
+		/state-warn-primary/,
+		"a requested review is a nudge"
+	);
+	assert.match(styleFor({ behind: 1 }).color, /label-secondary/, "routine sync stays quiet");
+	assert.match(styleFor({ ahead: 1 }).color, /label-secondary/, "and so does push");
+	// the word is still the channel: the colour only reinforces it
+	assert.equal(text(client.row({ ...MAIN, pr: { state: "failing" } })), "fix CI");
 });
 
 test("a non-repository session row renders no badge", () => {
