@@ -124,48 +124,46 @@ test("the hover line names the checkout a session row's badge describes", () => 
 	assert.equal(client.rowDetail({ git: false }), null);
 });
 
-test("the chip appends the worktree name unless the branch already implies it", () => {
+test("the chip NEVER names the worktree — the branch, and the mark's shape, only", () => {
 	const client = createClient();
-	assert.ok(text(client.chip({ ...WORKTREE, dirty: false })).includes("hotfix-tree"), "a distinct name is shown");
-	const redundant = text(client.chip({ branch: "feat/x", isWorktree: true, worktreeName: "repo-feat-x", dirty: false }));
-	assert.ok(!redundant.includes("repo-feat-x"), "a name the branch already says must be dropped as stutter");
-	assert.ok(redundant.includes("feat/x"), "the branch is always on the chip");
-	assert.equal(text(client.chip({ ...MAIN, dirty: false })), "main", "a main checkout appends no name");
+	// A checkout's directory name is long, competes with the branch for the same
+	// glance, and is not what a reader scans for. The mark's SHAPE already says
+	// "worktree"; WHICH tree is the hover card's `worktree` row.
+	const chip = client.chip({ ...WORKTREE, dirty: false });
+	assert.equal(text(chip), "feat/hotfix", `expected the branch alone, got: ${text(chip)}`);
+	assert.equal(markShape(mark(chip)), "tree", "worktree-ness is carried by the shape instead");
+	// a name that the branch repeats is no longer special-cased, because no name is
+	assert.equal(text(client.chip({ branch: "feat/x", isWorktree: true, worktreeName: "repo-feat-x", dirty: false })), "feat/x");
+	assert.equal(text(client.chip({ ...MAIN, dirty: false })), "main");
 });
 
-test("the chip still carries branch, worktree name, operation token and counts", () => {
+test("the chip still carries the branch, operation token and counts", () => {
 	const client = createClient();
 	const line = text(client.chip({ ...WORKTREE, operation: "rebase", ahead: 0, behind: 2, changedFiles: 3, dirty: true }));
-	assert.equal(line, "feat/hotfix hotfix-tree ⚔rebase ↑0 ↓2 ✎3");
+	assert.equal(line, "feat/hotfix ⚔rebase ↑0 ↓2 ✎3");
 });
 
-test("an INFERRED worktree is named even when the branch would make it stutter", () => {
+test("an INFERRED worktree is named in the CARD, never on the chip", () => {
 	const client = createClient();
-	// The case this rule exists for: a session whose own directory is the main
-	// checkout, whose badge the node half moved onto the tree that has the open PR.
-	// The name does not repeat the branch beside it — it IS the disclosure that the
-	// chip left the conversation's directory — so the redundancy rule must not
-	// swallow it.
-	const inferred = text(
-		client.chip({
-			branch: "chore/global-skills-tiering",
-			isWorktree: true,
-			worktreeName: "global-skills-tiering",
-			worktreeInferred: true,
-			dirty: false
-		})
+	// The case this exists for: the session's own directory is the main checkout and
+	// the node half moved the badge onto the tree holding the open PR. The chip
+	// shows the tree's branch; which tree it is, and why it was followed, is the
+	// card's business — that is the only way to keep the chip short and honest.
+	const inferred = {
+		branch: "chore/global-skills-tiering",
+		isWorktree: true,
+		worktreeName: "global-skills-tiering",
+		worktreeInferred: true,
+		dirty: false
+	};
+	assert.equal(text(client.chip(inferred)), "chore/global-skills-tiering");
+	assert.equal(
+		client.internals.worktreeDetail(inferred),
+		"global-skills-tiering (inferred from its open pull request)",
+		"the card's row names the tree AND why"
 	);
-	assert.equal(inferred, "chore/global-skills-tiering global-skills-tiering");
-	// the same pair WITHOUT inference is the ordinary stutter case and stays terse
-	const own = text(
-		client.chip({
-			branch: "chore/global-skills-tiering",
-			isWorktree: true,
-			worktreeName: "global-skills-tiering",
-			dirty: false
-		})
-	);
-	assert.equal(own, "chore/global-skills-tiering");
+	assert.equal(client.internals.worktreeDetail({ branch: "feat/x", isWorktree: true, worktreeName: "hotfix-tree" }), "hotfix-tree");
+	assert.equal(client.internals.worktreeDetail({ branch: "main", isWorktree: false }), void 0, "a main checkout has nothing to name");
 });
 
 test("the mark's accessible name states status AND worktree-ness", () => {

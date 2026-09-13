@@ -344,56 +344,12 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Linked-worktree NAME token — INPUT CHIP ONLY, and only the name: worktree-
-		 * ness itself is carried by the status mark's shape (a tree instead of a
-		 * circle) on both surfaces. The chip has no other workspace identity, so
-		 * several worktrees of one repository would otherwise render identical chips
-		 * with no way to tell which checkout a conversation is in. The node half
-		 * reports whether this is a linked worktree plus its directory NAME (never a
-		 * path).
-		 *
-		 * The name is appended only when it says something the branch does not: the
-		 * usual `repo-feat-x` directory sitting on branch `feat-x` would otherwise
-		 * read as stutter. (The ROW needs no such rule — it shows the name instead
-		 * of the branch, so there is nothing to stutter against.)
+		 * NOTE: a worktree's NAME is deliberately NOT part of the chip's text. It is
+		 * long, it competes with the branch for the same glance, and the chip already
+		 * says THAT the checkout is a worktree through the mark's shape. WHICH tree it
+		 * is belongs to the hover card's `worktree` row — see worktreeDetail. (The
+		 * old append-unless-redundant rule lived here; it is gone with the name.)
 		 */
-
-		/**
-		 * True when the worktree name is already implied by the branch name, so
-		 * showing both is pure repetition. Compared on a normalized form —
-		 * case-folded, with `/` and `_` folded to `-` — because directory and
-		 * branch conventions differ without changing the meaning (`feat/x` in a
-		 * `repo-feat-x` directory).
-		 */
-		function worktreeNameIsRedundant(name, branch) {
-			if (typeof name !== "string" || name === "" || typeof branch !== "string") return true;
-			const normalize = (value) => value.toLowerCase().replace(/[/_]/g, "-");
-			const normalizedName = normalize(name);
-			const normalizedBranch = normalize(branch);
-			return normalizedName === normalizedBranch
-				|| normalizedName.endsWith("-" + normalizedBranch)
-				|| normalizedBranch.endsWith("-" + normalizedName);
-		}
-
-		/**
-		 * ` name` for a worktree whose name the branch does not already say, else "".
-		 *
-		 * An INFERRED checkout — the node half followed a linked worktree because it
-		 * is the one whose branch has an open PR, while the conversation's own
-		 * directory names something else — always shows the name. The redundancy rule
-		 * exists so a `repo-feat-x` directory sitting on branch `feat-x` does not
-		 * stutter, but here the name does not repeat the branch beside it: it is the
-		 * only signal that the chip describes a directory the conversation is not in.
-		 * `.claude/worktrees/global-skills-tiering` on `chore/global-skills-tiering`
-		 * is exactly the case that would otherwise read as redundant and hide the
-		 * fact this feature exists to state.
-		 */
-		function formatWorktreeToken(info) {
-			if (info.isWorktree !== true) return "";
-			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
-			if (info.worktreeInferred === true) return name === "" ? "" : " " + name;
-			return worktreeNameIsRedundant(name, info.branch) ? "" : " " + name;
-		}
 
 		const META_STYLE = {
 			color: "var(--dsw-alias-label-tertiary, #9ea7ad)",
@@ -559,6 +515,21 @@ window.__ModuleLoader__.load({
 			return bits.join(" \u00B7 ");
 		}
 
+		/**
+		 * The `worktree` row: WHICH linked worktree the badge is describing. The chip
+		 * names only the branch (see the note above formatOperationToken), so the
+		 * card is the one place a tree is identified — the mark's shape can only say
+		 * *that* the checkout is a worktree, never which. An inferred follow also says
+		 * why, because "which tree" and "why this tree" are different questions and
+		 * the second is the one a reader will ask.
+		 */
+		function worktreeDetail(info) {
+			if (info === void 0 || info === null || info.isWorktree !== true) return void 0;
+			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
+			if (name === "") return void 0;
+			return info.worktreeInferred === true ? name + " (inferred from its open pull request)" : name;
+		}
+
 		const CARD_CONTAINER = {
 			display: "flex",
 			flexDirection: "column",
@@ -602,6 +573,9 @@ window.__ModuleLoader__.load({
 			add("files", formatFileBreakdown(info));
 			add("operation", info.operation === void 0 || info.operation === null ? void 0 : String(info.operation));
 			add("pull request", formatPrDetail(data.pr));
+			// WHICH checkout the badge describes, when it is a worktree. The chip shows
+			// the branch alone, so this row is the only place the tree is named.
+			add("worktree", worktreeDetail(data));
 			// The conversation's OWN directory, present only when the badge is
 			// describing an inferred worktree — the chip's branch and counts are the
 			// tree's in that case, so this is where the checkout's own state stays
@@ -663,7 +637,7 @@ window.__ModuleLoader__.load({
 			// the mark is an element now rather than a leading glyph in the string, so
 			// the SAME StatusMark the sidebar row draws carries the status here too;
 			// the container's 4px gap supplies the space the emoji's own did
-			const text = info.branch + formatWorktreeToken(info) + formatOperationToken(info) + formatGitSuffix(info);
+			const text = info.branch + formatOperationToken(info) + formatGitSuffix(info);
 			const prToken = formatPrToken(info);
 			const prUrl = prLinkUrl(info);
 			const chip = react_jsx_runtime.jsxs("span", {
@@ -671,7 +645,10 @@ window.__ModuleLoader__.load({
 					display: "inline-flex",
 					alignItems: "center",
 					flex: "none",
-					gap: "4px",
+					// 6px, not 4px: the PR token leads with a space, and CSS drops
+					// leading whitespace at the start of a flex item, so 4px read as no
+					// separation at all between the branch and `PR#…`
+					gap: "6px",
 					color: "var(--dsw-alias-label-secondary, #5b6570)",
 					fontSize: "12px",
 					lineHeight: "24px",
@@ -809,7 +786,7 @@ window.__ModuleLoader__.load({
 		// Additive; the host reads apply/inject and ignores the rest. The suite
 		// drives these to assert the REQUEST contract — which surface asks for the
 		// expensive extras — without a browser, a fetch or a network.
-		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail };
+		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail };
 		return module.exports;
 	}
 });

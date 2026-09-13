@@ -182,6 +182,31 @@ test("the detail fields appear only once detail has been fetched", () => {
 
 //#region the inferred worktree
 
+test("the card names WHICH worktree the badge describes", () => {
+	// The chip shows the branch alone, so this row is the only place a tree is
+	// identified — and an inferred follow also says why, since "which tree" and
+	// "why this tree" are different questions.
+	const client = createClient({ tooltip: true });
+	const inferred = card(client, {
+		...BASE,
+		branch: "chore/global-skills-tiering",
+		isWorktree: true,
+		worktreeName: "global-skills-tiering",
+		worktreeInferred: true
+	});
+	assert.ok(inferred.includes("worktree"), `expected the worktree row: ${inferred}`);
+	assert.ok(
+		inferred.includes("global-skills-tiering (inferred from its open pull request)"),
+		`expected the tree's name and the reason: ${inferred}`
+	);
+	// a worktree the session is genuinely in is named without the explanation
+	const own = card(client, { ...BASE, branch: "feat/x", isWorktree: true, worktreeName: "hotfix-tree" });
+	assert.ok(own.includes("hotfix-tree"), `expected the tree's name: ${own}`);
+	assert.ok(!own.includes("inferred"), `no explanation when nothing was inferred: ${own}`);
+	// and a main checkout has no tree to name
+	assert.ok(!card(client, BASE).includes("worktree"));
+});
+
 test("the card names the conversation's OWN checkout when the badge followed a worktree", () => {
 	// Once the chip's branch and counts describe an inferred worktree, the
 	// checkout's own state is nowhere else on screen — that is the whole reason
