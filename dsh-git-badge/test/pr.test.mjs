@@ -134,6 +134,29 @@ test("the PR's web URL is carried, so the chip's token can link to it", () => {
 	assert.equal(summarizePr({ ...JSON.parse(OPEN_PR), url }).url, url);
 });
 
+test("GitHub's own merge verdict is carried through, verbatim", () => {
+	// A sidebar row's `merge` action keys on this, so it has to be the forge's
+	// verdict rather than a checks-plus-reviews judgement assembled here: whether a
+	// PR is mergeable depends on branch protection and required reviews. `gh pr
+	// list` does not ask for it, so absence is normal and simply means "no verdict",
+	// exactly like every other omitted field in this half.
+	assert.equal(summarizePr({ ...JSON.parse(OPEN_PR), mergeStateStatus: "clean" }).mergeState, "CLEAN");
+	assert.equal(summarizePr({ ...JSON.parse(OPEN_PR), mergeStateStatus: "BLOCKED" }).mergeState, "BLOCKED");
+	assert.equal("mergeState" in summarizePr(JSON.parse(OPEN_PR)), false, "absent when gh did not report it");
+	assert.equal("mergeState" in summarizePr({ ...JSON.parse(OPEN_PR), mergeStateStatus: "" }), false, "and when it is blank");
+});
+
+test("the PR read asks gh for the merge verdict it needs", async (t) => {
+	clearPr(t);
+	const repo = await githubRepo(t);
+	const calls = stubPr(t, { stdout: JSON.stringify({ ...JSON.parse(OPEN_PR), mergeStateStatus: "CLEAN" }) });
+	const pr = await readPrStatus(repo.root, "main");
+	const at = calls[0].args.indexOf("--json");
+	assert.ok(at !== -1, "the call must ask for JSON fields");
+	assert.match(calls[0].args[at + 1], /mergeStateStatus/, "including the merge verdict the action needs");
+	assert.equal(pr.mergeState, "CLEAN");
+});
+
 test("only an http(s) URL is carried: no payload value reaches an href unchecked", () => {
 	for (const url of [
 		"javascript:alert(1)",

@@ -22,15 +22,16 @@ The Git status badge for a project in the:
   workspace after each project name. (May require the seam patch to enable)
 
 ```
-Project 1                                    ●
-Project 2                     hotfix-tree 🌳
+Project 1                                    merge
+Project 2
 ```
 
-  The row keeps the workspace name on the left and floats a **status mark** to
-  the right: a filled **circle** for a main checkout, a **tree** for a linked
-  `git worktree`, with the fill colour carrying the status. A worktree's name
-  sits beside the mark. The branch is never shown here — the input chip is the
-  surface that names it.
+  The row keeps the workspace name on the left and, when the conversation needs
+  something from you, floats the **one action** to the right — `merge`, `fix CI`,
+  `review`, `resolve`, `pull`, `push`. Nothing shown means nothing to do; hovering
+  names the checkout and the pull request the action refers to. The branch is never
+  shown here — the input chip names it, and the chip is where the shared status
+  mark lives.
   </li>
 </ul>
 Git status is updated within seconds of any commit, checkout, stage, or file edit — including inside a linked worktree.
@@ -124,19 +125,17 @@ unchanged chip. If you have no `gh`, you lose nothing and see nothing.
 
 ## Worktrees
 
-When the workspace is a linked `git worktree`, the **mark becomes a tree** and the
-chip names the checkout — several worktrees of one repository otherwise all render
-the same `● main`:
+When the conversation's checkout is a linked `git worktree`, the **mark becomes a
+tree** — the shape says *worktree* while the fill still says *status*, so the two
+facts never compete for one channel:
 
 ```
-🌳 main hotfix-tree ↑0 ↓2 ✎3
+🌳 feat/hotfix ↑0 ↓2 ✎3
 ```
 
-The name is the checkout's directory name, and it is dropped when the branch
-already implies it (a `repo-feat-x` directory on branch `feat-x` shows just the
-tree), so the everyday chip stays uncluttered. Naming the worktree is chip-only;
-a sidebar row shows the same tree mark with the worktree's name beside it, and
-never the branch.
+The name is the checkout's directory name, shown in the chip's hover card rather
+than on the chip itself, so the everyday chip stays uncluttered. A sidebar row
+shows the action word for that conversation instead — no name, no branch, no mark.
 
 ## Install
 

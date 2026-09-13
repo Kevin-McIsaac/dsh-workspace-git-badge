@@ -24,31 +24,29 @@ const STATUSES = {
 	"dirty and behind": { dirty: true, behind: 2 }
 };
 
-test("the chip and the row draw an IDENTICAL mark for the same status", () => {
+test("the mark belongs to the CHIP; the session row carries an action instead", () => {
+	// Deliberate asymmetry. The chip is the surface for "where am I / what is the
+	// state", so it keeps the shared mark; the row's job is triage, and an action
+	// word says more there than a colour can.
 	const client = createClient();
 	for (const [label, extra] of Object.entries(STATUSES)) {
 		for (const [kind, base] of [["main", MAIN], ["worktree", WORKTREE]]) {
 			const info = { ...base, ...extra };
-			assert.deepEqual(
-				mark(client.chip(info)),
-				mark(client.row(info)),
-				`${kind} / ${label}: the two surfaces must draw the same mark`
-			);
+			assert.ok(mark(client.chip(info)) !== null, `${kind} / ${label}: the chip draws the mark`);
+			assert.equal(mark(client.row(info)), null, `${kind} / ${label}: the row draws no mark`);
 		}
 	}
 });
 
 test("the mark is a disc for a main checkout and a tree for a linked worktree", () => {
 	const client = createClient();
-	assert.equal(markShape(mark(client.row({ ...MAIN, dirty: false }))), "disc");
-	assert.equal(markShape(mark(client.row({ ...WORKTREE, dirty: false }))), "tree");
-	// and the chip agrees, since it draws the same mark
+	assert.equal(markShape(mark(client.chip({ ...MAIN, dirty: false }))), "disc");
 	assert.equal(markShape(mark(client.chip({ ...WORKTREE, dirty: false }))), "tree");
 });
 
 test("the fill follows the three-state rule, checked top-down", () => {
 	const client = createClient();
-	const fill = (info) => markFill(mark(client.row(info)));
+	const fill = (info) => markFill(mark(client.chip(info)));
 	assert.match(fill({ ...MAIN, dirty: false }), /state-success-primary/, "clean and in sync is green");
 	assert.match(fill({ ...MAIN, dirty: true }), /state-warn-primary/, "dirty is amber");
 	assert.match(fill({ ...MAIN, dirty: false, behind: 1 }), /state-warn-primary/, "clean but behind is amber, never red");
@@ -59,7 +57,7 @@ test("the fill follows the three-state rule, checked top-down", () => {
 
 test("the fill comes from the app's own state tokens, so it follows the theme", () => {
 	const client = createClient();
-	const fill = markFill(mark(client.row({ ...MAIN, dirty: false })));
+	const fill = markFill(mark(client.chip({ ...MAIN, dirty: false })));
 	assert.match(fill, /^var\(--dsw-alias-state-success-primary, #[0-9a-f]{6}\)$/i, `unexpected fill: ${fill}`);
 });
 
@@ -67,8 +65,8 @@ test("the selection of a mark colour never depends on the worktree shape", () =>
 	// shape is worktree-ness, colour is status: the two must not interact
 	const client = createClient();
 	for (const [label, extra] of Object.entries(STATUSES)) {
-		const mainFill = markFill(mark(client.row({ ...MAIN, ...extra })));
-		const wtFill = markFill(mark(client.row({ ...WORKTREE, ...extra })));
+		const mainFill = markFill(mark(client.chip({ ...MAIN, ...extra })));
+		const wtFill = markFill(mark(client.chip({ ...WORKTREE, ...extra })));
 		assert.equal(wtFill, mainFill, `${label}: the shape must not change the colour`);
 	}
 });
@@ -76,21 +74,49 @@ test("the selection of a mark colour never depends on the worktree shape", () =>
 test("the session row NEVER shows the branch", () => {
 	const client = createClient();
 	for (const base of [MAIN, WORKTREE]) {
-		const rendered = text(client.row({ ...base, branch: "SECRET/BRANCH", pr: { number: 1, state: "passing" } }));
+		const rendered = text(client.row({ ...base, branch: "SECRET/BRANCH", pr: { number: 1, state: "passing", mergeState: "CLEAN" } }));
 		assert.ok(!rendered.includes("SECRET/BRANCH"), `the branch leaked into the row: ${rendered}`);
 	}
 });
 
-test("the session row is the status mark, plus the PR token when there is one", () => {
+test("the session row shows the ACTION and nothing else — silence when there is none", () => {
 	const client = createClient();
-	// the mark is an <svg>, so a row with no PR contributes no TEXT at all — and
-	// neither the worktree's name nor its branch appears there
-	assert.equal(text(client.row({ ...MAIN, dirty: true })), "", "a main checkout with no PR adds no text");
+	// Silence is the contract: uncommitted work is a state, not a chore, so a dirty
+	// tree with nothing pending renders no badge at all.
+	assert.equal(text(client.row({ ...MAIN, dirty: true })), "");
 	assert.equal(text(client.row({ ...WORKTREE, worktreeName: "hotfix-tree", dirty: false })), "");
-	const withPr = text(client.row({ ...WORKTREE, worktreeName: "hotfix-tree", pr: { number: 391, state: "pending" } }));
-	assert.ok(withPr.includes("PR#391"), `expected the PR token: ${withPr}`);
-	assert.ok(!withPr.includes("hotfix-tree"), "the worktree name belongs to the hover card");
-	assert.ok(!withPr.includes("feat/hotfix"), "and so does the branch");
+	// and when there IS an action the row carries the word alone: no mark, no PR
+	// number, no worktree name, no branch
+	const merge = client.row({ ...WORKTREE, worktreeName: "hotfix-tree", pr: { number: 391, state: "passing", mergeState: "CLEAN" } });
+	assert.equal(text(merge), "merge");
+	assert.equal(mark(merge), null, "the row draws no mark");
+	assert.ok(!text(merge).includes("391"), "nor the PR number — the hover line names it");
+});
+
+test("the action token maps each state to the one thing to do", () => {
+	const client = createClient();
+	const action = (info) => client.internals.actionToken({ git: true, ...info });
+	// first match wins, so a conflict outranks everything downstream of it
+	assert.equal(action({ unmergedFiles: 1, pr: { state: "passing", mergeState: "CLEAN" } }), "resolve");
+	assert.equal(action({ pr: { state: "failing" } }), "fix CI");
+	assert.equal(action({ pr: { state: "passing", review: "CHANGES_REQUESTED" } }), "review");
+	assert.equal(action({ pr: { number: 18, state: "passing", mergeState: "CLEAN" } }), "merge");
+	assert.equal(action({ behind: 2 }), "pull");
+	assert.equal(action({ ahead: 1 }), "push");
+	// WAITING is not an action: every one of these is "leave it alone", because a
+	// wrong imperative nags and a neutral state does not
+	for (const pr of [
+		{ number: 18, state: "passing", mergeState: "BLOCKED" },
+		{ number: 18, state: "passing", draft: true, mergeState: "DRAFT" },
+		{ number: 18, state: "passing", mergeState: "BEHIND" },
+		{ number: 18, state: "passing", mergeState: "UNKNOWN" },
+		{ number: 18, state: "pending" }
+	]) {
+		assert.equal(action({ pr }), "", `waiting must be silent: ${JSON.stringify(pr)}`);
+	}
+	assert.equal(action({ dirty: true }), "", "uncommitted work is not a chore");
+	assert.equal(action({ pr: { number: 18, state: "passing" } }), "", "no merge verdict yet is not an action");
+	assert.equal(client.internals.actionToken({ git: false }), "", "nothing to say without a repository");
 });
 
 test("a non-repository session row renders no badge", () => {
@@ -98,10 +124,11 @@ test("a non-repository session row renders no badge", () => {
 	assert.equal(client.row({ git: false }), null, "nothing to say about a directory that is not a repository");
 });
 
-test("the hover line names the checkout a session row's badge describes", () => {
+test("the hover line says what the action word cannot", () => {
 	const client = createClient();
-	// the inferred case is the one the row's own title cannot explain: the badge
-	// describes a tree the conversation is not in, so the line says which and why
+	// The inferred case: the row's status describes a tree the conversation is not
+	// in, and because the row now carries only an imperative, this card is the ONLY
+	// place that can show which tree — and which PR — it refers to.
 	assert.equal(
 		text(
 			client.rowDetail({
@@ -112,14 +139,20 @@ test("the hover line names the checkout a session row's badge describes", () => 
 				pr: { number: 391, state: "passing" }
 			})
 		),
-		"checkout: global-skills-tiering on chore/global-skills-tiering \u00B7 its branch has the open pull request"
+		"checkout: global-skills-tiering on chore/global-skills-tiering \u00B7 its branch has the open pull request \u00B7 pull request #391 \u00B7 checks passing"
 	);
 	// a worktree the session is genuinely in is named without the explanation
 	assert.equal(
 		text(client.rowDetail({ branch: "feat/x", isWorktree: true, worktreeName: "hotfix-tree" })),
 		"checkout: hotfix-tree on feat/x"
 	);
-	// a main checkout is the ordinary case, and the card must not restate it
+	// a MAIN checkout has no tree to name, but its pull request is still worth the
+	// line: a bare `merge` on the row would otherwise be unexplainable
+	assert.equal(
+		text(client.rowDetail({ branch: "main", isWorktree: false, pr: { number: 18, state: "passing", review: "APPROVED" } })),
+		"pull request #18 \u00B7 checks passing \u00B7 approved"
+	);
+	// nothing to name at all — no tree, no PR — so the card says nothing
 	assert.equal(text(client.rowDetail({ branch: "main", isWorktree: false })), "");
 	assert.equal(client.rowDetail({ git: false }), null);
 });
@@ -168,10 +201,10 @@ test("an INFERRED worktree is named in the CARD, never on the chip", () => {
 
 test("the mark's accessible name states status AND worktree-ness", () => {
 	const client = createClient();
-	const main = mark(client.row({ ...MAIN, dirty: true }));
+	const main = mark(client.chip({ ...MAIN, dirty: true }));
 	assert.equal(main.props.role, "img");
 	assert.equal(main.props["aria-label"], "git: uncommitted changes, or out of sync with upstream");
-	const worktree = mark(client.row({ ...WORKTREE, dirty: false }));
+	const worktree = mark(client.chip({ ...WORKTREE, dirty: false }));
 	assert.equal(worktree.props["aria-label"], "git worktree: clean and in sync");
 });
 
@@ -179,7 +212,7 @@ test("an INFERRED checkout says so in the mark's accessible name", () => {
 	// the same rule the token follows: nothing depends on seeing the trailing name,
 	// so a screen reader is told where the shape's fact came from
 	const client = createClient();
-	const inferred = mark(client.row({ ...WORKTREE, worktreeInferred: true, dirty: false }));
+	const inferred = mark(client.chip({ ...WORKTREE, worktreeInferred: true, dirty: false }));
 	assert.equal(
 		inferred.props["aria-label"],
 		"git worktree: clean and in sync (inferred from an open pull request in this repository)"

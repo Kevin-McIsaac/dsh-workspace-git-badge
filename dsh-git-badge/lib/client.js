@@ -414,60 +414,102 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Session-row badge — the status mark followed by the PR/CI token:
-		 *   Session title…                          🌳 PR#391 ✓
+		 * The ONE thing this conversation needs from you, or "" when it needs
+		 * nothing.
 		 *
-		 * NO branch and no worktree name. The row lists CONVERSATIONS, and a
-		 * checkout name there would fight the session title for the same 32px. Which
-		 * checkout the badge describes is SessionGitDetail's job; the mark's tree
-		 * SHAPE (and its accessible name) already say that an inferred worktree is
-		 * not the conversation's own directory.
+		 * A session row's job is TRIAGE — "does this need me?" — so this is not the
+		 * chip's status restated: it is a short imperative, present only when an
+		 * action is genuinely warranted, first match wins. Silence is the common and
+		 * correct answer: uncommitted work is a state rather than a chore, and DRAFT,
+		 * BLOCKED, BEHIND, UNSTABLE and UNKNOWN are things to wait for, not to do.
+		 *
+		 * `merge` keys on GitHub's OWN verdict (`mergeStateStatus === "CLEAN"`) rather
+		 * than a checks-plus-reviews judgement assembled here: mergeability depends on
+		 * branch protection and required reviews, which is the forge's business. A PR
+		 * read that could not answer has no `mergeState`, so it stays silent.
+		 */
+		function actionToken(info) {
+			if (info === void 0 || info === null || info.git !== true) return "";
+			if ((info.unmergedFiles || 0) > 0) return "resolve";
+			const pr = info.pr === void 0 || info.pr === null ? void 0 : info.pr;
+			if (pr !== void 0) {
+				if (pr.state === "failing") return "fix CI";
+				if (pr.review === "CHANGES_REQUESTED") return "review";
+				if (pr.mergeState === "CLEAN") return "merge";
+			}
+			// diverged counts as behind: reconciling is the action either way
+			if ((info.behind || 0) > 0) return "pull";
+			if ((info.ahead || 0) > 0) return "push";
+			return "";
+		}
+
+		/**
+		 * Session-row badge — the ACTION, and nothing else:
+		 *   Session title…                                        merge
+		 *
+		 * An experiment in what a sidebar row is FOR. It used to carry the chip's mark
+		 * plus a PR token; it now answers exactly one question — does this conversation
+		 * need me? — in one word, and says nothing otherwise. The chip keeps the mark,
+		 * the branch, the counts and the PR/CI token, because that is the surface for
+		 * "where am I, and what is the state".
+		 *
+		 * Consequences, all deliberate: the row no longer shows local status (clean /
+		 * dirty / ahead / behind) at a glance, no longer carries the worktree's tree
+		 * SHAPE, and a silent row cannot distinguish "nothing to do" from "no PR" or
+		 * "no gh". Those answers live in the hover line below, which also names the
+		 * pull request the action refers to.
 		 *
 		 * Targets the row's `sessionId`: the node half resolves the session to the
-		 * checkout it is working in, so the client never names a directory.
-		 * `workspaceId` arrives in the owner share and is deliberately unused — the
-		 * flat and search lists are rendered without one, which is what keeps badges
-		 * off them.
+		 * checkout it is working in. `workspaceId` arrives in the owner share and is
+		 * deliberately unused — the flat and search lists render without one, which is
+		 * what keeps badges off them.
 		 *
-		 * `pr: true` is what lets the row carry a PR token at all. It costs one
-		 * forge read per (repository, branch) per TTL, and the hover card's detail
-		 * line below reuses THIS request rather than issuing its own, so a sidebar
-		 * cannot multiply forge traffic by the number of sessions.
+		 * `pr: true` is what makes an action possible at all (`merge` especially). It
+		 * costs one forge read per (repository, branch) per TTL, and the detail line
+		 * below reuses THIS request rather than issuing its own.
 		 */
 		function SessionGitBadge({ sessionId }) {
 			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId }, { pr: true });
 			if (sessionId === void 0 || info === void 0 || info.git !== true) return null;
-			const token = formatPrToken(info);
-			const children = [react_jsx_runtime.jsx(StatusMark, { key: "mark", info })];
-			if (token !== "") {
-				children.push(react_jsx_runtime.jsx("span", { key: "pr", style: META_STYLE, "aria-label": prTokenLabel(info), children: token }));
-			}
-			return react_jsx_runtime.jsx("span", { style: { display: "inline-flex", alignItems: "center", gap: "4px", flex: "none" }, children });
+			const action = actionToken(info);
+			if (action === "") return null;
+			return react_jsx_runtime.jsx("span", { style: META_STYLE, children: action });
 		}
 
 		/**
-		 * Session-row hover-card line — the badge's PROVENANCE, and the only place a
-		 * session row's checkout is named. It renders through the sessionRow.detail
-		 * seam, inside the card upstream already opens for a row.
+		 * Session-row hover-card line — everything the action word cannot say: which
+		 * checkout the row's status describes, and which pull request the action
+		 * refers to. It renders through the sessionRow.detail seam, inside the card
+		 * upstream already opens for a row.
+		 *
+		 * This matters MORE now that the row shows only an imperative: `merge` with no
+		 * way to see merge WHAT would be a nag rather than a hint, so the line appears
+		 * whenever there is something to name — a worktree, a pull request, or both.
 		 *
 		 * It makes no request of its own: the same `{ pr: true }` query as the badge
 		 * above resolves to the same cache key, so a card that mounts for every row
 		 * still costs one fetch per row, and a cold cache is served by the badge's
 		 * own in-flight request. That is why the badge must keep asking for `pr=1`.
 		 *
-		 * Only a WORKTREE is spelled out. For a main checkout the branch is the
-		 * ordinary case and repeating it on every session's card would be noise;
+		 * Only a WORKTREE's checkout is spelled out. For a main checkout the branch is
+		 * the ordinary case and repeating it on every session's card would be noise;
 		 * a tree, by contrast, is exactly what the row's own title cannot tell you.
 		 */
 		function SessionGitDetail({ sessionId }) {
 			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId }, { pr: true });
-			if (info === void 0 || info.git !== true || info.isWorktree !== true) return null;
-			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
-			const bits = [name === "" ? String(info.branch) : name + " on " + info.branch];
-			// the node half followed this tree because it is the one whose branch has
-			// the open PR — say so, because the row's mark cannot
-			if (info.worktreeInferred === true) bits.push("its branch has the open pull request");
-			return react_jsx_runtime.jsx("span", { style: META_STYLE, children: "checkout: " + bits.join(" \u00B7 ") });
+			if (info === void 0 || info.git !== true) return null;
+			const bits = [];
+			if (info.isWorktree === true) {
+				const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
+				const checkout = [name === "" ? String(info.branch) : name + " on " + info.branch];
+				// the node half followed this tree because it is the one whose branch
+				// has the open PR — say so, because nothing on the row can
+				if (info.worktreeInferred === true) checkout.push("its branch has the open pull request");
+				bits.push("checkout: " + checkout.join(" \u00B7 "));
+			}
+			const pr = formatPrDetail(info.pr);
+			if (pr !== void 0) bits.push("pull request " + pr);
+			return bits.length === 0 ? null : react_jsx_runtime.jsx("span", { style: META_STYLE, children: bits.join(" \u00B7 ") });
 		}
 
 		/**
@@ -786,7 +828,7 @@ window.__ModuleLoader__.load({
 		// Additive; the host reads apply/inject and ignores the rest. The suite
 		// drives these to assert the REQUEST contract — which surface asks for the
 		// expensive extras — without a browser, a fetch or a network.
-		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail };
+		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, actionToken };
 		return module.exports;
 	}
 });

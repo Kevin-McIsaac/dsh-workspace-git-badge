@@ -329,6 +329,13 @@ function summarizePr(json) {
 	// omitted, not present-and-undefined: absence is the contract for "nothing to
 	// say" throughout this half, so a consumer tests the key, never the value
 	if (typeof json.reviewDecision === "string" && json.reviewDecision !== "") pr.review = json.reviewDecision;
+	// GitHub's OWN merge verdict (CLEAN / BLOCKED / BEHIND / DIRTY / DRAFT /
+	// UNSTABLE / HAS_HOOKS / UNKNOWN), passed through rather than re-derived here:
+	// whether a PR is mergeable depends on branch protection and required reviews,
+	// which is the forge's business and not this plugin's to interpret. `gh pr list`
+	// does not ask for it, so a worktree-candidate entry simply has no `mergeState`
+	// — absence is the contract, as everywhere else in this half.
+	if (typeof json.mergeStateStatus === "string" && json.mergeStateStatus !== "") pr.mergeState = json.mergeStateStatus.toUpperCase();
 	// The chip links the token to the PR, so `url` is the one field that becomes an
 	// `href`: only http(s) is emitted, and anything else is omitted like every
 	// other "nothing to say" field, so a payload value cannot reach an anchor as a
@@ -353,7 +360,7 @@ async function readPrStatus(toplevel, branch) {
 	// a detached HEAD is not a branch `gh` can resolve a PR for
 	if (typeof branch !== "string" || branch === "" || branch.startsWith("HEAD")) return void 0;
 	if (!(await originIsGitHub(toplevel))) return void 0;
-	const out = await runPrCli("gh", ["pr", "view", branch, "--json", "number,state,isDraft,reviewDecision,statusCheckRollup,url"], {
+	const out = await runPrCli("gh", ["pr", "view", branch, "--json", "number,state,isDraft,reviewDecision,statusCheckRollup,url,mergeStateStatus"], {
 		cwd: toplevel,
 		timeout: config.prTimeoutMs,
 		// GH_PROMPT_DISABLED: an auth prompt must never hang the refresh (the gh

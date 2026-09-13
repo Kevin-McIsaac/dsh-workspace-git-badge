@@ -286,15 +286,16 @@ test("no PR field renders exactly the chip it rendered before gh existed", () =>
 	assert.ok(!withoutPr.includes("PR#"), "no token, no trace");
 });
 
-test("the session row carries a PR token, but never the branch", () => {
-	// The rows MOVED: this used to assert that a sidebar row ignores `pr` entirely,
-	// because the badge lived on a WORKSPACE row and asking every workspace for its
-	// forge state was unaffordable. The badge is now per CONVERSATION, which is the
-	// unit that knows which checkout it is working in — so the row asks for pr=1 and
-	// shows the token, at a cost bounded by the same TTL caches the chip uses.
+test("the session row shows an ACTION, never a PR token or a branch", () => {
+	// Third shape for this contract, and each move had a reason: rows ignored `pr`
+	// entirely while the badge lived on a WORKSPACE row (one forge read per row was
+	// unaffordable); then the badge became per CONVERSATION and the row carried the
+	// PR token; now the row's job is triage, so it carries the imperative alone. The
+	// PR number and CI state moved to the row's hover line; the chip keeps both.
 	const client = createClient();
 	const rendered = text(client.row({ branch: "SECRET/BRANCH", dirty: false, pr: { number: 142, state: "failing" } }));
-	assert.ok(rendered.includes("PR#142"), `expected the PR token: ${rendered}`);
+	assert.equal(rendered, "fix CI", `expected the action alone: ${rendered}`);
+	assert.ok(!rendered.includes("PR#"), "the token belongs to the chip now");
 	assert.ok(!rendered.includes("SECRET/BRANCH"), `the row must not name the branch: ${rendered}`);
 });
 

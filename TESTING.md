@@ -238,8 +238,8 @@ trusts). If the UI looks stale after a patch change: restart, THEN
 hard-refresh. DevTools console confirms which code is live via the
 `[dsh-git-badge] surfaces:` line, which now reports the SESSION rows.
 
-What the patch buys: a status mark and PR/CI token on each session row, plus the
-`checkout:` line in that row's hover card. The **project** rows stay bare — by
+What the patch buys: an action token on each session row (`merge`, `fix CI`, …),
+plus the line in that row's hover card naming the checkout and the pull request. The **project** rows stay bare — by
 design, since a workspace cannot know which worktree its sessions use. The flat
 "all sessions" and search lists are bare too, and that one is structural: they
 render the same component without a `workspaceId`, so the seam helper returns

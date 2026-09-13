@@ -44,6 +44,15 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Changed
 
+- **The sidebar session row is an ACTION token, not a status badge.** It shows
+  the one thing that conversation needs — `merge`, `fix CI`, `review`, `resolve`,
+  `pull`, `push` — and nothing when there is nothing to do. `merge` keys on
+  GitHub's own `mergeStateStatus: CLEAN` rather than a verdict assembled here; a
+  draft, blocked, behind, unstable or unknown PR stays silent, because waiting is
+  not an action. This is deliberately a trade: the row no longer shows local
+  status or the worktree's tree shape, and the hover line — which now names the
+  pull request as well as the checkout — is where that detail lives. The chip is
+  unchanged. Revert this commit to go back to the mark-plus-token row.
 - **The sidebar badge moved from the workspace row to the session row.** A
   workspace row cannot know which worktree its conversations are using, so a
   per-workspace badge could only guess or report the main checkout. Each session
