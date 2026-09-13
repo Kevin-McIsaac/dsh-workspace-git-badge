@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="176" viewBox="0 0 760 176" role="img"
+     aria-label="The input-row chip in three states: a clean main checkout with a failing PR, a linked worktree, and an inferred worktree whose branch has an open PR">
+  <style>
+    .panel { fill:#ffffff; stroke:#e5e7eb; stroke-width:1 }
+    .label { font:11px -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; fill:#9ea7ad; letter-spacing:.04em; text-transform:uppercase }
+    .mono  { font:14px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; fill:#5b6570 }
+    .cap   { font:12px -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; fill:#9ea7ad }
+    .ok { fill:#30a46c } .warn { fill:#d29922 } .err { fill:#e5484d } .grey { fill:#9ea7ad }
+    .trunk { fill:#9ea7ad }
+    .bar { fill:#f6f7f8; stroke:#e5e7eb; stroke-width:1 }
+  </style>
+  <rect class="panel" x="0.5" y="0.5" width="759" height="175" rx="12"/>
+
+  <!-- 1. main checkout, PR failing -->
+  <text class="label" x="24" y="34">main checkout</text>
+  <rect class="bar" x="24" y="44" width="712" height="32" rx="8"/>
+  <circle class="err" cx="42" cy="60" r="5.5"/>
+  <text class="mono" x="56" y="65">main ↑0 ↓2 ✎3</text>
+  <text class="mono err" x="196" y="65">PR#142 ✗</text>
+  <text class="cap" x="292" y="65">← the token links to the PR; ✗ is a failing check</text>
+
+  <!-- 2. linked worktree -->
+  <text class="label" x="24" y="106">linked worktree</text>
+  <rect class="bar" x="24" y="116" width="712" height="32" rx="8"/>
+  <g transform="translate(36 54)">
+    <rect class="trunk" x="5.25" y="7.3" width="1.5" height="4.14" rx="0.63"/>
+    <circle class="ok" cx="6" cy="3.62" r="3.57"/><circle class="ok" cx="3.24" cy="5.46" r="2.53"/><circle class="ok" cx="8.76" cy="5.46" r="2.53"/>
+  </g>
+  <text class="mono" x="56" y="137">feat/hotfix ↑0 ↓2 ✎3</text>
+  <text class="mono ok" x="236" y="137">PR#391 ✓</text>
+  <text class="cap" x="328" y="137">← circle = main checkout, tree = linked worktree; fill = status</text>
+</svg>

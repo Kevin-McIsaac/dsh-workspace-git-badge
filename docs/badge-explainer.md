@@ -4,8 +4,9 @@ The badge shows a **status mark**, your **branch name**, and sometimes
 **small numbers** like `↑2 ↓1 ✎3`. Here's what each piece means.
 
 The mark is a small filled **circle** — or a **tree** when the folder is a linked
-`git worktree` — and its colour is the status. The input box and the sidebar rows
-show the same mark. In this guide `●` stands for the circle and `🌳` for the tree,
+`git worktree` — and its colour is the status. It belongs to the input box; a
+sidebar row shows an **action word** instead (`merge`, `fix CI`, `review`, …) —
+the README's *action token* section explains that. In this guide `●` stands for the circle and `🌳` for the tree,
 and the coloured circles stand for the mark's fill colour.
 
 ## The status mark — "is there something I need to do?"
@@ -64,9 +65,9 @@ back to yellow — or green. The ⚔ word is the only part of the badge saying g
 is still mid-operation and waiting for you to continue or undo it
 (`git rebase --continue`, `git rebase --abort`, …).
 
-Only the chip in the input box shows the token. A sidebar row shows the same
-status mark — a circle, or a tree when the folder is a linked worktree — with the
-worktree's name beside it, and never the branch.
+Only the chip in the input box shows the token. A sidebar row shows the one
+**action** that conversation needs — `merge`, `fix CI`, `review`, `resolve`,
+`pull`, `push` — or nothing at all, and never the branch.
 
 ## A worked example
 
@@ -95,7 +96,7 @@ an extra merge).
 | 🟡 main ↑2 ↓1 ✎3 | Unsaved edits, plus unsynced commits both ways | Commit your edits, then `git pull` and `git push` |
 | 🟡 main ⚔rebase | A rebase is paused, waiting on you | Finish it (`git rebase --continue`) or undo it (`git rebase --abort`) |
 | 🔴 main | Merge conflict in progress | Resolve the conflicted files, then commit |
-| 🌳 main hotfix-tree | A linked worktree sitting on `main`, clean and synced | Nothing — the tree marks it as a separate checkout |
+| 🌳 main | A linked worktree sitting on `main`, clean and synced | Nothing — the tree shape marks it as a separate checkout |
 
 (The coloured circle in these tables stands for the mark's fill; the mark itself
 is a circle, or a tree in a linked worktree.)
