@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="212" viewBox="0 0 780 212" role="img"
+     aria-label="Dark-mode sidebar session rows: one asking you to merge in green, one asking you to fix CI in red, and one with nothing to do showing no token">
+  <style>
+    .panel { fill:#1b1e21; stroke:#2b3034; stroke-width:1 }
+    .head  { font:12px -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; fill:#7d858c }
+    .title { font:13px -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; fill:#e6e8ea }
+    .time  { font:12px -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; fill:#7d858c }
+    .act   { font:12.5px -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; font-weight:600 }
+    .ok { fill:#3fbf7f } .err { fill:#ef5f63 } .dot { fill:#3a4046 }
+    .cap { font:12px -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; fill:#7d858c }
+  </style>
+  <rect class="panel" x="0.5" y="0.5" width="779" height="211" rx="12"/>
+  <text class="head" x="26" y="32">dsh-workspace-git-badge</text>
+  <line x1="26" y1="44" x2="754" y2="44" stroke="#262b2f"/>
+
+  <circle class="dot" cx="42" cy="70" r="4"/><text class="title" x="58" y="75">Session badge follows the worktree…</text>
+  <text class="act ok" x="638" y="75">merge</text><text class="time" x="712" y="75">11m</text>
+
+  <circle class="dot" cx="42" cy="108" r="4"/><text class="title" x="58" y="113">Fix the sidebar blanking the region…</text>
+  <text class="act err" x="626" y="113">fix CI</text><text class="time" x="712" y="113">2h</text>
+
+  <circle class="dot" cx="42" cy="146" r="4"/><text class="title" x="58" y="151">Docs: first pass at the READMEs…</text>
+  <text class="time" x="712" y="151">3h</text>
+
+  <text class="cap" x="26" y="188">Nothing to do → nothing shown. Colour is severity: red broken or blocked, amber waiting on you, green ready, grey routine.</text>
+</svg>

@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="780" height="188" viewBox="0 0 780 188" role="img"
+     aria-label="Dark-mode input chip: a linked worktree on feat/worktree-aware-chip with a passing pull request 18, above a main checkout with sync and file counts and a failing pull request 142">
+  <style>
+    .panel { fill:#1b1e21; stroke:#2b3034; stroke-width:1 }
+    .bar   { fill:#202529; stroke:#2b3034; stroke-width:1 }
+    .label { font:11px -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; fill:#7d858c; letter-spacing:.05em }
+    .mono  { font:14px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; fill:#aab1b7 }
+    .monob { font:14px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; fill:#e6e8ea }
+    .cap   { font:12px -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; fill:#7d858c }
+    .ok { fill:#3fbf7f } .warn { fill:#d9a227 } .err { fill:#ef5f63 }
+    .trunk { fill:#7d858c }
+  </style>
+  <rect class="panel" x="0.5" y="0.5" width="779" height="187" rx="12"/>
+
+  <!-- this session: the conversation works in a linked worktree, so the chip follows it -->
+  <text class="label" x="26" y="34">LINKED WORKTREE · THE CONVERSATION'S OWN DIRECTORY IS THE MAIN CHECKOUT</text>
+  <rect class="bar" x="26" y="44" width="728" height="34" rx="8"/>
+  <g transform="translate(40 54.5)">
+    <rect class="trunk" x="5.25" y="7.3" width="1.5" height="4.14" rx="0.63"/>
+    <circle class="ok" cx="6" cy="3.62" r="3.57"/><circle class="ok" cx="3.24" cy="5.46" r="2.53"/><circle class="ok" cx="8.76" cy="5.46" r="2.53"/>
+  </g>
+  <text class="monob" x="62" y="66">feat/worktree-aware-chip</text>
+  <text class="mono" x="252" y="66">PR#18 ✓</text>
+  <text class="cap" x="336" y="66">← the tree shape says which checkout the badge is describing</text>
+
+  <!-- a main checkout, for contrast: circle, counts, a failing check -->
+  <text class="label" x="26" y="112">MAIN CHECKOUT</text>
+  <rect class="bar" x="26" y="122" width="728" height="34" rx="8"/>
+  <circle class="warn" cx="43" cy="139" r="5.5"/>
+  <text class="monob" x="62" y="144">main</text>
+  <text class="mono" x="112" y="144">↑0 ↓2 ✎3</text>
+  <text class="mono" x="214" y="144">PR#142 ✗</text>
+  <text class="cap" x="298" y="144">← circle, amber fill (dirty/behind), failing checks</text>
+
+  <text class="cap" x="26" y="178">Mark: shape = worktree or not, fill = status (green clean+in sync, amber dirty or out of sync, red conflict).</text>
+</svg>
