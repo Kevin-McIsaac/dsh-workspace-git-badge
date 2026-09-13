@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
 # Apply / revert the git-badge seam patch + plugin to the installed DSH package.
 #
-# The patch is SEAM-ONLY (sidebar.workspaces.row / .row.detail slots); all
-# badge logic lives in the dsh-git-badge plugin (installed separately into the
+# The patch is SEAM-ONLY (sidebar.workspaces.sessionRow / .sessionRow.detail);
+# all badge logic lives in the dsh-git-badge plugin (installed separately into the
 # web profile). Safety:
 #   - hash-guard: refuses to patch an unrecognized upstream client.js
+#   - own-artifact detection: every artifact this script writes carries a marker
+#     comment, so a stale patch of ours can be upgraded in place while a genuine
+#     upstream landing (which declares the seam but carries no marker) is left
+#     alone — the two states used to be indistinguishable, and the old
+#     "seam string present" test silently skipped every rebuilt patch
 #   - seam detection: if the installed client.js already declares the seam
 #     (upstream PR merged), the patch step is a no-op — the plugin keeps working
 #
@@ -24,23 +29,58 @@ PRISTINE_HASH="383b9ef779366c13d818500b6488896328b189f156addbaa480c835e902edd5f"
 CLIENT="$PKG/lib/client.js"
 INDEX="$PKG/lib/index.js"
 
+# Marker every artifact THIS repo builds carries (see make-patch.sh). It is what
+# lets "our stale patch" and "upstream landed the seam" be told apart.
+MARKER="dsh-git-badge:seam-patch"
+
+# Artifacts this repo has previously shipped as patched-client.js. Applied over
+# an older one of ours is an upgrade, not drift — without these the guard would
+# refuse to move from the workspace-row patch to the session-row one.
+PREVIOUS_PATCHED_HASHES="d04a97732b9d43507849d8406ed584d6396d1d068647515e491d37b0ff1e2d0d"
+
 current_hash() { sha256sum "$CLIENT" | cut -d' ' -f1; }
+artifact_hash() { sha256sum "$1" 2>/dev/null | cut -d' ' -f1 || true; }
+has_marker() { grep -q "$MARKER" "$1" 2>/dev/null; }
+hash_in() { # hash_in <hash> <space-separated list>
+	local needle="$1" haystack="$2" candidate
+	for candidate in $haystack; do [ "$needle" = "$candidate" ] && return 0; done
+	return 1
+}
+is_our_artifact() { # is_our_artifact <hash>
+	has_marker "$CLIENT" || hash_in "$1" "$PREVIOUS_PATCHED_HASHES"
+}
+
+PATCHED_HASH="$(artifact_hash "$HERE/patched-client.js")"
 
 case "${1:?usage: apply.sh apply|revert|status}" in
 apply)
-	if grep -q '"sidebar.workspaces.row"' "$CLIENT"; then
-		echo "seam already present in installed client.js — patch skipped (plugin only)."
-	elif [ "$(current_hash)" != "$PRISTINE_HASH" ]; then
-		echo "REFUSING: installed client.js hash $(current_hash) does not match the" >&2
-		echo "pristine hash this patch was built against ($PRISTINE_HASH)." >&2
-		echo "Upstream changed; rebuild the patch before applying." >&2
-		exit 1
-	else
-		cp "$CLIENT" "$HERE/backup-client.js"
-		cp "$INDEX" "$HERE/backup-index.js"
+	CUR="$(current_hash)"
+	if [ "$CUR" = "$PATCHED_HASH" ]; then
+		echo "installed client.js is already this repo's current patch — nothing to do."
+	elif is_our_artifact "$CUR" || [ "$CUR" = "$PRISTINE_HASH" ]; then
+		# The backup is the UPSTREAM baseline, not the bytes being replaced. When the
+		# installed file is an older patch of ours, restoring THAT on `revert` would
+		# leave the package on a stale seam; `pristine-client.js` is the upstream
+		# build this patch targets, and `apply` only ever proceeds when the package
+		# is at that baseline or already carries an artifact of ours.
+		if [ ! -f "$HERE/backup-client.js" ]; then
+			cp "$HERE/pristine-client.js" "$HERE/backup-client.js"
+			cp "$HERE/pristine-index.js" "$HERE/backup-index.js"
+		fi
 		cp "$HERE/patched-client.js" "$CLIENT"
 		cp "$HERE/pristine-index.js" "$INDEX"
 		echo "applied seam patch. restart the dsh web process to pick it up."
+	elif grep -q '"sidebar.workspaces.sessionRow"' "$CLIENT" || grep -q '"sidebar.workspaces.row"' "$CLIENT"; then
+		echo "seam already present in installed client.js and it is NOT this repo's"
+		echo "artifact — upstream appears to declare it. patch skipped (plugin only)."
+	else
+		echo "REFUSING: installed client.js hash $CUR is neither the pristine baseline" >&2
+		echo "this patch targets, nor an artifact this repo built, nor a file that" >&2
+		echo "declares the seam. Upstream changed; rebuild the patch first:" >&2
+		echo "  cp \"$CLIENT\" \"$HERE/pristine-client.js\"" >&2
+		echo "  cp \"$INDEX\"  \"$HERE/pristine-index.js\"" >&2
+		echo "  seam/make-patch.sh && seam/stamp-hash.sh && seam/apply.sh apply" >&2
+		exit 1
 	fi
 	echo "now install the plugin:  dsh plugin --profile web add \"$HERE/../dsh-git-badge\""
 	;;
@@ -49,16 +89,15 @@ revert)
 	# as it was before WE patched it, so it is the previous upstream build. If a
 	# DSH update has since replaced lib/client.js, restoring that backup would
 	# overwrite a NEWER upstream file with an older one. Only restore when the
-	# installed file is still this repo's patched artifact, or already the backup
-	# (the idempotent re-run case).
-	PATCHED_HASH="$(sha256sum "$HERE/patched-client.js" 2>/dev/null | cut -d' ' -f1 || true)"
+	# installed file is still an artifact of ours (current or previous) or already
+	# the backup (the idempotent re-run case).
 	if [ -f "$HERE/backup-client.js" ]; then
 		CUR="$(current_hash)"
-		BACKUP_HASH="$(sha256sum "$HERE/backup-client.js" | cut -d' ' -f1)"
-		if [ -n "$PATCHED_HASH" ] && [ "$CUR" != "$PATCHED_HASH" ] && [ "$CUR" != "$BACKUP_HASH" ]; then
-			echo "REFUSING to revert: the installed client.js is neither this repo's patched" >&2
-			echo "artifact nor the backup, so upstream has replaced it since the patch was" >&2
-			echo "applied. Restoring the backup would DOWNGRADE the package." >&2
+		BACKUP_HASH="$(artifact_hash "$HERE/backup-client.js")"
+		if [ "$CUR" != "$PATCHED_HASH" ] && [ "$CUR" != "$BACKUP_HASH" ] && ! is_our_artifact "$CUR"; then
+			echo "REFUSING to revert: the installed client.js is neither an artifact this" >&2
+			echo "repo built nor the backup, so upstream has replaced it since the patch" >&2
+			echo "was applied. Restoring the backup would DOWNGRADE the package." >&2
 			echo "  installed: $CUR" >&2
 			echo "  patched:   $PATCHED_HASH" >&2
 			echo "  backup:    $BACKUP_HASH" >&2
@@ -83,8 +122,7 @@ status)
 	# string is read from whichever copy is installed and tells you nothing
 	# about which bytes they are.
 	CUR="$(current_hash)"
-	PATCHED_HASH="$(sha256sum "$HERE/patched-client.js" 2>/dev/null | cut -d' ' -f1 || true)"
-	if grep -q '"sidebar.workspaces.row"' "$CLIENT"; then SEAM=yes; else SEAM=no; fi
+	if grep -q '"sidebar.workspaces.sessionRow"' "$CLIENT" || grep -q '"sidebar.workspaces.row"' "$CLIENT"; then SEAM=yes; else SEAM=no; fi
 
 	echo "installed:  $CLIENT"
 	echo "hash:       $CUR"
@@ -93,38 +131,41 @@ status)
 	else
 		echo "pinned:     $PRISTINE_HASH  <- differs"
 	fi
-	if [ -n "$PATCHED_HASH" ]; then
-		if [ "$CUR" = "$PATCHED_HASH" ]; then
-			echo "patched:    $PATCHED_HASH  <- MATCH (this repo's patched artifact)"
-		else
-			echo "patched:    $PATCHED_HASH"
-		fi
+	if [ "$CUR" = "$PATCHED_HASH" ]; then
+		echo "patched:    $PATCHED_HASH  <- MATCH (this repo's patched artifact)"
+	else
+		echo "patched:    $PATCHED_HASH"
 	fi
+	BACKUP_HASH=""
 	if [ -f "$HERE/backup-client.js" ]; then
-		BACKUP_HASH="$(sha256sum "$HERE/backup-client.js" | cut -d' ' -f1)"
+		BACKUP_HASH="$(artifact_hash "$HERE/backup-client.js")"
 		echo "backup:     present (revert can restore the pre-patch bytes)"
-		if [ -n "$PATCHED_HASH" ] && [ "$CUR" != "$PATCHED_HASH" ] && [ "$CUR" != "$BACKUP_HASH" ]; then
-			echo "revert:     would REFUSE — the installed file is neither the patched"
-			echo "            artifact nor the backup, so upstream replaced it since patching."
+		if [ "$CUR" != "$PATCHED_HASH" ] && [ "$CUR" != "$BACKUP_HASH" ] && ! is_our_artifact "$CUR"; then
+			echo "revert:     would REFUSE — the installed file is neither an artifact this"
+			echo "            repo built nor the backup, so upstream replaced it since patching."
 		fi
 	else
 		echo "backup:     none"
 	fi
 	echo "seam:       $SEAM"
 
-	if [ "$SEAM" = "yes" ] && [ -n "$PATCHED_HASH" ] && [ "$CUR" = "$PATCHED_HASH" ]; then
-		echo "verdict:    PATCHED — sidebar row badges come from this repo's patch."
+	if [ "$CUR" = "$PATCHED_HASH" ]; then
+		echo "verdict:    PATCHED — sidebar session-row badges come from this repo's patch."
+		exit 0
+	elif is_our_artifact "$CUR"; then
+		echo "verdict:    PATCHED, OUT OF DATE — an artifact this repo built, but not the"
+		echo "            current one. 'apply' upgrades it in place; restart afterwards."
 		exit 0
 	elif [ "$SEAM" = "yes" ]; then
-		echo "verdict:    SEAM PRESENT, but not this repo's artifact — upstream appears"
-		echo "            to declare it. 'apply' correctly no-ops; the patch can be retired."
+		echo "verdict:    SEAM PRESENT, but not an artifact of ours — upstream appears to"
+		echo "            declare it. 'apply' correctly no-ops; the patch can be retired."
 		exit 0
 	elif [ "$CUR" = "$PRISTINE_HASH" ]; then
 		echo "verdict:    PRISTINE — the upstream baseline, no seam. 'apply' will patch it."
 		exit 0
 	else
 		echo "verdict:    UNKNOWN BUILD — upstream changed since the pin, and no seam is" >&2
-		echo "            present, so the row badge is silently absent. Rebuild:" >&2
+		echo "            present, so the badge is silently absent. Rebuild:" >&2
 		echo "              cp \"$CLIENT\" \"$HERE/pristine-client.js\"" >&2
 		echo "              cp \"$INDEX\"  \"$HERE/pristine-index.js\"" >&2
 		echo "              seam/make-patch.sh && seam/stamp-hash.sh && seam/apply.sh apply" >&2

@@ -6,8 +6,10 @@ Notes for coding agents working in this repo.
 
 `dsh-git-badge` — a DeepSeek Harness cordis plugin (npm-published) providing
 git status badges: an input-row chip (`conversation.input.left`, works
-everywhere) and sidebar workspace-row badges via the `sidebar.workspaces.row`
-seam (a local +40/−8 patch in `seam/`, proposed upstream — see `PR.md`).
+everywhere) and sidebar **session-row** badges via the
+`sidebar.workspaces.sessionRow` seam (a local +39/−3 patch in `seam/`, proposed
+upstream — see `PR.md`). The badge sits on the session row because that is the
+row that knows which checkout the conversation is working in.
 
 ## Read first
 
@@ -48,8 +50,9 @@ seam (a local +40/−8 patch in `seam/`, proposed upstream — see `PR.md`).
    the end. It also compounds with rule 1, because a change built on `main` is the
    one most likely to be left uncommitted while the user is asked to restart.
 7. The status route takes **no path** — the caller names who it is and the server
-   resolves the directory: `?session=<id>` (the input chip) or `?workspace=<id>`
-   (a sidebar row; a generated uuid matching the seam's `workspaceId`). A `?path=`
+   resolves the directory: `?session=<id>` (the input chip and every sidebar
+   session row) or `?workspace=<id>` (a workspace target by id; no bundled
+   surface uses it now). A `?path=`
    request is refused with `target-required`; an unresolvable id gives
    `session-not-found` / `workspace-not-found`. Never send a filesystem path, and
    never display-abbreviate one as `~/...`.

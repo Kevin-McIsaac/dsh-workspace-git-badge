@@ -6,19 +6,23 @@
  * identically wherever they appear.
  *
  * Surfaces:
- *  - sidebar.workspaces.row (seam): row badge — workspace name, the status mark
- *    floated right, and a worktree's name beside it. Deliberately shows NO
- *    branch: the chip is the surface that names it.
+ *  - sidebar.workspaces.sessionRow (seam): session-row badge — the status mark
+ *    and the PR/CI token, immediately after the session title. Deliberately shows
+ *    NO branch and no worktree name: the row lists conversations, and which
+ *    checkout the badge describes is the hover card's business.
+ *  - sidebar.workspaces.sessionRow.detail (seam): the hover-card line that names
+ *    that checkout, rendered inside the card upstream ALREADY shows for a session
+ *    row rather than in a tooltip nested inside it.
  *  - conversation.input.left (upstream): chip — status mark + branch + a
  *    worktree's name + in-progress operation token + sync/dirty suffix + the
  *    PR/CI token, with a HOVER CARD carrying the breakdown the chip has no room
- *    for (file detail, recent commits, stash, PR state).
+ *    for (file detail, recent commits, stash, PR state, and the conversation's own
+ *    checkout when the badge followed a worktree).
  *
- * The hover card is the INPUT CHIP's, not the sidebar row's, and it needs
- * nothing but the upstream slot: the Tooltip primitive is seeded by the shell
- * itself, so the card works on a PRISTINE install with no seam patch. Its extra
- * fields are fetched only once a pointer rests on the chip, so the everyday
- * badge pays for none of them.
+ * The chip's hover card needs nothing but the upstream slot: the Tooltip
+ * primitive is seeded by the shell itself, so the card works on a PRISTINE
+ * install with no seam patch. Its extra fields are fetched only once a pointer
+ * rests on the chip, so the everyday badge pays for none of them.
  */
 window.__ModuleLoader__.load({
 	id: "dsh-git-badge",
@@ -454,52 +458,60 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * A linked worktree's directory name, or null when there is nothing to
-		 * show. A main checkout shows NO text: the row surveys status and identity,
-		 * and the branch lives on the input chip — which is why the branch is never
-		 * rendered here. The name is the one thing the row's own label (the
-		 * worktree directory by default) cannot be trusted to say once a workspace
-		 * has been renamed.
+		 * Session-row badge — the status mark followed by the PR/CI token:
+		 *   Session title…                          🌳 PR#391 ✓
+		 *
+		 * NO branch and no worktree name. The row lists CONVERSATIONS, and a
+		 * checkout name there would fight the session title for the same 32px. Which
+		 * checkout the badge describes is SessionGitDetail's job; the mark's tree
+		 * SHAPE (and its accessible name) already say that an inferred worktree is
+		 * not the conversation's own directory.
+		 *
+		 * Targets the row's `sessionId`: the node half resolves the session to the
+		 * checkout it is working in, so the client never names a directory.
+		 * `workspaceId` arrives in the owner share and is deliberately unused — the
+		 * flat and search lists are rendered without one, which is what keeps badges
+		 * off them.
+		 *
+		 * `pr: true` is what lets the row carry a PR token at all. It costs one
+		 * forge read per (repository, branch) per TTL, and the hover card's detail
+		 * line below reuses THIS request rather than issuing its own, so a sidebar
+		 * cannot multiply forge traffic by the number of sessions.
 		 */
-		function rowName(info) {
-			if (info.isWorktree !== true) return null;
-			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
-			return name === "" ? null : name;
+		function SessionGitBadge({ sessionId }) {
+			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId }, { pr: true });
+			if (sessionId === void 0 || info === void 0 || info.git !== true) return null;
+			const token = formatPrToken(info);
+			const children = [react_jsx_runtime.jsx(StatusMark, { key: "mark", info })];
+			if (token !== "") {
+				children.push(react_jsx_runtime.jsx("span", { key: "pr", style: META_STYLE, "aria-label": prTokenLabel(info), children: token }));
+			}
+			return react_jsx_runtime.jsx("span", { style: { display: "inline-flex", alignItems: "center", gap: "4px", flex: "none" }, children });
 		}
 
 		/**
-		 * Row badge — workspace name on the left, the status mark floated right:
-		 *   the_paragliding_app                       ●
-		 *   worktree_thing                  hotfix-tree 🌳
-		 * Fill colour via badgeStatus(): green clean+synced, amber dirty or
-		 * out-of-sync, red conflict or dirty-and-behind. Shape via the node half's
-		 * isWorktree: circle = main checkout, tree = linked worktree.
-		 * Always renders the workspace name (so the row keeps its identity) and
-		 * appends the right-hand mark only for git workspaces. No branch, and no
-		 * `|` separator.
+		 * Session-row hover-card line — the badge's PROVENANCE, and the only place a
+		 * session row's checkout is named. It renders through the sessionRow.detail
+		 * seam, inside the card upstream already opens for a row.
 		 *
-		 * Targets the row's `workspaceId`. The seam also passes `cwd`, which is
-		 * deliberately ignored: the node half resolves the directory itself, so
-		 * the client never has to name one. A row with no workspaceId (the
-		 * ungrouped bucket) has no workspace to report on, so it renders
-		 * name-only.
+		 * It makes no request of its own: the same `{ pr: true }` query as the badge
+		 * above resolves to the same cache key, so a card that mounts for every row
+		 * still costs one fetch per row, and a cold cache is served by the badge's
+		 * own in-flight request. That is why the badge must keep asking for `pr=1`.
+		 *
+		 * Only a WORKTREE is spelled out. For a main checkout the branch is the
+		 * ordinary case and repeating it on every session's card would be noise;
+		 * a tree, by contrast, is exactly what the row's own title cannot tell you.
 		 */
-		function WorkspaceGitBadge({ label, workspaceId }) {
-			// no detail=1: the row needs status and identity only, and the extra
-			// log / stash calls have no consumer yet
-			const info = useGitStatus(workspaceId === void 0 ? void 0 : { kind: "workspace", id: workspaceId });
-			const children = [react_jsx_runtime.jsx("span", { style: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: label })];
-			if (workspaceId !== void 0 && info !== void 0 && info.git === true) {
-				// marginLeft:auto floats the mark to the right edge, so the status
-				// shape holds a fixed right-hand column and a worktree's name grows
-				// leftwards from it instead of shoving the shape around.
-				const meta = [];
-				const name = rowName(info);
-				if (name !== null) meta.push(react_jsx_runtime.jsx("span", { key: "name", style: META_STYLE, children: name }));
-				meta.push(react_jsx_runtime.jsx(StatusMark, { key: "mark", info }));
-				children.push(react_jsx_runtime.jsx("span", { style: { display: "inline-flex", alignItems: "center", gap: "6px", flex: "none", marginLeft: "auto", paddingLeft: "8px" }, children: meta }));
-			}
-			return react_jsx_runtime.jsx("span", { style: { display: "flex", alignItems: "center", minWidth: 0, width: "100%" }, children });
+		function SessionGitDetail({ sessionId }) {
+			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId }, { pr: true });
+			if (info === void 0 || info.git !== true || info.isWorktree !== true) return null;
+			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
+			const bits = [name === "" ? String(info.branch) : name + " on " + info.branch];
+			// the node half followed this tree because it is the one whose branch has
+			// the open PR — say so, because the row's mark cannot
+			if (info.worktreeInferred === true) bits.push("its branch has the open pull request");
+			return react_jsx_runtime.jsx("span", { style: META_STYLE, children: "checkout: " + bits.join(" \u00B7 ") });
 		}
 
 		/**
@@ -732,15 +744,15 @@ window.__ModuleLoader__.load({
 		const inject = ["slots"];
 
 		/**
-		 * Register the badge into both seams. The seam owner hands each entry the
-		 * row owner share as props; the badge destructures { workspaceId, label }
-		 * and deliberately ignores the cwd it is also given.
+		 * Register the badge into the seams. The seam owner hands each entry the row
+		 * owner share as props; the row badge destructures `{ sessionId }` and
+		 * deliberately ignores the cwd it may also be given.
 		 */
 		function apply(ctx) {
 			// inject() re-evaluates when a seam's declaration appears, so boot
 			// order relative to the workspace browser does not matter. On an
-			// unpatched install the row seam is never declared, so this callback
-			// never fires and the row badge simply never renders.
+			// unpatched install the seam is never declared, so this callback never
+			// fires and the row badge simply never renders.
 			//
 			// The registration is reported from INSIDE the callback on purpose: a
 			// `spec()` check here at apply() time runs before the workspace browser
@@ -748,16 +760,24 @@ window.__ModuleLoader__.load({
 			// outcome. That mistake made the old one-shot line claim "sidebar rows
 			// = off" while five row badges were rendering.
 			let rowsReported = false;
-			ctx.slots.inject("sidebar.workspaces.row", () => {
+			ctx.slots.inject("sidebar.workspaces.sessionRow", () => {
 				if (!rowsReported) {
 					rowsReported = true;
-					console.info("[dsh-git-badge] surfaces: sidebar rows = on (seam present).");
+					console.info("[dsh-git-badge] surfaces: sidebar session rows = on (seam present).");
 				}
 				return ctx.slots.register({
-					name: "sidebar.workspaces.row",
-					id: "git-badge"
-				}, WorkspaceGitBadge);
+					name: "sidebar.workspaces.sessionRow",
+					id: "git-badge-row"
+				}, SessionGitBadge);
 			});
+			// The row is ALREADY a HoverCard anchor upstream, so a badge that opened
+			// its own tooltip would nest two cards. This additive slot renders the
+			// provenance line inside that card instead — the same pattern the
+			// workspace-row detail slot used. It issues no request of its own.
+			ctx.slots.inject("sidebar.workspaces.sessionRow.detail", () => ctx.slots.register({
+				name: "sidebar.workspaces.sessionRow.detail",
+				id: "git-badge-row-detail"
+			}, SessionGitDetail));
 			// Input-row chip: upstream additive slot rendered in the input bar's
 			// leading cluster, right after the access picker — the git state sits
 			// with the controls that govern the conversation. Present on every
@@ -769,8 +789,8 @@ window.__ModuleLoader__.load({
 				id: "git-badge-chip",
 				inject: (sessionId) => ({ sessionId })
 			}, ComposerGitChip));
-			const seamDeclared = ctx.slots.spec("sidebar.workspaces.row") !== void 0;
-			console.info("[dsh-git-badge] surfaces: input chip = on; sidebar rows = " + (seamDeclared ? "on (seam present)." : "awaiting the sidebar.workspaces.row seam — the line above reports it if it appears."));
+			const seamDeclared = ctx.slots.spec("sidebar.workspaces.sessionRow") !== void 0;
+			console.info("[dsh-git-badge] surfaces: input chip = on; sidebar session rows = " + (seamDeclared ? "on (seam present)." : "awaiting the sidebar.workspaces.sessionRow seam — the line above reports it if it appears."));
 			// The hover card depends on a primitive the SHELL seeds, not on anything
 			// this plugin declares. Report the outcome rather than letting a missing
 			// seed look like a missing feature: the try/catch above deliberately keeps

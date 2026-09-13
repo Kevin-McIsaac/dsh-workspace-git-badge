@@ -136,8 +136,8 @@ The feature has three independently testable layers:
    served to a browser is left to a refresh.
 3. **Published plugin** (`dsh-git-badge` from npm) — the customer experience;
    test in a **clean profile**.
-4. **Seam patch** (`seam/apply.sh`) — the sidebar rows; only meaningful on
-   top of a working plugin install.
+4. **Seam patch** (`seam/apply.sh`) — the sidebar session-row badge; only
+   meaningful on top of a working plugin install.
 
 ## Clean-profile test (customer simulation)
 
@@ -208,9 +208,10 @@ curl -s "http://127.0.0.1:3100/api/git-badge?session=__no_such_session__"
 
 Then in a browser: no sidebar badges (no seam in a clean profile), input chip
 present, console shows
-`[dsh-git-badge] surfaces: input chip = on; sidebar rows = off (seam absent …)`.
+`[dsh-git-badge] surfaces: input chip = on; sidebar session rows = off (seam absent …)`.
 Open the URL the server printed (the one carrying `?token=`) — a bare
-`http://127.0.0.1:3100` will not authenticate.
+`http://127.0.0.1:3000`-style URL will not authenticate, and the launch token is
+per-process, so it cannot be recovered from the boot log after the fact.
 
 Clean up: stop the server and delete the profile directory; `test-profile.sh`
 prints both commands with the real paths.
@@ -218,16 +219,31 @@ prints both commands with the real paths.
 ## Seam-patched test (full badges)
 
 ```bash
-seam/apply.sh apply     # hash-guarded; refuses unknown upstream builds
-seam/apply.sh revert    # restore pristine
+seam/apply.sh status    # patched / out of date / pristine / upstream-landed / drift
+seam/apply.sh apply     # installs, upgrading an older patch of OURS in place
+seam/apply.sh revert    # restore the UPSTREAM baseline
 ```
+
+`apply` tells its own artifacts from an upstream landing by the
+`dsh-git-badge:seam-patch` marker (plus the previous artifact's hash), so a
+rebuilt patch installs instead of being skipped as "the seam is already there";
+it refuses an unrecognised upstream file rather than overwriting it. `revert`
+restores `pristine-client.js` — upstream — not whatever bytes the patch replaced,
+so reverting from a stale patch lands on upstream rather than on the older seam.
 
 After apply, **restart the dsh web process** — the workspace bundle URL
 carries a `?rev=` hash that only changes at boot, so a browser refresh alone
 can keep serving stale JS (and the composed boot graph is what the browser
 trusts). If the UI looks stale after a patch change: restart, THEN
 hard-refresh. DevTools console confirms which code is live via the
-`[dsh-git-badge] surfaces:` line.
+`[dsh-git-badge] surfaces:` line, which now reports the SESSION rows.
+
+What the patch buys: a status mark and PR/CI token on each session row, plus the
+`checkout:` line in that row's hover card. The **project** rows stay bare — by
+design, since a workspace cannot know which worktree its sessions use. The flat
+"all sessions" and search lists are bare too, and that one is structural: they
+render the same component without a `workspaceId`, so the seam helper returns
+`null`.
 
 ## What "verified" means per change
 

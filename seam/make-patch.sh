@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # Build patched-client.js from pristine-client.js.
 #
-# The patch is SEAM-ONLY: it declares and renders two additive list slots
-# (sidebar.workspaces.row, sidebar.workspaces.row.detail) inside the workspace
-# browser rows/hover card, mirroring the conversation.composer.dock pattern.
-# All git-badge UI/logic lives in the dsh-git-badge plugin; with no plugin
-# registered the rows render exactly as upstream (fallback spans).
+# The patch is SEAM-ONLY: it declares and renders two additive list slots on the
+# sidebar workspace browser — sidebar.workspaces.sessionRow (the badge) and
+# sidebar.workspaces.sessionRow.detail (its hover-card line) — mirroring the
+# conversation.composer.dock pattern. All git-badge UI/logic lives in the
+# dsh-git-badge plugin; with no plugin registered every row renders exactly as
+# upstream (a null fallback, not a placeholder span).
+#
+# WHY THE SESSION ROW and not the workspace row: a workspace row cannot know which
+# worktree a session is working in — DSH records no session→worktree link at all —
+# so a per-workspace badge must either guess or stay on the main checkout. A
+# session row carries a session id, and the plugin's route resolves that to the
+# checkout the session is actually working in.
 #
 # This file is the exact diff to turn into the upstream PR.
 set -euo pipefail
@@ -23,105 +30,97 @@ def rep(old, new):
     text = text.replace(old, new)
     count += 1
 
-# --- 1. Row-title seam helper, inserted before the ProjectRowItem docblock ---
+# --- 1. Session-row seam helper, inserted with the row component's props ---
 rep(
-"""\t\t/**
-\t\t* Project (workspace) header row:""",
-"""\t\t/**
-\t\t* Row-title seam (sidebar.workspaces.row): renders the additive list-slot
-\t\t* entries for this workspace row with the row owner share
-\t\t* ({ workspaceId, cwd, label }). Falls back to the plain title span when no
-\t\t* plugin occupies the seam, so a pristine install is visually unchanged.
-\t\t*/
-\t\tfunction renderWorkspaceRowSeam(renderSlot, row, label) {
-\t\t\tconst fallback = (0, react_jsx_runtime.jsx)("span", {
-\t\t\t\tclassName: Rows_module_css_default.title,
-\t\t\t\tchildren: label
-\t\t\t});
-\t\t\tif (renderSlot === void 0) return fallback;
-\t\t\t// SlotOutlet anchors seam entries as a <div style="display:contents">
-\t\t\t// inside this span: invalid HTML nesting strictly speaking, but
-\t\t\t// display:contents keeps the anchor out of layout, so flex/grid
-\t\t\t// parents only see the seam's own children. Accepted by browsers.
-\t\t\treturn renderSlot("sidebar.workspaces.row", { workspaceId: row.workspaceId, cwd: row.cwd, label }, { fallback });
-\t\t}
+"""\t\tfunction SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, t }) {""",
+"""\t\t/* dsh-git-badge:seam-patch — seam/apply.sh recognises its own artifact by this
+\t\t * marker, which upstream would never carry. */
 \t\t/**
-\t\t* Project (workspace) header row:""")
+\t\t* Session-row seam (sidebar.workspaces.sessionRow): renders the additive
+\t\t* list-slot entries for one session row with the row owner share
+\t\t* ({ sessionId, workspaceId, label }).
+\t\t*
+\t\t* Returns null — not a fallback element — when no plugin occupies the seam,
+\t\t* so a pristine install renders exactly as upstream. `workspaceId` is only
+\t\t* ever passed from the TREE call site: the flat "all sessions" list and the
+\t\t* search-result list render this component without it, which is what keeps
+\t\t* badges off those lists without either of them needing a guard.
+\t\t*/
+\t\tfunction renderSessionRowSeam(renderSlot, sessionId, workspaceId, label) {
+\t\t\tif (renderSlot === void 0 || workspaceId === void 0) return null;
+\t\t\treturn renderSlot("sidebar.workspaces.sessionRow", { sessionId, workspaceId, label });
+\t\t}
+\t\tfunction SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, t, renderSlot, workspaceId }) {""")
 
-# --- 2. ProjectRowItem receives the props-face renderSlot (threaded from WorkspaceBrowser) ---
+# --- 2. The badge sits with the title, before the schedule/time cluster ---
 rep(
-"function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t }) {",
-"function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t, renderSlot }) {")
-
-# --- 3. Row title area becomes the seam (fallback keeps the upstream title span) ---
-rep(
-"""\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)("span", {
+"""\t\t\t\t\t\t(0, react_jsx_runtime.jsx)("span", {
 \t\t\t\t\t\t\tclassName: Rows_module_css_default.title,
-\t\t\t\t\t\t\tchildren: label
-\t\t\t\t\t\t})""",
-"\t\t\t\t\t\tchildren: renderWorkspaceRowSeam(renderSlot, row, label)")
+\t\t\t\t\t\t\tchildren: title
+\t\t\t\t\t\t}),""",
+"""\t\t\t\t\t\t(0, react_jsx_runtime.jsx)("span", {
+\t\t\t\t\t\t\tclassName: Rows_module_css_default.title,
+\t\t\t\t\t\t\tchildren: title
+\t\t\t\t\t\t}),
+\t\t\t\t\t\trenderSessionRowSeam(renderSlot, node.id, workspaceId, title),""")
 
-# --- 4. Hover card gains the detail seam ---
+# --- 3. The hover card gains the detail seam ---
 rep(
-"function WorkspaceHoverContent({ label, cwd, createdAt, t }) {",
-"function WorkspaceHoverContent({ label, cwd, rawCwd, workspaceId, createdAt, t, renderSlot }) {")
+"""\t\t\t\tcontent: (0, react_jsx_runtime.jsx)(SessionHoverContent, {
+\t\t\t\t\tnode,
+\t\t\t\t\tnow,
+\t\t\t\t\tt
+\t\t\t\t}),""",
+"""\t\t\t\tcontent: (0, react_jsx_runtime.jsx)(SessionHoverContent, {
+\t\t\t\t\tnode,
+\t\t\t\t\tnow,
+\t\t\t\t\tt,
+\t\t\t\t\trenderSlot,
+\t\t\t\t\tworkspaceId
+\t\t\t\t}),""")
 rep(
-"""\t\t\t\t\t\tchildren: createdLabel(createdAt, t)
-\t\t\t\t\t})
+"\t\tfunction SessionHoverContent({ node, now, t }) {",
+"\t\tfunction SessionHoverContent({ node, now, t, renderSlot, workspaceId }) {")
+rep(
+"""\t\t\t\t\t}, status.label))
 \t\t\t\t]
-\t\t\t});""",
-"""\t\t\t\t\t\tchildren: createdLabel(createdAt, t)
-\t\t\t\t\t}), workspaceId !== void 0 && renderSlot !== void 0 ? (0, react_jsx_runtime.jsx)("div", {
+\t\t\t});
+\t\t}""",
+"""\t\t\t\t\t}, status.label)),
+\t\t\t\t\trenderSlot !== void 0 && workspaceId !== void 0 ? (0, react_jsx_runtime.jsx)("div", {
 \t\t\t\t\t\tclassName: Rows_module_css_default.hoverStatus,
-\t\t\t\t\t\t// rawCwd is the RAW host path (the card displays the
-\t\t\t\t\t\t// abbreviated cwd separately): seam entries need the real path
-\t\t\t\t\t\t// to query workspace-scoped services.
-\t\t\t\t\t\tchildren: renderSlot("sidebar.workspaces.row.detail", { workspaceId, cwd: rawCwd, label })
+\t\t\t\t\t\tchildren: renderSlot("sidebar.workspaces.sessionRow.detail", { sessionId: node.id, workspaceId, label: displayTitle(node, t) })
 \t\t\t\t\t}) : null
 \t\t\t\t]
-\t\t\t});""")
-# hover call site: pass workspaceId + renderSlot through
-rep(
-"""\t\t\t\tcontent: (0, react_jsx_runtime.jsx)(WorkspaceHoverContent, {
-\t\t\t\t\tlabel: row.label,""",
-"""\t\t\t\tcontent: (0, react_jsx_runtime.jsx)(WorkspaceHoverContent, {
-\t\t\t\t\tlabel: row.label,
-\t\t\t\t\tworkspaceId: row.workspaceId,
-\t\t\t\t\trawCwd: row.cwd,
-\t\t\t\t\trenderSlot,""")
+\t\t\t});
+\t\t}""")
 
-# --- 5. Thread renderSlot: WorkspaceBrowser -> SessionTree -> ProjectRowItem ---
+# --- 4. Thread renderSlot + the owning workspace id from the TREE call site only ---
 rep(
-"function SessionTree({ useSessions, useSessionPendingInteraction, startSession, open, forkSession, workspaces, archivedSessionIds, workspaceReady, usePanelInfo, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t, revealSessionId, onSessionRevealed }) {",
-"function SessionTree({ useSessions, useSessionPendingInteraction, startSession, open, forkSession, workspaces, archivedSessionIds, workspaceReady, usePanelInfo, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t, renderSlot, revealSessionId, onSessionRevealed }) {")
-rep(
-"""(0, react_jsx_runtime.jsx)(ProjectRowItem, {
-\t\t\t\t\t\t\t\t\t\tgroup,""",
-"""(0, react_jsx_runtime.jsx)(ProjectRowItem, {
-\t\t\t\t\t\t\t\t\t\tgroup,
-\t\t\t\t\t\t\t\t\t\trenderSlot,""")
-rep(
-"""(0, react_jsx_runtime.jsx)(SessionTree, {
-\t\t\t\t\t\t\tusePanelInfo,""",
-"""(0, react_jsx_runtime.jsx)(SessionTree, {
-\t\t\t\t\t\t\trenderSlot,
-\t\t\t\t\t\t\tusePanelInfo,""")
+"""\t\t\t\t\t\t\t\t\t\treturn (0, react_jsx_runtime.jsx)(SessionNodeItem, {
+\t\t\t\t\t\t\t\t\t\t\tnode,
+\t\t\t\t\t\t\t\t\t\t\tcurrentId: current,""",
+"""\t\t\t\t\t\t\t\t\t\treturn (0, react_jsx_runtime.jsx)(SessionNodeItem, {
+\t\t\t\t\t\t\t\t\t\t\tnode,
+\t\t\t\t\t\t\t\t\t\t\tcurrentId: current,
+\t\t\t\t\t\t\t\t\t\t\trenderSlot,
+\t\t\t\t\t\t\t\t\t\t\t// only the tree knows which workspace a row belongs to; the
+\t\t\t\t\t\t\t\t\t\t\t// flat and search lists pass neither prop, so they stay bare
+\t\t\t\t\t\t\t\t\t\t\tworkspaceId: group.workspaceId,""")
 
-# --- 6. Declare the two seam children on the sidebar.workspaces slot registration ---
+# --- 5. Declare the two seam children on the sidebar.workspaces registration ---
 rep(
-"""name: "sidebar.workspaces",
-\t\t\t\tchildren: { "sidebar.workspaces.directoryFlow": {
+"""\t\t\t\tchildren: { "sidebar.workspaces.directoryFlow": {
 \t\t\t\t\tkind: "single",
 \t\t\t\t\tscope: "root"
 \t\t\t\t} },""",
-"""name: "sidebar.workspaces",
-\t\t\t\tchildren: { "sidebar.workspaces.directoryFlow": {
+"""\t\t\t\tchildren: { "sidebar.workspaces.directoryFlow": {
 \t\t\t\t\tkind: "single",
 \t\t\t\t\tscope: "root"
-\t\t\t\t}, "sidebar.workspaces.row": {
+\t\t\t\t}, "sidebar.workspaces.sessionRow": {
 \t\t\t\t\tkind: "list",
 \t\t\t\t\tscope: "root"
-\t\t\t\t}, "sidebar.workspaces.row.detail": {
+\t\t\t\t}, "sidebar.workspaces.sessionRow.detail": {
 \t\t\t\t\tkind: "list",
 \t\t\t\t\tscope: "root"
 \t\t\t\t} },""")

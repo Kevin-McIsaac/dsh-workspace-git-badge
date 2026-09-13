@@ -1,5 +1,11 @@
 # PLAN — worktree-aware badges (phase 1: input chip, phase 2: session row)
 
+**Status:** both phases implemented on `feat/worktree-aware-chip` — phase 1 as
+PR [#18](https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/pull/18)
+(node half, chip, tests, live proof), phase 2 in the same branch (session-row
+seam, plugin surface, tests, docs). See `../dsh-git-badge/CHANGELOG.md` for what
+actually shipped.
+
 Approved 2026-09-13. Decisions taken with the maintainer are recorded inline as
 **(decision)** so the reasoning survives the implementation.
 

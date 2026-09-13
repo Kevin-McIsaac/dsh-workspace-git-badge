@@ -146,7 +146,7 @@ dsh plugin --profile web add dsh-git-badge
 
 Then restart the web process and refresh the browser. This will activate the input status chip. 
 
-Sidebar row badges need the proposed new workspace seam. If this is not available apply the patch 
+Sidebar session-row badges need the proposed new sidebar seam. If this is not available apply the patch
 (discussion [#5092](https://github.com/deepseek-ai/deepseek-harness/discussions/5092)).
 
 From a clone of this repo:

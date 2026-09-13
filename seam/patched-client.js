@@ -637,7 +637,7 @@ window.__ModuleLoader__.load({
 			})} ${pad2(d.getHours())}:${pad2(d.getMinutes())}` });
 		}
 		/** Hover-card body: workspace title, display directory path, absolute creation time. */
-		function WorkspaceHoverContent({ label, cwd, rawCwd, workspaceId, createdAt, t, renderSlot }) {
+		function WorkspaceHoverContent({ label, cwd, createdAt, t }) {
 			return (0, react_jsx_runtime.jsxs)("div", {
 				className: Rows_module_css_default.hoverContent,
 				children: [
@@ -652,13 +652,7 @@ window.__ModuleLoader__.load({
 					(0, react_jsx_runtime.jsx)("div", {
 						className: Rows_module_css_default.hoverTime,
 						children: createdLabel(createdAt, t)
-					}), workspaceId !== void 0 && renderSlot !== void 0 ? (0, react_jsx_runtime.jsx)("div", {
-						className: Rows_module_css_default.hoverStatus,
-						// rawCwd is the RAW host path (the card displays the
-						// abbreviated cwd separately): seam entries need the real path
-						// to query workspace-scoped services.
-						children: renderSlot("sidebar.workspaces.row.detail", { workspaceId, cwd: rawCwd, label })
-					}) : null
+					})
 				]
 			});
 		}
@@ -666,24 +660,6 @@ window.__ModuleLoader__.load({
 		function rowHalf(e) {
 			const rect = e.currentTarget.getBoundingClientRect();
 			return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
-		}
-		/**
-		* Row-title seam (sidebar.workspaces.row): renders the additive list-slot
-		* entries for this workspace row with the row owner share
-		* ({ workspaceId, cwd, label }). Falls back to the plain title span when no
-		* plugin occupies the seam, so a pristine install is visually unchanged.
-		*/
-		function renderWorkspaceRowSeam(renderSlot, row, label) {
-			const fallback = (0, react_jsx_runtime.jsx)("span", {
-				className: Rows_module_css_default.title,
-				children: label
-			});
-			if (renderSlot === void 0) return fallback;
-			// SlotOutlet anchors seam entries as a <div style="display:contents">
-			// inside this span: invalid HTML nesting strictly speaking, but
-			// display:contents keeps the anchor out of layout, so flex/grid
-			// parents only see the seam's own children. Accepted by browsers.
-			return renderSlot("sidebar.workspaces.row", { workspaceId: row.workspaceId, cwd: row.cwd, label }, { fallback });
 		}
 		/**
 		* Project (workspace) header row: folder + title;
@@ -698,7 +674,7 @@ window.__ModuleLoader__.load({
 		* @param props.t - the browser root's locale seat.
 		* @returns the row element.
 		*/
-		function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t, renderSlot }) {
+		function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t }) {
 			const row = group;
 			const label = row.workspaceId === void 0 ? t("group.ungrouped") : row.label;
 			const active = group.expanded && group.containsCurrent;
@@ -736,7 +712,10 @@ window.__ModuleLoader__.load({
 					}),
 					(0, react_jsx_runtime.jsx)("span", {
 						className: Rows_module_css_default.projectText,
-						children: renderWorkspaceRowSeam(renderSlot, row, label)
+						children: (0, react_jsx_runtime.jsx)("span", {
+							className: Rows_module_css_default.title,
+							children: label
+						})
 					}),
 					(0, react_jsx_runtime.jsxs)("span", {
 						className: Rows_module_css_default.rowActions,
@@ -783,9 +762,6 @@ window.__ModuleLoader__.load({
 				anchor: ownRow,
 				content: (0, react_jsx_runtime.jsx)(WorkspaceHoverContent, {
 					label: row.label,
-					workspaceId: row.workspaceId,
-					rawCwd: row.cwd,
-					renderSlot,
 					cwd: row.cwd === void 0 ? void 0 : abbreviateHomePath(row.cwd, home),
 					createdAt: row.createdAt,
 					t
@@ -870,7 +846,7 @@ window.__ModuleLoader__.load({
 			});
 		}
 		/** Hover-card body: full title, relative time, and every relevant live status. */
-		function SessionHoverContent({ node, now, t }) {
+		function SessionHoverContent({ node, now, t, renderSlot, workspaceId }) {
 			const statuses = sessionStatuses(node, t);
 			return (0, react_jsx_runtime.jsxs)("div", {
 				className: Rows_module_css_default.hoverContent,
@@ -886,7 +862,11 @@ window.__ModuleLoader__.load({
 					statuses.map((status) => (0, react_jsx_runtime.jsxs)("div", {
 						className: Rows_module_css_default.hoverStatus,
 						children: [(0, react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.StateDot, { state: status.state }), (0, react_jsx_runtime.jsx)("span", { children: status.label })]
-					}, status.label))
+					}, status.label)),
+					renderSlot !== void 0 && workspaceId !== void 0 ? (0, react_jsx_runtime.jsx)("div", {
+						className: Rows_module_css_default.hoverStatus,
+						children: renderSlot("sidebar.workspaces.sessionRow.detail", { sessionId: node.id, workspaceId, label: displayTitle(node, t) })
+					}) : null
 				]
 			});
 		}
@@ -956,7 +936,24 @@ window.__ModuleLoader__.load({
 		* @param props.t - the browser root's locale seat.
 		* @returns the session row.
 		*/
-		function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, t }) {
+		/* dsh-git-badge:seam-patch — seam/apply.sh recognises its own artifact by this
+		 * marker, which upstream would never carry. */
+		/**
+		* Session-row seam (sidebar.workspaces.sessionRow): renders the additive
+		* list-slot entries for one session row with the row owner share
+		* ({ sessionId, workspaceId, label }).
+		*
+		* Returns null — not a fallback element — when no plugin occupies the seam,
+		* so a pristine install renders exactly as upstream. `workspaceId` is only
+		* ever passed from the TREE call site: the flat "all sessions" list and the
+		* search-result list render this component without it, which is what keeps
+		* badges off those lists without either of them needing a guard.
+		*/
+		function renderSessionRowSeam(renderSlot, sessionId, workspaceId, label) {
+			if (renderSlot === void 0 || workspaceId === void 0) return null;
+			return renderSlot("sidebar.workspaces.sessionRow", { sessionId, workspaceId, label });
+		}
+		function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, t, renderSlot, workspaceId }) {
 			const row = node;
 			const title = displayTitle(node, t);
 			const selected = node.id === currentId;
@@ -1022,6 +1019,7 @@ window.__ModuleLoader__.load({
 							className: Rows_module_css_default.title,
 							children: title
 						}),
+						renderSessionRowSeam(renderSlot, node.id, workspaceId, title),
 						row.hasActiveSchedule && (0, react_jsx_runtime.jsx)(ActiveScheduleIndicator, { t }),
 						!row.blank && (0, react_jsx_runtime.jsx)("span", {
 							className: Rows_module_css_default.time,
@@ -1060,7 +1058,9 @@ window.__ModuleLoader__.load({
 				content: (0, react_jsx_runtime.jsx)(SessionHoverContent, {
 					node,
 					now,
-					t
+					t,
+					renderSlot,
+					workspaceId
 				}),
 				disabled: menuOpen || drag?.active === true,
 				copyText: row.blank ? void 0 : row.title,
@@ -1485,7 +1485,7 @@ window.__ModuleLoader__.load({
 			return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
 		}
 		/** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
-		function SessionTree({ useSessions, useSessionPendingInteraction, startSession, open, forkSession, workspaces, archivedSessionIds, workspaceReady, usePanelInfo, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t, renderSlot, revealSessionId, onSessionRevealed }) {
+		function SessionTree({ useSessions, useSessionPendingInteraction, startSession, open, forkSession, workspaces, archivedSessionIds, workspaceReady, usePanelInfo, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t, revealSessionId, onSessionRevealed }) {
 			const panelActive = usePanelInfo((info) => info.activePanelId !== null);
 			const list = useSessions((s) => s);
 			const pendingInteractions = useSessionPendingInteraction((s) => s);
@@ -1712,7 +1712,6 @@ window.__ModuleLoader__.load({
 								children: [
 									(0, react_jsx_runtime.jsx)(ProjectRowItem, {
 										group,
-										renderSlot,
 										home,
 										t,
 										onToggle: () => {
@@ -1777,6 +1776,10 @@ window.__ModuleLoader__.load({
 										return (0, react_jsx_runtime.jsx)(SessionNodeItem, {
 											node,
 											currentId: current,
+											renderSlot,
+											// only the tree knows which workspace a row belongs to; the
+											// flat and search lists pass neither prop, so they stay bare
+											workspaceId: group.workspaceId,
 											now,
 											onOpen: open,
 											onRename: onSessionRename,
@@ -2408,7 +2411,6 @@ window.__ModuleLoader__.load({
 							onSessionRevealed: acknowledgeSessionReveal,
 							t
 						}) : (0, react_jsx_runtime.jsx)(SessionTree, {
-							renderSlot,
 							usePanelInfo,
 							useSessions,
 							useSessionPendingInteraction,
@@ -2822,10 +2824,10 @@ window.__ModuleLoader__.load({
 				children: { "sidebar.workspaces.directoryFlow": {
 					kind: "single",
 					scope: "root"
-				}, "sidebar.workspaces.row": {
+				}, "sidebar.workspaces.sessionRow": {
 					kind: "list",
 					scope: "root"
-				}, "sidebar.workspaces.row.detail": {
+				}, "sidebar.workspaces.sessionRow.detail": {
 					kind: "list",
 					scope: "root"
 				} },

@@ -9,7 +9,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createClient, elements, mark, markFill, markShape, text } from "../test-support/client.mjs";
+import { createClient, mark, markFill, markShape, text } from "../test-support/client.mjs";
 
 /** A main checkout and a linked worktree, differing only in that one field. */
 const MAIN = { branch: "main", isWorktree: false, worktreeName: "repo" };
@@ -73,42 +73,55 @@ test("the selection of a mark colour never depends on the worktree shape", () =>
 	}
 });
 
-test("the row NEVER shows the branch", () => {
+test("the session row NEVER shows the branch", () => {
 	const client = createClient();
 	for (const base of [MAIN, WORKTREE]) {
-		const rendered = text(client.row({ ...base, branch: "SECRET/BRANCH" }, "Project 1"));
+		const rendered = text(client.row({ ...base, branch: "SECRET/BRANCH", pr: { number: 1, state: "passing" } }));
 		assert.ok(!rendered.includes("SECRET/BRANCH"), `the branch leaked into the row: ${rendered}`);
 	}
 });
 
-test("the row is status-only for a main checkout, and names a linked worktree", () => {
+test("the session row is the status mark, plus the PR token when there is one", () => {
 	const client = createClient();
+	// the mark is an <svg>, so a row with no PR contributes no TEXT at all — and
+	// neither the worktree's name nor its branch appears there
+	assert.equal(text(client.row({ ...MAIN, dirty: true })), "", "a main checkout with no PR adds no text");
+	assert.equal(text(client.row({ ...WORKTREE, worktreeName: "hotfix-tree", dirty: false })), "");
+	const withPr = text(client.row({ ...WORKTREE, worktreeName: "hotfix-tree", pr: { number: 391, state: "pending" } }));
+	assert.ok(withPr.includes("PR#391"), `expected the PR token: ${withPr}`);
+	assert.ok(!withPr.includes("hotfix-tree"), "the worktree name belongs to the hover card");
+	assert.ok(!withPr.includes("feat/hotfix"), "and so does the branch");
+});
+
+test("a non-repository session row renders no badge", () => {
+	const client = createClient();
+	assert.equal(client.row({ git: false }), null, "nothing to say about a directory that is not a repository");
+});
+
+test("the hover line names the checkout a session row's badge describes", () => {
+	const client = createClient();
+	// the inferred case is the one the row's own title cannot explain: the badge
+	// describes a tree the conversation is not in, so the line says which and why
 	assert.equal(
-		text(client.row({ ...MAIN, dirty: false }, "Project 1")),
-		"Project 1",
-		"a main checkout row is the workspace name and the mark, nothing else"
+		text(
+			client.rowDetail({
+				branch: "chore/global-skills-tiering",
+				isWorktree: true,
+				worktreeName: "global-skills-tiering",
+				worktreeInferred: true,
+				pr: { number: 391, state: "passing" }
+			})
+		),
+		"checkout: global-skills-tiering on chore/global-skills-tiering \u00B7 its branch has the open pull request"
 	);
-	const worktree = text(client.row({ ...WORKTREE, dirty: false }, "Project 2"));
-	assert.ok(worktree.startsWith("Project 2"), "the workspace name always renders");
-	assert.ok(worktree.includes("hotfix-tree"), "a linked worktree is named");
-});
-
-test("a worktree row is named even when the name restates the branch", () => {
-	// the row has no branch to stutter against, so it does not apply the chip's
-	// suppression rule
-	const client = createClient();
-	const rendered = text(client.row({ branch: "feat/x", isWorktree: true, worktreeName: "repo-feat-x" }, "Project"));
-	assert.ok(rendered.includes("repo-feat-x"), `expected the name, got: ${rendered}`);
-});
-
-test("the mark is floated to the right edge, with no separator", () => {
-	const client = createClient();
-	const row = client.row({ ...MAIN, dirty: false }, "Project 1");
-	assert.ok(
-		elements(row).some((element) => element.props?.style?.marginLeft === "auto"),
-		"the mark group must be pushed right with marginLeft:auto"
+	// a worktree the session is genuinely in is named without the explanation
+	assert.equal(
+		text(client.rowDetail({ branch: "feat/x", isWorktree: true, worktreeName: "hotfix-tree" })),
+		"checkout: hotfix-tree on feat/x"
 	);
-	assert.ok(!text(row).includes("|"), "the `|` separator is gone");
+	// a main checkout is the ordinary case, and the card must not restate it
+	assert.equal(text(client.rowDetail({ branch: "main", isWorktree: false })), "");
+	assert.equal(client.rowDetail({ git: false }), null);
 });
 
 test("the chip appends the worktree name unless the branch already implies it", () => {
@@ -187,5 +200,7 @@ test("a non-repository, and an unresolved workspace, render no mark", () => {
 	assert.equal(client.chip({ git: false }), null, "the chip renders nothing without a repository");
 	assert.equal(client.chip(void 0), null, "and nothing while the target is unresolved");
 	assert.equal(mark(client.row({ git: false })), null, "the row shows no mark without a repository");
-	assert.equal(text(client.row(void 0, "Project 1")), "Project 1", "the row still keeps its name");
+	// the row badge is ADDITIVE: upstream still renders the session title, so the
+	// badge contributes nothing at all when it has nothing to say
+	assert.equal(client.row({ git: false }), null, "and no badge");
 });

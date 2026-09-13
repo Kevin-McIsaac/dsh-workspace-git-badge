@@ -261,12 +261,16 @@ test("no PR field renders exactly the chip it rendered before gh existed", () =>
 	assert.ok(!withoutPr.includes("PR#"), "no token, no trace");
 });
 
-test("the row ignores a PR field entirely", () => {
-	// the row is status and identity only, and it never asks for pr=1
+test("the session row carries a PR token, but never the branch", () => {
+	// The rows MOVED: this used to assert that a sidebar row ignores `pr` entirely,
+	// because the badge lived on a WORKSPACE row and asking every workspace for its
+	// forge state was unaffordable. The badge is now per CONVERSATION, which is the
+	// unit that knows which checkout it is working in — so the row asks for pr=1 and
+	// shows the token, at a cost bounded by the same TTL caches the chip uses.
 	const client = createClient();
-	const rendered = text(client.row({ branch: "main", dirty: false, pr: { number: 142, state: "failing" } }, "Project 1"));
-	assert.ok(!rendered.includes("PR#"), `the row must not grow a PR token: ${rendered}`);
-	assert.equal(rendered, "Project 1");
+	const rendered = text(client.row({ branch: "SECRET/BRANCH", dirty: false, pr: { number: 142, state: "failing" } }));
+	assert.ok(rendered.includes("PR#142"), `expected the PR token: ${rendered}`);
+	assert.ok(!rendered.includes("SECRET/BRANCH"), `the row must not name the branch: ${rendered}`);
 });
 
 test("the card describes the PR in words, including review and draft", () => {

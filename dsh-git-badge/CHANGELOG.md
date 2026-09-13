@@ -42,6 +42,26 @@ npm. 0.6.0 is the first release recorded here.
 - The repository-wide open-PR read (`gh pr list`) happens at most once per TTL per
   repository, and never at all for a repository with no linked worktree.
 
+### Changed
+
+- **The sidebar badge moved from the workspace row to the session row.** A
+  workspace row cannot know which worktree its conversations are using, so a
+  per-workspace badge could only guess or report the main checkout. Each session
+  row now carries the status mark plus the PR/CI token when the branch has one
+  (`🌳 PR#391 ✓`), and never a branch — hovering the row adds a line naming the
+  checkout that badge describes (`checkout: hotfix-tree on feat/x`, and for an
+  inferred worktree, why it was followed). Rows still issue no request of their
+  own beyond the badge's: the hover line resolves to the same cache key, so a card
+  that mounts for every row cannot multiply git or forge work.
+- The `seam/` patch now declares `sidebar.workspaces.sessionRow` and
+  `sidebar.workspaces.sessionRow.detail` instead of the old
+  `sidebar.workspaces.row` pair, and the row is rendered from the **tree** call
+  site only, which keeps the flat and search lists badge-free with no guard of
+  their own. `seam/apply.sh` recognises its own older artifacts by a marker
+  comment (and the previous hash), so rebuilding the patch installs it instead of
+  being skipped as "upstream landed" — and `revert` now restores the upstream
+  baseline rather than an older patch.
+
 ### Fixed
 
 - **The PR cache served the wrong branch.** `prStatusFor` was keyed by toplevel
