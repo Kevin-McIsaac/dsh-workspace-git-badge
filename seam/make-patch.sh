@@ -36,6 +36,36 @@ rep(
 """\t\t/* dsh-git-badge:seam-patch — seam/apply.sh recognises its own artifact by this
 \t\t * marker, which upstream would never carry. */
 \t\t/**
+\t\t* Seam entry boundary. The host wraps each registered ENTRY in its own error
+\t\t* boundary, but the outlet a row renders is NOT covered by it, so a throw
+\t\t* anywhere in an occupant's render path would propagate into the workspace
+\t\t* browser itself — and the shell ABDICATES that browser entry, blanking the
+\t\t* whole sidebar. A seam must not be able to do that: this keeps the blast
+\t\t* radius at "no badge", and logs what happened instead of swallowing it.
+\t\t*/
+\t\tclass SeamBoundary extends react.Component {
+\t\t\tconstructor(props) {
+\t\t\t\tsuper(props);
+\t\t\t\tthis.state = { failed: false };
+\t\t\t}
+\t\t\tstatic getDerivedStateFromError() {
+\t\t\t\treturn { failed: true };
+\t\t\t}
+\t\t\tcomponentDidCatch(error) {
+\t\t\t\tconsole.error("[dsh-git-badge] seam entry failed; badge omitted:", error);
+\t\t\t}
+\t\t\trender() {
+\t\t\t\treturn this.state.failed ? null : this.props.children;
+\t\t\t}
+\t\t}
+\t\t/** Seam entry bodies, so the boundary above ENCLOSES the renderSlot call. */
+\t\tfunction SessionRowSeam({ renderSlot, sessionId, workspaceId, label }) {
+\t\t\treturn renderSlot("sidebar.workspaces.sessionRow", { sessionId, workspaceId, label });
+\t\t}
+\t\tfunction SessionRowDetailSeam({ renderSlot, sessionId, workspaceId, label }) {
+\t\t\treturn renderSlot("sidebar.workspaces.sessionRow.detail", { sessionId, workspaceId, label });
+\t\t}
+\t\t/**
 \t\t* Session-row seam (sidebar.workspaces.sessionRow): renders the additive
 \t\t* list-slot entries for one session row with the row owner share
 \t\t* ({ sessionId, workspaceId, label }).
@@ -48,7 +78,9 @@ rep(
 \t\t*/
 \t\tfunction renderSessionRowSeam(renderSlot, sessionId, workspaceId, label) {
 \t\t\tif (renderSlot === void 0 || workspaceId === void 0) return null;
-\t\t\treturn renderSlot("sidebar.workspaces.sessionRow", { sessionId, workspaceId, label });
+\t\t\treturn (0, react_jsx_runtime.jsx)(SeamBoundary, {
+\t\t\t\tchildren: (0, react_jsx_runtime.jsx)(SessionRowSeam, { renderSlot, sessionId, workspaceId, label })
+\t\t\t});
 \t\t}
 \t\tfunction SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, t, renderSlot, workspaceId }) {""")
 
@@ -89,7 +121,9 @@ rep(
 """\t\t\t\t\t}, status.label)),
 \t\t\t\t\trenderSlot !== void 0 && workspaceId !== void 0 ? (0, react_jsx_runtime.jsx)("div", {
 \t\t\t\t\t\tclassName: Rows_module_css_default.hoverStatus,
-\t\t\t\t\t\tchildren: renderSlot("sidebar.workspaces.sessionRow.detail", { sessionId: node.id, workspaceId, label: displayTitle(node, t) })
+\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)(SeamBoundary, {
+\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)(SessionRowDetailSeam, { renderSlot, sessionId: node.id, workspaceId, label: displayTitle(node, t) })
+\t\t\t\t\t\t})
 \t\t\t\t\t}) : null
 \t\t\t\t]
 \t\t\t});

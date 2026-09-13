@@ -865,7 +865,9 @@ window.__ModuleLoader__.load({
 					}, status.label)),
 					renderSlot !== void 0 && workspaceId !== void 0 ? (0, react_jsx_runtime.jsx)("div", {
 						className: Rows_module_css_default.hoverStatus,
-						children: renderSlot("sidebar.workspaces.sessionRow.detail", { sessionId: node.id, workspaceId, label: displayTitle(node, t) })
+						children: (0, react_jsx_runtime.jsx)(SeamBoundary, {
+							children: (0, react_jsx_runtime.jsx)(SessionRowDetailSeam, { renderSlot, sessionId: node.id, workspaceId, label: displayTitle(node, t) })
+						})
 					}) : null
 				]
 			});
@@ -939,6 +941,36 @@ window.__ModuleLoader__.load({
 		/* dsh-git-badge:seam-patch — seam/apply.sh recognises its own artifact by this
 		 * marker, which upstream would never carry. */
 		/**
+		* Seam entry boundary. The host wraps each registered ENTRY in its own error
+		* boundary, but the outlet a row renders is NOT covered by it, so a throw
+		* anywhere in an occupant's render path would propagate into the workspace
+		* browser itself — and the shell ABDICATES that browser entry, blanking the
+		* whole sidebar. A seam must not be able to do that: this keeps the blast
+		* radius at "no badge", and logs what happened instead of swallowing it.
+		*/
+		class SeamBoundary extends react.Component {
+			constructor(props) {
+				super(props);
+				this.state = { failed: false };
+			}
+			static getDerivedStateFromError() {
+				return { failed: true };
+			}
+			componentDidCatch(error) {
+				console.error("[dsh-git-badge] seam entry failed; badge omitted:", error);
+			}
+			render() {
+				return this.state.failed ? null : this.props.children;
+			}
+		}
+		/** Seam entry bodies, so the boundary above ENCLOSES the renderSlot call. */
+		function SessionRowSeam({ renderSlot, sessionId, workspaceId, label }) {
+			return renderSlot("sidebar.workspaces.sessionRow", { sessionId, workspaceId, label });
+		}
+		function SessionRowDetailSeam({ renderSlot, sessionId, workspaceId, label }) {
+			return renderSlot("sidebar.workspaces.sessionRow.detail", { sessionId, workspaceId, label });
+		}
+		/**
 		* Session-row seam (sidebar.workspaces.sessionRow): renders the additive
 		* list-slot entries for one session row with the row owner share
 		* ({ sessionId, workspaceId, label }).
@@ -951,7 +983,9 @@ window.__ModuleLoader__.load({
 		*/
 		function renderSessionRowSeam(renderSlot, sessionId, workspaceId, label) {
 			if (renderSlot === void 0 || workspaceId === void 0) return null;
-			return renderSlot("sidebar.workspaces.sessionRow", { sessionId, workspaceId, label });
+			return (0, react_jsx_runtime.jsx)(SeamBoundary, {
+				children: (0, react_jsx_runtime.jsx)(SessionRowSeam, { renderSlot, sessionId, workspaceId, label })
+			});
 		}
 		function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, t, renderSlot, workspaceId }) {
 			const row = node;

@@ -72,6 +72,15 @@ are — the same trap that made a dev-install look current when it was not.
 
 Safety rails:
 
+- **Occupant errors cannot cost the sidebar.** The host wraps each registered
+  *entry* in an error boundary, but the outlet a row renders is not covered by it:
+  a throw in an occupant's render path propagates into the workspace browser, and
+  the shell **abdicates that browser entry** — blanking the whole sidebar. Both
+  seam renders are therefore wrapped in the patch's own boundary, which renders
+  `null` and logs `[dsh-git-badge] seam entry failed; badge omitted:`. A broken
+  occupant loses its badge, never the region. (Learned the hard way: the first
+  session-row patch blanked the sidebar a second after boot, and the revert did
+  not say why.)
 - **Hash-guard**: `apply` proceeds only when the installed `lib/client.js` is the
   sha256 pinned in the script (`seam/stamp-hash.sh` re-pins it after a rebuild),
   **or** an artifact this repo built (`PREVIOUS_PATCHED_HASHES`, plus the marker

@@ -64,6 +64,12 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Fixed
 
+- **A failing seam occupant could blank the whole sidebar.** The host guards each
+  registered *entry* with an error boundary, but not the outlet a row renders
+  itself, so a throw in an occupant's render path reached the workspace browser —
+  and the shell abdicates that entry, removing the entire sidebar region about a
+  second after boot. The seam patch now wraps both session-row renders in its own
+  boundary: a broken occupant loses its badge and logs the error instead.
 - **The PR cache served the wrong branch.** `prStatusFor` was keyed by toplevel
   only, so a checkout that changed branch inside the TTL window was served the
   previous branch's pull request. It is now keyed by toplevel **and** branch.
