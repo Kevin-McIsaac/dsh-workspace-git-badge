@@ -12,6 +12,21 @@ you*. The leading **mark** — a filled circle, or a **tree** when the checkout 
 linked `git worktree` — belongs to the chip. `●` and `🌳` stand in for it in these
 examples; it is drawn as an SVG so it can take the theme's status colours.
 
+## Why use it
+
+Most of what goes wrong in an agent-driven workflow goes wrong quietly. You stop
+running `git status` yourself; a worktree's branch drifts behind its base;
+uncommitted files never make it into the pull request; a PR sits approved with
+green checks and nobody merges it; a failing build is noticed hours later, in a tab
+you had to open deliberately. This plugin puts those answers where you are already
+looking — the branch, counts and PR/CI state on the input chip, and the single
+thing that needs you (`merge`, `fix CI`, `resolve`) on each session row — with no
+terminal and no context switch. It reads your repository through your own `git` and
+`gh`, so no credential passes through it, and every failure is silence rather than
+an error. Crucially, it also knows which worktree a conversation is actually
+working in, which is what makes any of this trustworthy once you stop working on
+the main checkout.
+
 ## What you get
 
 **The input chip**, in the input box after the access picker — the branch, the
