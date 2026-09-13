@@ -46,6 +46,14 @@ function clearPr(t) {
 	t.after(() => prState.clear());
 }
 
+/**
+ * The key `prStatusFor` caches under: the toplevel AND the branch. Pinned here
+ * rather than reached for with a bare root, because keying by root alone served a
+ * checkout the PR of the branch it was on when the window opened — see the
+ * branch-key test below.
+ */
+const prKey = (root, branch) => root + "\u0000" + branch;
+
 /** A repo whose `origin` looks like GitHub, with no upstream (so no fetch). */
 async function githubRepo(t) {
 	const repo = await makeRepo(t);
@@ -253,9 +261,9 @@ test("an unchanged refresh notifies nobody", async (t) => {
 	await waitFor(() => prStatusFor(repo.root, "main", () => {}) !== void 0);
 	const notifications = [];
 	// force the TTL to lapse without waiting 90s
-	prState.get(repo.root).lastAttemptAt = 0;
+	prState.get(prKey(repo.root, "main")).lastAttemptAt = 0;
 	prStatusFor(repo.root, "main", (key) => notifications.push(key));
-	await waitFor(() => prState.get(repo.root).inFlight === null);
+	await waitFor(() => prState.get(prKey(repo.root, "main")).inFlight === null);
 	assert.deepEqual(notifications, [], "an unchanged answer must not push SSE traffic");
 });
 
@@ -268,12 +276,12 @@ test("a changed refresh notifies subscribers", async (t) => {
 		config.prRunner = null;
 	});
 	prStatusFor(repo.root, "main", () => {});
-	await waitFor(() => prState.get(repo.root).value !== void 0);
+	await waitFor(() => prState.get(prKey(repo.root, "main")).value !== void 0);
 	stdout = JSON.stringify({ number: 142, state: "OPEN", statusCheckRollup: [{ status: "COMPLETED", conclusion: "FAILURE" }] });
-	prState.get(repo.root).lastAttemptAt = 0;
+	prState.get(prKey(repo.root, "main")).lastAttemptAt = 0;
 	const notifications = [];
 	prStatusFor(repo.root, "main", (key) => notifications.push(key));
-	await waitFor(() => prState.get(repo.root).value?.state === "failing");
+	await waitFor(() => prState.get(prKey(repo.root, "main")).value?.state === "failing");
 	assert.deepEqual(notifications, [repo.root], "a CI state change must reach the chip");
 });
 
@@ -298,7 +306,7 @@ test("concurrent requests share one forge call", async (t) => {
 	await waitFor(() => calls >= 1);
 	assert.equal(calls, 1, "a burst of badge refreshes must not stampede the forge");
 	release({ stdout: OPEN_PR });
-	await waitFor(() => prState.get(repo.root).value !== void 0);
+	await waitFor(() => prState.get(prKey(repo.root, "main")).value !== void 0);
 	assert.equal(calls, 1);
 });
 
@@ -360,7 +368,7 @@ test("the route refuses to wait for the forge", async (t) => {
 	assert.equal(body.git, true);
 	assert.equal("pr" in body, false, "the first request has nothing cached and must not block to get it");
 	release({ stdout: OPEN_PR });
-	await waitFor(() => prState.get(repo.root)?.value !== void 0);
+	await waitFor(() => prState.get(prKey(repo.root, "main"))?.value !== void 0);
 });
 
 test("the route serves a cached PR, and a row request never spawns gh", async (t) => {
@@ -382,7 +390,7 @@ test("the route serves a cached PR, and a row request never spawns gh", async (t
 	assert.equal(calls.length, 0);
 	// a chip request spawns the refresh; the NEXT one serves the cached value
 	await get(`?workspace=${WORKSPACE_ID}&pr=1`);
-	await waitFor(() => prState.get(repo.root)?.value !== void 0);
+	await waitFor(() => prState.get(prKey(repo.root, "main"))?.value !== void 0);
 	const res = await get(`?workspace=${WORKSPACE_ID}&pr=1`);
 	const body = JSON.parse(res.text());
 	assert.equal(body.pr.number, 142);

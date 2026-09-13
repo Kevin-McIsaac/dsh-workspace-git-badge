@@ -126,6 +126,35 @@ test("the chip still carries branch, worktree name, operation token and counts",
 	assert.equal(line, "feat/hotfix hotfix-tree ⚔rebase ↑0 ↓2 ✎3");
 });
 
+test("an INFERRED worktree is named even when the branch would make it stutter", () => {
+	const client = createClient();
+	// The case this rule exists for: a session whose own directory is the main
+	// checkout, whose badge the node half moved onto the tree that has the open PR.
+	// The name does not repeat the branch beside it — it IS the disclosure that the
+	// chip left the conversation's directory — so the redundancy rule must not
+	// swallow it.
+	const inferred = text(
+		client.chip({
+			branch: "chore/global-skills-tiering",
+			isWorktree: true,
+			worktreeName: "global-skills-tiering",
+			worktreeInferred: true,
+			dirty: false
+		})
+	);
+	assert.equal(inferred, "chore/global-skills-tiering global-skills-tiering");
+	// the same pair WITHOUT inference is the ordinary stutter case and stays terse
+	const own = text(
+		client.chip({
+			branch: "chore/global-skills-tiering",
+			isWorktree: true,
+			worktreeName: "global-skills-tiering",
+			dirty: false
+		})
+	);
+	assert.equal(own, "chore/global-skills-tiering");
+});
+
 test("the mark's accessible name states status AND worktree-ness", () => {
 	const client = createClient();
 	const main = mark(client.row({ ...MAIN, dirty: true }));
@@ -133,6 +162,17 @@ test("the mark's accessible name states status AND worktree-ness", () => {
 	assert.equal(main.props["aria-label"], "git: uncommitted changes, or out of sync with upstream");
 	const worktree = mark(client.row({ ...WORKTREE, dirty: false }));
 	assert.equal(worktree.props["aria-label"], "git worktree: clean and in sync");
+});
+
+test("an INFERRED checkout says so in the mark's accessible name", () => {
+	// the same rule the token follows: nothing depends on seeing the trailing name,
+	// so a screen reader is told where the shape's fact came from
+	const client = createClient();
+	const inferred = mark(client.row({ ...WORKTREE, worktreeInferred: true, dirty: false }));
+	assert.equal(
+		inferred.props["aria-label"],
+		"git worktree: clean and in sync (inferred from an open pull request in this repository)"
+	);
 });
 
 test("neither surface still renders the emoji dot or the old worktree glyph", () => {

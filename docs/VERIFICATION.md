@@ -51,3 +51,39 @@ Compare `ahead`/`behind`/`dirty`/file counts field by field. Notes:
 - Historical gotcha: `pnpm add <same tarball path>` / `pnpm add <same
   file: dep>` can be a no-op — `rm -rf node_modules/dsh-git-badge &&
   pnpm install` to force-replace.
+
+## Verifying the worktree-aware badge
+
+A **session** target may describe a linked worktree rather than the directory the
+conversation is actually in. Two extra fields say so, and only a session target
+can carry them:
+
+- `worktreeInferred: true` — the checkout below was chosen by inference (it is the
+  repository's one linked worktree whose branch has an open PR), not because the
+  conversation lives there.
+- `checkout: { branch, dirty, changedFiles, untrackedFiles, ahead, behind }` — the
+  conversation's OWN directory, present only with `detail=1` (hover). It exists so
+  the main checkout's state is still visible once the chip follows a tree.
+
+```bash
+S=<session in this workspace>; W=<the workspace id>
+B=http://127.0.0.1:3080/api/git-badge
+
+# precondition — WITHOUT BOTH OF THESE THE SWAP IS CORRECTLY ABSENT:
+git -C <repo> worktree list          # a linked worktree, not just the main one
+gh pr list --state open              # its branch must have an OPEN PR
+# exactly one such worktree is a candidate; two is a reason to say nothing
+
+curl -s "$B?session=$S&pr=1" | python3 -m json.tool     # → the worktree's branch,
+#   isWorktree, worktreeName, worktreeInferred, pr
+curl -s "$B?workspace=$W&pr=1" | python3 -m json.tool   # → the workspace's own
+#   checkout, no `pr`, no `worktreeInferred` — a row never follows a tree
+curl -s "$B?session=$S&pr=1&detail=1" | python3 -m json.tool   # adds `checkout`
+```
+
+Ground truth for the swap is the worktree list plus `gh pr list`, not the PR alone:
+a merged PR (#391 in the session that motivated this) leaves the badge on the main
+checkout, which is correct and looks identical to "the feature is broken".
+
+`config.worktreeStatus = "off"` disables the inference; a repository with no linked
+worktree never even spawns `gh` for it.

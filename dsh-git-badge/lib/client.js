@@ -371,10 +371,23 @@ window.__ModuleLoader__.load({
 				|| normalizedBranch.endsWith("-" + normalizedName);
 		}
 
-		/** ` name` for a worktree whose name the branch does not already say, else "". */
+		/**
+		 * ` name` for a worktree whose name the branch does not already say, else "".
+		 *
+		 * An INFERRED checkout — the node half followed a linked worktree because it
+		 * is the one whose branch has an open PR, while the conversation's own
+		 * directory names something else — always shows the name. The redundancy rule
+		 * exists so a `repo-feat-x` directory sitting on branch `feat-x` does not
+		 * stutter, but here the name does not repeat the branch beside it: it is the
+		 * only signal that the chip describes a directory the conversation is not in.
+		 * `.claude/worktrees/global-skills-tiering` on `chore/global-skills-tiering`
+		 * is exactly the case that would otherwise read as redundant and hide the
+		 * fact this feature exists to state.
+		 */
 		function formatWorktreeToken(info) {
 			if (info.isWorktree !== true) return "";
 			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
+			if (info.worktreeInferred === true) return name === "" ? "" : " " + name;
 			return worktreeNameIsRedundant(name, info.branch) ? "" : " " + name;
 		}
 
@@ -412,7 +425,12 @@ window.__ModuleLoader__.load({
 				height: 14,
 				viewBox: "0 0 12 12",
 				role: "img",
-				"aria-label": (isWorktree ? "git worktree: " : "git: ") + STATUS_LABEL[status],
+				"aria-label":
+					(isWorktree ? "git worktree: " : "git: ") +
+					STATUS_LABEL[status] +
+					// an inferred checkout is not where the conversation lives, so the
+					// accessible name says where the fact came from
+					(info.worktreeInferred === true ? " (inferred from an open pull request in this repository)" : ""),
 				focusable: "false",
 				style: { flex: "none", display: "block", color: META_STYLE.color }
 			};
@@ -512,6 +530,23 @@ window.__ModuleLoader__.load({
 			return bits.join(" \u00B7 ");
 		}
 
+		/**
+		 * The `checkout` row: the directory the CONVERSATION itself names, present
+		 * only when the badge is describing an inferred worktree instead. The chip's
+		 * branch and counts are the tree's in that case, so without this row the
+		 * checkout's own state is nowhere on screen. Branch, then files (or "clean"),
+		 * then sync counts only when they are nonzero — the chip's own rule.
+		 */
+		function formatCheckoutDetail(checkout) {
+			if (checkout === void 0 || checkout === null || typeof checkout.branch !== "string") return void 0;
+			const files = (checkout.changedFiles || 0) + (checkout.untrackedFiles || 0);
+			const bits = [checkout.branch, files > 0 ? "\u270E" + files : "clean"];
+			if ((checkout.ahead || 0) > 0 || (checkout.behind || 0) > 0) {
+				bits.push("\u2191" + (checkout.ahead || 0) + " \u2193" + (checkout.behind || 0));
+			}
+			return bits.join(" \u00B7 ");
+		}
+
 		const CARD_CONTAINER = {
 			display: "flex",
 			flexDirection: "column",
@@ -555,6 +590,11 @@ window.__ModuleLoader__.load({
 			add("files", formatFileBreakdown(info));
 			add("operation", info.operation === void 0 || info.operation === null ? void 0 : String(info.operation));
 			add("pull request", formatPrDetail(data.pr));
+			// The conversation's OWN directory, present only when the badge is
+			// describing an inferred worktree — the chip's branch and counts are the
+			// tree's in that case, so this is where the checkout's own state stays
+			// visible. Absent until the `detail=1` response lands, like commits/stash.
+			if (data.worktreeInferred === true) add("checkout", formatCheckoutDetail(data.checkout));
 			if (Array.isArray(data.lastCommits) && data.lastCommits.length > 0) {
 				rows.push(
 					react_jsx_runtime.jsxs("div", {
@@ -749,7 +789,7 @@ window.__ModuleLoader__.load({
 		// Additive; the host reads apply/inject and ignores the rest. The suite
 		// drives these to assert the REQUEST contract — which surface asks for the
 		// expensive extras — without a browser, a fetch or a network.
-		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail };
+		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail };
 		return module.exports;
 	}
 });

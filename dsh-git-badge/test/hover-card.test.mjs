@@ -180,6 +180,43 @@ test("the detail fields appear only once detail has been fetched", () => {
 
 //#endregion
 
+//#region the inferred worktree
+
+test("the card names the conversation's OWN checkout when the badge followed a worktree", () => {
+	// Once the chip's branch and counts describe an inferred worktree, the
+	// checkout's own state is nowhere else on screen — that is the whole reason
+	// this row exists. It is detail-gated like every other expensive field.
+	const client = createClient({ tooltip: true });
+	const inferred = {
+		...BASE,
+		branch: "chore/global-skills-tiering",
+		isWorktree: true,
+		worktreeName: "global-skills-tiering",
+		worktreeInferred: true,
+		checkout: { branch: "main", dirty: true, changedFiles: 2, untrackedFiles: 1, ahead: 1, behind: 2 }
+	};
+	const body = card(client, inferred);
+	assert.ok(body.includes("checkout"), `expected the checkout row: ${body}`);
+	assert.ok(body.includes("main \u00B7 \u270E3 \u00B7 \u21911 \u21932"), `expected the checkout's own state: ${body}`);
+	assert.ok(body.includes("chore/global-skills-tiering"), "while the badge's own branch is still the worktree's");
+});
+
+test("the card has no checkout row when the badge describes the conversation's own directory", () => {
+	const client = createClient({ tooltip: true });
+	const body = card(client, { ...BASE, checkout: { branch: "main", dirty: false } });
+	assert.ok(!body.includes("checkout"), `the row would be pure repetition: ${body}`);
+});
+
+test("an inferred checkout with no checkout payload yet shows no empty row", () => {
+	// the base request carries worktreeInferred but NOT checkout: the row must wait
+	// for the detail response rather than render a blank
+	const client = createClient({ tooltip: true });
+	const body = card(client, { ...BASE, isWorktree: true, worktreeName: "linked-tree", worktreeInferred: true });
+	assert.ok(!body.includes("checkout"), `expected no row before detail lands: ${body}`);
+});
+
+//#endregion
+
 //#region the PR / CI token
 
 test("the chip carries the PR number and CI state", () => {

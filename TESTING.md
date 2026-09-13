@@ -104,6 +104,22 @@ that workspace yourself: the token is *supposed* to be invisible when `gh` canno
 answer. `config.prRunner` substitutes for the CLI in the suite, so no test needs
 `gh`, a network or a forge.
 
+**Worktree selection rides the same TTL, with one more input.** A SESSION-targeted
+badge may follow the one linked worktree whose branch has an open PR: the route
+resolves the session to its workspace, then — only when the repository actually has
+a linked worktree *and* the caller asked for PR state — swaps the status directory
+for that worktree's. Two consequences are easy to miss. The selected worktree is
+watched like a workspace is, and its events carry the **owning** workspace id,
+because that is what a session-targeted client matches its events against; and a
+repository with no linked worktree must spawn **no** `gh` process at all (asserted,
+because the probe runs before the forge is consulted). The probe is
+`rev-parse --show-toplevel` plus `worktree list --porcelain`, both local, collapsed
+for concurrent callers like `gitStatus`. `selectSessionWorktree` is pure and takes
+the worktree list plus the branch→PR map, so every ambiguity case — two candidates,
+a detached/bare/prunable entry, the checkout itself, a branch with no PR — is a
+one-line unit test with no repository at all. `config.worktreeStatus = "off"`
+removes the feature entirely and is the switch's own test.
+
 Pattern credit: the fake-ctx / fake-stream / temp-repo shape is adapted from
 `@wongzexu/dsh-git-status` (MIT).
 
@@ -229,6 +245,15 @@ hard-refresh. DevTools console confirms which code is live via the
   request to carry `pr=1` only. And `pr=1` requires `gh` on PATH, authenticated,
   and a `github.com` `origin` — verify with `gh pr view` in the same directory
   before concluding the token is broken.
+- **Worktree selection changed** → the suite covers the parser, the selection rule,
+  the open-PR read's caching and every failure shape, the watcher a follow needs,
+  the route's swap/no-swap split, and the inferred rendering rules. The live proof
+  has a precondition that is easy to trip over: it needs a repository that HAS a
+  linked worktree **whose branch has an open PR**. Without one — the common state
+  after a PR merges and its worktree is removed — the badge correctly stays on the
+  session's own checkout, so "no swap" is not evidence of a bug. Check with
+  `git worktree list` and `gh pr list --state open` in the same repo first, then
+  compare a session target against a workspace target (`docs/VERIFICATION.md`).
 
 ## Publishing a new version
 

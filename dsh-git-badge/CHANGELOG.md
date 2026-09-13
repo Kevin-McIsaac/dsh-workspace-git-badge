@@ -10,6 +10,44 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Added
+
+- **A session's badge follows the worktree its work is in.** A conversation's
+  directory is fixed when it is created, and DSH records no session→worktree link
+  at all (`attachSession` requires the stored cwd to equal the workspace path), so
+  a conversation started in the main checkout reported `main` — including "no pull
+  request" — while its work and its PR lived in a linked worktree.
+  Now, when a **session**-targeted badge resolves to a main checkout whose
+  repository has exactly one linked worktree whose branch has an **open** pull
+  request, the badge describes that worktree instead: its branch, dirty counts,
+  ahead/behind, tree-shaped mark, and PR/CI token. The `workspace` id in the
+  response is unchanged, so SSE attribution is unaffected.
+  The selection is deliberately the only one that cannot be ambiguous — one open
+  PR is a candidate, two are a reason to say nothing — the worktree is **named**
+  on the chip even when the branch would make the name look redundant, the mark's
+  accessible name states that the checkout was inferred, and the hover card gains
+  a `checkout` row carrying the conversation's OWN directory (branch · files ·
+  sync) so the main checkout's state stays visible. A workspace-targeted sidebar
+  row never follows a worktree: a row surveys the checkout the registry owns.
+- **An inferred worktree is watched.** Its working tree and git dir get the same
+  event-driven treatment as a registered workspace's, and its events carry the
+  **owning workspace id**, so the badge refreshes within ~1s of a stage, commit or
+  checkout in the tree — including a worktree that is not itself a registered
+  workspace, which the main checkout's recursive watch would never see.
+- **Identical concurrent status reads are collapsed** into one `git status` per
+  directory, which is the shape a burst of badges mounting together produces.
+  `statusCacheMs` (default 0) optionally extends that to serial bursts; the 0
+  default keeps a read taken after a mutation honest. New config: `worktreeStatus`
+  (`"auto"` | `"off"`), `prListLimit`, `statusCacheMs`.
+- The repository-wide open-PR read (`gh pr list`) happens at most once per TTL per
+  repository, and never at all for a repository with no linked worktree.
+
+### Fixed
+
+- **The PR cache served the wrong branch.** `prStatusFor` was keyed by toplevel
+  only, so a checkout that changed branch inside the TTL window was served the
+  previous branch's pull request. It is now keyed by toplevel **and** branch.
+
 ## [0.8.0] - 2026-09-12
 
 ### Added
