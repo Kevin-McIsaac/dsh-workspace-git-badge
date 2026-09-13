@@ -1519,7 +1519,7 @@ window.__ModuleLoader__.load({
 			return e.clientY < rect.top + rect.height / 2 ? "before" : "after";
 		}
 		/** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
-		function SessionTree({ useSessions, useSessionPendingInteraction, startSession, open, forkSession, workspaces, archivedSessionIds, workspaceReady, usePanelInfo, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t, revealSessionId, onSessionRevealed }) {
+		function SessionTree({ useSessions, useSessionPendingInteraction, startSession, open, forkSession, workspaces, archivedSessionIds, workspaceReady, usePanelInfo, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t, renderSlot, revealSessionId, onSessionRevealed }) {
 			const panelActive = usePanelInfo((info) => info.activePanelId !== null);
 			const list = useSessions((s) => s);
 			const pendingInteractions = useSessionPendingInteraction((s) => s);
@@ -2445,6 +2445,7 @@ window.__ModuleLoader__.load({
 							onSessionRevealed: acknowledgeSessionReveal,
 							t
 						}) : (0, react_jsx_runtime.jsx)(SessionTree, {
+							renderSlot,
 							usePanelInfo,
 							useSessions,
 							useSessionPendingInteraction,

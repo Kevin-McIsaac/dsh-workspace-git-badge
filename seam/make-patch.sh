@@ -129,7 +129,19 @@ rep(
 \t\t\t});
 \t\t}""")
 
-# --- 4. Thread renderSlot + the owning workspace id from the TREE call site only ---
+# --- 4. Thread renderSlot: WorkspaceBrowser -> SessionTree ---
+# A bare `renderSlot` at the SessionNodeItem call site resolves in THIS scope. The
+# first cut of this patch threaded it into SessionNodeItem but not into SessionTree,
+# so the row render threw `ReferenceError: renderSlot is not defined` the moment
+# sessions appeared — and the shell abdicated the whole sidebar with it. Any prop a
+# patched call site reads by shorthand must arrive through every intermediate scope.
+rep(
+"""\t\tfunction SessionTree({ useSessions, useSessionPendingInteraction, startSession, open, forkSession, workspaces, archivedSessionIds, workspaceReady, usePanelInfo, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t, revealSessionId, onSessionRevealed }) {""",
+"""\t\tfunction SessionTree({ useSessions, useSessionPendingInteraction, startSession, open, forkSession, workspaces, archivedSessionIds, workspaceReady, usePanelInfo, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t, renderSlot, revealSessionId, onSessionRevealed }) {""")
+rep(
+"""(0, react_jsx_runtime.jsx)(SessionTree, {\n\t\t\t\t\t\t\tusePanelInfo,""",
+"""(0, react_jsx_runtime.jsx)(SessionTree, {\n\t\t\t\t\t\t\trenderSlot,\n\t\t\t\t\t\t\tusePanelInfo,""")
+# --- 5. Thread renderSlot + the owning workspace id from the TREE call site only ---
 rep(
 """\t\t\t\t\t\t\t\t\t\treturn (0, react_jsx_runtime.jsx)(SessionNodeItem, {
 \t\t\t\t\t\t\t\t\t\t\tnode,
@@ -142,7 +154,7 @@ rep(
 \t\t\t\t\t\t\t\t\t\t\t// flat and search lists pass neither prop, so they stay bare
 \t\t\t\t\t\t\t\t\t\t\tworkspaceId: group.workspaceId,""")
 
-# --- 5. Declare the two seam children on the sidebar.workspaces registration ---
+# --- 6. Declare the two seam children on the sidebar.workspaces registration ---
 rep(
 """\t\t\t\tchildren: { "sidebar.workspaces.directoryFlow": {
 \t\t\t\t\tkind: "single",

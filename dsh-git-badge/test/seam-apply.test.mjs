@@ -132,3 +132,22 @@ test("the artifact declares the session-row seams and not the workspace-row pair
 	// keep advertising a seam nothing renders
 	assert.ok(!patched.includes('"sidebar.workspaces.row"'), "the workspace-row seam must be gone");
 });
+
+test("the artifact threads renderSlot into every scope a patched call site reads it from", { skip }, async () => {
+	// The first cut of this patch threaded `renderSlot` into SessionNodeItem but not
+	// into SessionTree, so the row render threw `ReferenceError: renderSlot is not
+	// defined` the moment sessions appeared — and the shell ABDICATED the workspace
+	// browser entry, blanking the whole sidebar. (The same trace the browser printed:
+	// `slot entry crashed in 'sidebar.workspaces'`.) A shorthand prop at a patched
+	// call site must arrive through EVERY intermediate component, so this pins the
+	// chain rather than trusting a reader to notice the gap.
+	const patched = await readFile(join(SEAM, "patched-client.js"), "utf8");
+	assert.match(patched, /function SessionTree\(\{[^}]*\brenderSlot\b[^}]*\}\) \{/, "SessionTree must receive renderSlot");
+	assert.match(patched, /\(0, react_jsx_runtime\.jsx\)\(SessionTree, \{\s*renderSlot,/, "and pass it down");
+	assert.match(
+		patched,
+		/\(0, react_jsx_runtime\.jsx\)\(SessionNodeItem, \{[\s\S]{0,600}?\brenderSlot,/,
+		"which each row passes to the seam helper"
+	);
+	assert.match(patched, /workspaceId: group\.workspaceId,/, "and the owning workspace id travels with it");
+});
