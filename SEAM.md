@@ -17,8 +17,10 @@ The badge therefore belongs where the identity is.
 
 ## What the patch is
 
-`diff seam/pristine-client.js seam/patched-client.js` — +39/−3 lines against
-`@deepseek-ai/dsh-client-ui-workspace/lib/client.js`:
+The patch is defined once, in [`seam/anchors.py`](seam/anchors.py), as
+`(name, old, new)` pairs — each `old` must occur **exactly once** in
+`@deepseek-ai/dsh-client-ui-workspace/lib/client.js`, and is replaced by `new`
+(+74/−5 lines):
 
 1. Declares two children on the existing `sidebar.workspaces` slot registration:
 
@@ -58,13 +60,12 @@ seam/apply.sh apply     # patch (and upgrade an older patch of ours in place)
 seam/apply.sh revert    # restore the upstream files from backup
 ```
 
-`status` mutates nothing and is the first thing to run **after a DSH update**,
-because a DSH release rewrites `lib/client.js` and invalidates the hash-guard. It
-reports the installed hash, whether it matches the pinned baseline, this repo's
-current patched artifact, or an older artifact of ours, whether a revert backup
-exists, and whether the seam is declared — then gives a verdict. It exits `0` for
-a recognised state (patched / out of date / pristine / upstream-landed) and `1`
-for drift, so it is usable in a script. On drift it prints the rebuild commands.
+`status` mutates nothing and is the first thing to run **after a DSH update**.
+It reports the installed hash, whether the anchors still resolve (and, on drift,
+WHICH anchor moved and how often it now occurs), whether the installed file
+carries this repo's marker, whether a revert backup exists, and whether the seam
+is declared — then gives a verdict. It exits `0` for a recognised state (patched
+/ out of date / patchable / upstream-landed) and `1` for drift.
 
 Note the tell it encodes: **hashes, not version strings.** The package version is
 read from whichever copy is installed and says nothing about which bytes they
@@ -81,53 +82,53 @@ Safety rails:
   occupant loses its badge, never the region. (Learned the hard way: the first
   session-row patch blanked the sidebar a second after boot, and the revert did
   not say why.)
-- **Hash-guard**: `apply` proceeds only when the installed `lib/client.js` is the
-  sha256 pinned in the script (`seam/stamp-hash.sh` re-pins it after a rebuild),
-  **or** an artifact this repo built (`PREVIOUS_PATCHED_HASHES`, plus the marker
-  comment every generated artifact carries). An upstream update is never
-  blind-overwritten.
-- **Own-artifact vs upstream-landed**: the two used to be indistinguishable,
-  because both make the seam string appear in the file — and the old
-  "seam present → skip" test therefore silently refused to install every *rebuilt*
-  patch. Now `apply` upgrades an older artifact of ours in place, and skips only
-  when the seam is present in a file that is **not** ours (a genuine upstream
-  landing), which is what the `dsh-git-badge:seam-patch` marker is for.
-- **Reversible, but downgrade-guarded**: `revert` restores the **upstream**
-  baseline — taken from `pristine-client.js`, not from the bytes being replaced,
-  so reverting from a stale patch of ours lands on upstream rather than on the
-  older seam. It refuses when the installed file is neither an artifact of ours
-  nor the backup, because after a DSH update that would overwrite a newer upstream
-  file with an older one. `status` flags that in advance under `revert: would
-  REFUSE`. The upstream host half is a no-op stub (`seam/pristine-index.js`), and
-  `backup-*.js` is gitignored, so any checkout can apply and revert on its own.
-
-`seam/make-patch.sh` regenerates `patched-client.js` from `pristine-client.js`
-(anchor-asserted, so upstream drift fails loudly instead of mispatching).
-
-Migrating from the old workspace-row patch needs nothing special: the previous
-artifact's hash is listed in `apply.sh`, so `apply` recognises it as ours, backs
-up upstream, and installs the session-row seams in its place.
+- **Anchor guard, not a hash guard**: `apply` patches the INSTALLED `client.js`
+  in place, proceeding only when every anchor in `anchors.py` is found exactly
+  once; anything else is drift and NOTHING is written. A DSH update that changes
+  anything outside the anchor blocks no longer invalidates the patch — the old
+  whole-file sha256 pin was a rebuild every release, even when the seam targets
+  were untouched. The pinned hash (`KNOWN_GOOD_HASH`) survives as an advisory:
+  `status` reports whether the installed build is the one the anchors were
+  verified against, but `apply` does not require it.
+- **Own-artifact vs upstream-landed**: both make the seam string appear in the
+  file, so the `dsh-git-badge:seam-patch` marker (with a rev number) is what
+  distinguishes them. `apply` upgrades an older artifact of ours in place —
+  validating the revert backup's anchors BEFORE overwriting anything — and skips
+  only when the seam is present in a file that is **not** ours (a genuine
+  upstream landing).
+- **Reversible, and downgrade-guarded**: `revert` restores the **bytes as found
+  before patching** (`seam/backup-client.js`, taken from the installed file at
+  the moment of first patching), so it always puts back exactly what was there.
+  It refuses when the installed file is not our artifact, because after a DSH
+  update that would overwrite a newer upstream file with an older one. `status`
+  flags that in advance under `revert: would REFUSE`. The upstream host half is
+  a no-op stub (`seam/stub-index.js`), and `backup-*.js` is gitignored, so any
+  checkout can apply and revert on its own.
 
 ## Rebuilding after a DSH upgrade
 
-A DSH update that touches `lib/client.js` fails the hash-guard by design. The
-rebuild is:
+A DSH update that changes `lib/client.js` is now usually a non-event: run
+`seam/apply.sh status` — if every anchor still resolves, `apply` patches the new
+build directly. Only when an anchor actually moved do you need to edit
+`seam/anchors.py`, and the drift report names the anchor to fix:
 
 ```bash
-PKG="$HOME/.config/nvm/versions/node/v22.23.2/lib/node_modules/@deepseek-ai/dsh/node_modules/@deepseek-ai/dsh-client-ui-workspace"
-cp "$PKG/lib/client.js" seam/pristine-client.js   # 1. new upstream baseline
-cp "$PKG/lib/index.js"  seam/pristine-index.js
-seam/make-patch.sh                                # 2. regenerate (fix anchors if it fails)
-seam/stamp-hash.sh                                # 3. re-pin PRISTINE_HASH
-seam/apply.sh apply                               # 4. patch the installed package
+seam/apply.sh status        # 1. drift? the report names the anchor that moved
+#   (only if an anchor moved) update that entry in seam/anchors.py to the new
+#   upstream text — never hand-edit anything else
+seam/apply.sh apply         # 2. patch the new build in place
 ```
 
+To re-verify the advisory pin, copy the new upstream `lib/client.js` over
+`seam/pristine-client.js`, run `seam/make-patch.sh` (regenerates
+`patched-client.js` — PR-diff artifact only), and update `KNOWN_GOOD_HASH` in
+`apply.sh` to the new file's sha256.
+
 Upstream refactors can rename props or reorder call sites while the seam
-concept is unchanged. `make-patch.sh` stops on the first anchor it cannot find;
-edit the anchor string there to match the new upstream text — never hand-edit
-`patched-client.js`, it is generated. Changing the patch itself does **not**
-require a `revert` first: `apply` upgrades its own artifacts in place (that was
-the old behaviour's trap, and the marker exists to keep it fixed).
+concept is unchanged; that is exactly what the anchor names are for. Changing
+the patch itself does **not** require a `revert` first: `apply` upgrades its own
+artifacts in place (the old trap — silently skipping rebuilt patches — is what
+the marker's rev number exists to prevent).
 
 ## Why it should be upstream
 

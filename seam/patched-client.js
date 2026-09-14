@@ -938,7 +938,7 @@ window.__ModuleLoader__.load({
 		* @param props.t - the browser root's locale seat.
 		* @returns the session row.
 		*/
-		/* dsh-git-badge:seam-patch — seam/apply.sh recognises its own artifact by this
+		/* dsh-git-badge:seam-patch rev 2 — seam/apply.sh recognises its own artifact by this
 		 * marker, which upstream would never carry. */
 		/**
 		* Seam entry boundary. The host wraps each registered ENTRY in its own error

@@ -219,17 +219,27 @@ prints both commands with the real paths.
 ## Seam-patched test (full badges)
 
 ```bash
-seam/apply.sh status    # patched / out of date / pristine / upstream-landed / drift
-seam/apply.sh apply     # installs, upgrading an older patch of OURS in place
-seam/apply.sh revert    # restore the UPSTREAM baseline
+seam/apply.sh status    # patched / out of date / patchable / upstream-landed / drift
+seam/apply.sh apply     # patches the INSTALLED file in place, upgrading an older patch of OURS
+seam/apply.sh revert    # restore the bytes as found before patching
 ```
 
+The patch is **anchor-based**: `seam/anchors.py` defines each change as a
+`(name, old, new)` pair, and `apply` locates each `old` block in the installed
+`client.js` (it must occur exactly once) and replaces it in place. A DSH update
+that changes anything else in the file no longer invalidates the patch — only a
+change that moves one of the anchors does, and `status`/`apply` name that anchor
+instead of reporting an opaque hash mismatch. `apply` refuses (writing nothing)
+unless every anchor resolves exactly once.
+
 `apply` tells its own artifacts from an upstream landing by the
-`dsh-git-badge:seam-patch` marker (plus the previous artifact's hash), so a
-rebuilt patch installs instead of being skipped as "the seam is already there";
-it refuses an unrecognised upstream file rather than overwriting it. `revert`
-restores `pristine-client.js` — upstream — not whatever bytes the patch replaced,
-so reverting from a stale patch lands on upstream rather than on the older seam.
+`dsh-git-badge:seam-patch` marker, so a re-patch installs instead of being
+skipped as "the seam is already there". `revert` restores the **bytes as found
+before patching** (`seam/backup-client.js`), guarded against downgrading a
+build upstream replaced after the patch. The pinned hash in `apply.sh`
+(`KNOWN_GOOD_HASH`) is advisory only: `status` reports whether the installed
+build is the one the anchors were verified against, but `apply` proceeds on any
+build whose anchors resolve.
 
 After apply, **restart the dsh web process** — the workspace bundle URL
 carries a `?rev=` hash that only changes at boot, so a browser refresh alone
