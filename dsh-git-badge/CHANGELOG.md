@@ -10,6 +10,16 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Removed
+
+- **The restart notice and one-click Restart button are gone from the input
+  chip.** The inline text — *restart dsh web to activate the sidebar badges* —
+  and its Restart button (`POST /dsh-market/api/v1/restart`) could outlive the
+  restart it asked for when the marker survived a boot, and the nag outweighed
+  the convenience. The restart-pending marker pipeline is intact server-side
+  (`seam/store.js`, `seamRestartPending` on the status response) for a future
+  marketplace-surface notification; the chip simply no longer renders it.
+
 ## [0.11.0] - 2026-09-14
 
 ### Added
