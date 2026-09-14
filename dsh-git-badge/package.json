@@ -4,6 +4,9 @@
   "description": "Git status badges for DeepSeek Harness: sidebar session rows (via the sidebar.workspaces.sessionRow seam) and an input-row chip showing the current conversation's workspace git state. Event-driven freshness over SSE.",
   "type": "module",
   "main": "lib/index.js",
+  "bin": {
+    "dsh-git-badge-seam": "seam/apply.js"
+  },
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
@@ -45,6 +48,9 @@
   "files": [
     "lib/index.js",
     "lib/client.js",
+    "seam/apply.js",
+    "seam/anchors.js",
+    "seam/stub-index.js",
     "cordis.patch.yml",
     "package.json",
     "README.md",
