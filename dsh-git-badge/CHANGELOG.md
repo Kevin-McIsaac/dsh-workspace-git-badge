@@ -10,6 +10,20 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Added
+
+- **A "next" row at the top of the chip's hover card.** The node half derives
+  the single highest-priority next step from fields the status response already
+  carries — a paused operation and its resume command, `git pull --ff-only`
+  when behind, `git push -u origin <branch>` when no upstream exists on a dirty
+  branch, `git push` when ahead, a conservative commit command when dirty
+  (`add -p` for unstaged work, `-A` only for untracked-only changes, which
+  `add -p` cannot see), and `gh pr checks <n> --watch` when CI fails. Each
+  suggestion carries its reason, and the command is a click-to-copy chip — it
+  runs in the user's own terminal, never through dsh. Clean, synced, nothing
+  failing → no row. Pure derivation: no extra git invocations, and the ranking
+  is unit-tested in the node suite.
+
 ## [0.13.0] - 2026-09-15
 
 ### Added

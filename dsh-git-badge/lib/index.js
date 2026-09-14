@@ -663,6 +663,93 @@ function operationMarker(gitDir) {
 }
 
 /**
+ * The one command a paused operation resumes with. A squash merge records no
+ * MERGE_HEAD (its conclusion is an ordinary commit), and bisect's next step is
+ * the user's judgement call (good/bad) — it gets a WHY but no command.
+ */
+const OPERATION_NEXT = {
+	merge: "git merge --continue",
+	squash: "git commit",
+	"cherry-pick": "git cherry-pick --continue",
+	revert: "git revert --continue",
+	rebase: "git rebase --continue",
+	sequencer: "git cherry-pick --continue",
+	bisect: void 0
+};
+
+/**
+ * The hover card's "next" row: the single highest-priority thing to do next,
+ * as a conservative command plus the reason it applies. Pure derivation over
+ * fields the status response already carries — no extra git invocations, so it
+ * rides the base response and a future surface gets it for free. Ranking (the
+ * first match wins):
+ *
+ *   1. a paused operation (conflicts included) — resuming it subsumes everything
+ *      else; unmerged files without a marker fall back to `git status`
+ *   2. behind — reconciling comes before publishing
+ *   3. no upstream on a dirty branch — publish it for the first time
+ *   4. ahead — publish
+ *   5. dirty — stage and commit (add -p for unstaged work; -A only when the
+ *      change is untracked-only, which add -p cannot see)
+ *   6. PR checks failing — watch them land
+ *
+ * Clean, synced, nothing failing → null: the row is omitted entirely, because
+ * "no suggestion" is also a suggestion. Commands are conservative on purpose —
+ * the card COPIES them into the user's terminal, it never runs them, but the
+ * register still avoids anything destructive.
+ *
+ * @returns {{ command: string|undefined, why: string } | null}
+ */
+function nextStep(info) {
+	if (info === void 0 || info === null || info.git !== true) return null;
+	const unmerged = info.unmergedFiles || 0;
+	const plural = (n) => (n === 1 ? "" : "s");
+	if (info.operation !== void 0 && info.operation !== null) {
+		const op = String(info.operation);
+		return {
+			command: OPERATION_NEXT[op],
+			why: unmerged > 0
+				? `${unmerged} unmerged file${plural(unmerged)} blocking the paused ${op}`
+				: `a ${op} is paused mid-operation`
+		};
+	}
+	if (unmerged > 0) {
+		return { command: "git status", why: `${unmerged} unmerged file${plural(unmerged)} to resolve` };
+	}
+	const ahead = info.ahead || 0;
+	const behind = info.behind || 0;
+	if (behind > 0) {
+		return { command: "git pull --ff-only", why: `${behind} behind ${info.upstream ?? "upstream"}` };
+	}
+	const staged = info.stagedFiles || 0;
+	const unstaged = info.unstagedFiles || 0;
+	const untracked = info.untrackedFiles || 0;
+	if (info.upstream === void 0 && staged + unstaged + untracked > 0) {
+		return { command: `git push -u origin ${info.branch}`, why: "no upstream configured" };
+	}
+	if (ahead > 0) {
+		return { command: "git push", why: `${ahead} ahead of ${info.upstream ?? "upstream"}` };
+	}
+	if (staged + unstaged + untracked > 0) {
+		const why = [
+			staged > 0 ? `${staged} staged` : null,
+			unstaged > 0 ? `${unstaged} unstaged` : null,
+			untracked > 0 ? `${untracked} untracked` : null
+		].filter(Boolean).join(", ");
+		const command = staged > 0
+			? "git commit"
+			: untracked > 0 && unstaged === 0
+				? "git add -A && git commit"
+				: "git add -p && git commit";
+		return { command, why: `work to commit: ${why}` };
+	}
+	if (info.pr !== void 0 && info.pr !== null && info.pr.number !== void 0 && info.pr.state === "failing") {
+		return { command: `gh pr checks ${info.pr.number} --watch`, why: `checks failing on #${info.pr.number}` };
+	}
+	return null;
+}
+
+/**
  * Git status for dir; { git: false } when dir is not a repository,
  * GIT_DEGRADED on transient git failure.
  *
@@ -787,6 +874,8 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 		const pr = prStatusFor(toplevel, parsed.branch, notifyChange);
 		if (pr !== void 0) info.pr = pr;
 	}
+	const next = nextStep(info);
+	if (next !== null) info.next = next;
 	return info;
 }
 
@@ -1355,6 +1444,7 @@ export {
 	config,
 	OPERATION_MARKERS,
 	operationMarker,
+	nextStep,
 	outerGitDir,
 	parseStatusV2,
 	parseWorktreeList,

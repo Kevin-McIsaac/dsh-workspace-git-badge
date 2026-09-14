@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { changeListeners, config, gitStatus, outerGitDir, runGit as pluginRunGit } from "../lib/index.js";
+import { changeListeners, config, gitStatus, nextStep, outerGitDir, runGit as pluginRunGit } from "../lib/index.js";
 import { makeRepo, makeTempDir, runGit } from "../test-support/repo.mjs";
 
 /** Subscribe to change notifications; released with the test. */
@@ -253,4 +253,103 @@ test("a submodule is NOT a worktree, though its git dir is out-of-tree too", asy
 	// ...while the watcher still has to look outside the directory, as for a worktree
 	assert.match(outerGitDir(sub), /[\\/]\.git[\\/]modules[\\/]sub$/);
 	assert.equal((await gitStatus(repo.root)).isWorktree, false, "the hosting checkout is unaffected");
+});
+
+// ---------------------------------------------------------------------------
+// nextStep — the hover card's "next" row. Pure ranking over the status fields,
+// so the table is asserted directly, plus two end-to-end cases against real
+// repositories to prove the field actually rides the response.
+// ---------------------------------------------------------------------------
+
+test("nextStep: clean, synced, no PR → null (no suggestion is a suggestion)", () => {
+	assert.equal(nextStep({ git: true, branch: "main", upstream: "origin/main", ahead: 0, behind: 0 }), null);
+});
+
+test("nextStep: not-a-repo or garbage input → null", () => {
+	assert.equal(nextStep(void 0), null);
+	assert.equal(nextStep({ git: false }), null);
+});
+
+test("nextStep: a paused operation wins and names its resume command", () => {
+	for (const [operation, command] of [
+		["merge", "git merge --continue"],
+		["rebase", "git rebase --continue"],
+		["cherry-pick", "git cherry-pick --continue"],
+		["revert", "git revert --continue"],
+		["squash", "git commit"],
+	]) {
+		assert.deepEqual(
+			nextStep({ git: true, operation, unmergedFiles: 2 }),
+			{ command, why: "2 unmerged files blocking the paused " + operation },
+			operation,
+		);
+	}
+});
+
+test("nextStep: a paused bisect gets a why but no command (the call is the user's)", () => {
+	const next = nextStep({ git: true, operation: "bisect" });
+	assert.equal(next.command, void 0);
+	assert.match(next.why, /bisect/);
+});
+
+test("nextStep: unmerged without a marker falls back to git status", () => {
+	assert.deepEqual(nextStep({ git: true, unmergedFiles: 1 }), { command: "git status", why: "1 unmerged file to resolve" });
+});
+
+test("nextStep: behind ranks ahead of dirty work", () => {
+	const next = nextStep({ git: true, upstream: "origin/main", behind: 3, stagedFiles: 1 });
+	assert.equal(next.command, "git pull --ff-only");
+	assert.match(next.why, /3 behind origin\/main/);
+});
+
+test("nextStep: ahead → push", () => {
+	const next = nextStep({ git: true, upstream: "origin/main", ahead: 2 });
+	assert.deepEqual(next, { command: "git push", why: "2 ahead of origin/main" });
+});
+
+test("nextStep: no upstream on a dirty branch → publish it", () => {
+	const next = nextStep({ git: true, branch: "feat/x", stagedFiles: 1 });
+	assert.deepEqual(next, { command: "git push -u origin feat/x", why: "no upstream configured" });
+});
+
+test("nextStep: dirty work — staged, unstaged, untracked choose the command", () => {
+	// an upstream is set in every case: a dirty branch with NO upstream is the
+	// publish-it-first rule's business, asserted separately below
+	assert.equal(nextStep({ git: true, upstream: "o/m", stagedFiles: 2 }).command, "git commit");
+	assert.equal(nextStep({ git: true, upstream: "o/m", unstagedFiles: 1 }).command, "git add -p && git commit");
+	assert.equal(nextStep({ git: true, upstream: "o/m", untrackedFiles: 1 }).command, "git add -A && git commit");
+	// staged work is committed as-is even with further unstaged edits — add -p
+	// would mix the two, and committing exactly what was staged is the safe move
+	assert.equal(nextStep({ git: true, upstream: "o/m", stagedFiles: 1, unstagedFiles: 1 }).command, "git commit");
+	assert.match(nextStep({ git: true, upstream: "o/m", stagedFiles: 2 }).why, /work to commit/);
+});
+
+test("nextStep: failing PR checks → watch them", () => {
+	assert.deepEqual(
+		nextStep({ git: true, pr: { number: 142, state: "failing" } }),
+		{ command: "gh pr checks 142 --watch", why: "checks failing on #142" },
+	);
+	// passing or absent checks suggest nothing
+	assert.equal(nextStep({ git: true, pr: { number: 142, state: "passing" } }), null);
+	assert.equal(nextStep({ git: true }), null);
+});
+
+test("a clean repository response carries no next field", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	const info = await gitStatus(repo.root);
+	assert.equal(info.git, true);
+	assert.equal(info.next, void 0);
+});
+
+test("a dirty repository with no upstream suggests publishing it", async (t) => {
+	// makeRepo has no remote: upstream is undefined, so the first-publish rule
+	// outranks the commit suggestion — documented here end-to-end.
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	await repo.write("b.txt", "dirty\n");
+	const info = await gitStatus(repo.root);
+	assert.equal(info.git, true);
+	assert.equal(info.next.command, "git push -u origin main");
+	assert.equal(info.next.why, "no upstream configured");
 });
