@@ -25,11 +25,14 @@ edit — including inside a linked worktree.
 ## Install
 
 ```bash
-dsh plugin --profile web add dsh-git-badge
+dsh plugin --profile web add dsh-git-badge     # marketplace Install does this step
+npx dsh-git-badge apply                        # sidebar badges need this one manual step
 ```
 
-Then restart the web process and refresh the browser. This activates the input
-chip on any install.
+Then **restart the web process** and refresh the browser:
+
+- without the `apply`, the **input chip** works but the sidebar session rows stay off — hover the chip for a reminder;
+- `apply` patches the installed DSH package in place (anchor-guarded — it refuses to write anything unless every anchor block matches exactly once). When your pnpm allows the package's postinstall, this step runs at install time automatically; `npx dsh-git-badge status` always tells you which state you are in.
 
 Sidebar session-row tokens need a seam the workspace browser does not declare
 upstream yet (discussion

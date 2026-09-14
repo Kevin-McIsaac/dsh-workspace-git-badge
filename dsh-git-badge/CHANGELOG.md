@@ -8,6 +8,26 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 Versions before 0.6.0 predate this file; their history is in `git log` and on
 npm. 0.6.0 is the first release recorded here.
 
+## [Unreleased]
+
+## [0.10.0] - 2026-09-14
+
+### Added
+
+- **The install flow now tells you about the one manual step, everywhere it can.**
+  A market install activates the input chip immediately, but the sidebar
+  session-row badges additionally need the seam patch — and nothing said so.
+  Now: the market-listing description names the step; the README leads with the
+  two-command install order; a guarded `postinstall` applies the seam at
+  install time **when pnpm allows it** (opt-in via `allowBuilds` — DSH's plugin
+  installer prints that instruction whenever pnpm blocks a build) and only ever
+  in the one safe state (pristine upstream, all anchors resolving — anything
+  else just prints, and the hook can never fail an install); and when the seam
+  is still absent ~5s after boot, every input chip gains a tooltip naming the
+  command — the first message visible in the product rather than the console.
+  Restart stays manual by design: an install script restarting the host that is
+  installing it is not safe to automate.
+
 ## [0.9.1] - 2026-09-14
 
 ### Fixed
