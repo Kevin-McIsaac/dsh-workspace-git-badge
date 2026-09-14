@@ -10,6 +10,8 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-15
+
 ### Removed
 
 - **The restart notice and one-click Restart button are gone from the input
