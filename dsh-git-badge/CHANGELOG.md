@@ -8,7 +8,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 Versions before 0.6.0 predate this file; their history is in `git log` and on
 npm. 0.6.0 is the first release recorded here.
 
-## [Unreleased]
+## [0.9.0] - 2026-09-14
 
 ### Added
 
@@ -20,8 +20,6 @@ npm. 0.6.0 is the first release recorded here.
   once, upgrades its own older artifacts by marker revision, and reverts to the
   bytes as found before patching. When the seam is absent the plugin's boot log
   now says so and names the command.
-
-## [0.9.0] - 2026-09-14
 
 ### Added
 
