@@ -39,9 +39,10 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BRANCH="main"
-# This repo merges with true merge commits (see past `Merge pull request #N`),
-# not squash or rebase. Change only if that convention changes.
-MERGE_METHOD="merge"
+# This repo squash-merges (one commit per PR on `main` — the global AGENTS.md
+# standard). History before the switch used true merge commits; change only if
+# that convention changes again.
+MERGE_METHOD="squash"
 
 PR="${1:-}"
 if [ -z "$PR" ]; then

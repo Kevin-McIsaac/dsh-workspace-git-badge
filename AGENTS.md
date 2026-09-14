@@ -74,4 +74,9 @@ row that knows which checkout the conversation is working in.
    merge, then an explicit fetch + `--ff-only` + an equality assertion), or at
    minimum verify that `git rev-parse main origin/main` match. Rule 6 still
    applies: no merge without the user's approval.
+10. **Merges are squash merges** (the global `~/.dsh/AGENTS.md` standard): one
+   commit per PR lands on `main`, and `scripts/merge-pr.sh` sets
+   `MERGE_METHOD="squash"` accordingly. The squash commit is never an ancestor
+   of the PR branch, so local branch cleanup after a merge needs
+   `git branch -D`, not `-d`.
 
