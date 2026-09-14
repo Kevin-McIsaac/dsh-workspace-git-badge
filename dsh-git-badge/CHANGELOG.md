@@ -10,6 +10,8 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-09-14
+
 ### Added
 
 - **A session's badge follows the worktree its work is in.** A conversation's
