@@ -29,6 +29,12 @@ import { applyPatch, firstFailure, isOurs, seamPresent } from "./anchors.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HINT = "Sidebar session-row badges need one manual step: `npx dsh-git-badge apply`, then restart dsh web.";
+/**
+ * Same stable backup store apply.js defaults to — the backup this hook takes
+ * must be findable by a LATER `npx dsh-git-badge revert` running from a
+ * different cache entry. SEAM_DATA_DIR overrides (test suite).
+ */
+const DATA_DIR = process.env.SEAM_DATA_DIR || join(process.env.DSH_HOME || join(process.env.HOME || "", ".dsh"), "git-badge-seam");
 
 function dshClientPath() {
 	try {
@@ -68,9 +74,9 @@ function main() {
 		return;
 	}
 	// The one state we act on: pristine upstream, anchors resolve.
-	mkdirSync(HERE, { recursive: true });
-	copyFileSync(client, join(HERE, "backup-client.js"));
-	copyFileSync(index, join(HERE, "backup-index.js"));
+	mkdirSync(DATA_DIR, { recursive: true });
+	copyFileSync(client, join(DATA_DIR, "backup-client.js"));
+	copyFileSync(index, join(DATA_DIR, "backup-index.js"));
 	writeFileSync(client, applyPatch(text));
 	copyFileSync(join(HERE, "stub-index.js"), index);
 	console.log("[dsh-git-badge] seam applied — RESTART dsh web to get sidebar session-row badges.");

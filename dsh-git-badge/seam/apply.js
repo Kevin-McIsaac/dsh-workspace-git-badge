@@ -33,8 +33,10 @@
  *
  * Environment:
  *   DSH_INSTALL    the DSH package root. Default: `<global npm root>/@deepseek-ai/dsh`.
- *   SEAM_DATA_DIR  where revert backups are written. Default: this script's
- *                  directory (inside the installed package).
+ *   SEAM_DATA_DIR  where revert backups are written. Default:
+ *                  `$DSH_HOME/git-badge-seam` (else `~/.dsh/git-badge-seam`) —
+ *                  a stable, user-level store shared by every way this tool
+ *                  can run. See the note at the definition below.
  *
  * Usage: apply.js apply | apply.js revert | apply.js status
  */
@@ -54,7 +56,17 @@ import {
 } from "./anchors.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.SEAM_DATA_DIR || HERE;
+/**
+ * Where revert backups live. A STABLE, user-level directory by default — NOT
+ * this script's own directory. For an npx run that directory is a cache entry
+ * keyed by package version: a backup written by one `npx dsh-git-badge apply`
+ * was invisible to the next `npx dsh-git-badge revert`, which then had to
+ * refuse ("patched but no backup exists") even though the bytes were on disk
+ * somewhere. Sharing one store across npx runs, the profile bin and the repo
+ * wrapper makes the apply→revert round trip reliable for everyone. Override
+ * with SEAM_DATA_DIR (the test suite does, to stay hermetic).
+ */
+const DATA_DIR = process.env.SEAM_DATA_DIR || join(process.env.DSH_HOME || join(process.env.HOME || "", ".dsh"), "git-badge-seam");
 
 // sha256 of the upstream build the anchors were last verified against. ADVISORY:
 // status prints it for orientation; apply does NOT require it.
@@ -291,9 +303,13 @@ if (verb === "apply") {
 	} else {
 		const r = inspect();
 		if (r.state === "ours-current" || r.state === "ours-stale" || r.state === "ours-corrupt") {
-			console.error("REFUSING: the installed file is patched but no backup exists, so the");
-			console.error("original bytes are unknown. Reinstall the package to clear the patch:");
-			console.error("  npm rebuild -g @deepseek-ai/dsh   # or your package manager's equivalent");
+			console.error("REFUSING: the installed file is patched but no backup exists in");
+			console.error(`${DATA_DIR}, so the original bytes are unknown here. Options:`);
+			console.error("  1. If you applied from a clone of the plugin's repository, run its");
+			console.error("     wrapper instead — it keeps its own backup:");
+			console.error("       <clone>/seam/apply.sh revert");
+			console.error("  2. Otherwise reinstall the package — pristine files, guaranteed:");
+			console.error("       npm i -g @deepseek-ai/dsh@latest");
 			process.exit(1);
 		}
 		console.log("no backup present and nothing of ours installed; client.js left untouched.");
