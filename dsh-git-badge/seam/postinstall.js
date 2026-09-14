@@ -26,15 +26,10 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyPatch, firstFailure, isOurs, seamPresent } from "./anchors.js";
+import { dataDir, writeRestartMarker } from "./store.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HINT = "Sidebar session-row badges need one manual step: `npx dsh-git-badge apply`, then restart dsh web.";
-/**
- * Same stable backup store apply.js defaults to — the backup this hook takes
- * must be findable by a LATER `npx dsh-git-badge revert` running from a
- * different cache entry. SEAM_DATA_DIR overrides (test suite).
- */
-const DATA_DIR = process.env.SEAM_DATA_DIR || join(process.env.DSH_HOME || join(process.env.HOME || "", ".dsh"), "git-badge-seam");
 
 function dshClientPath() {
 	try {
@@ -74,12 +69,16 @@ function main() {
 		return;
 	}
 	// The one state we act on: pristine upstream, anchors resolve.
-	mkdirSync(DATA_DIR, { recursive: true });
-	copyFileSync(client, join(DATA_DIR, "backup-client.js"));
-	copyFileSync(index, join(DATA_DIR, "backup-index.js"));
+	mkdirSync(dataDir(), { recursive: true });
+	copyFileSync(client, join(dataDir(), "backup-client.js"));
+	copyFileSync(index, join(dataDir(), "backup-index.js"));
 	writeFileSync(client, applyPatch(text));
 	copyFileSync(join(HERE, "stub-index.js"), index);
 	console.log("[dsh-git-badge] seam applied — RESTART dsh web to get sidebar session-row badges.");
+	// Tell the running UI: dshmarket cannot see this host-file change, so the
+	// plugin offers the Restart button itself (marker → status response → chip).
+	// Read/cleared by the plugin halves — see seam/store.js.
+	writeRestartMarker("postinstall");
 }
 
 try {

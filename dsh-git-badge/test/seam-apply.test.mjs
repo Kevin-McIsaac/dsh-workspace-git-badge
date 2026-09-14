@@ -205,7 +205,7 @@ test("revert refuses when upstream replaced the file since the patch", { skip },
 
 test("the patcher ships in the package: files list, bin, and stub", { skip }, async () => {
 	const pkg = JSON.parse(await readFile(join(PACKAGE, "package.json"), "utf8"));
-	for (const f of ["seam/apply.js", "seam/anchors.js", "seam/postinstall.js", "seam/stub-index.js"]) {
+	for (const f of ["seam/apply.js", "seam/anchors.js", "seam/postinstall.js", "seam/store.js", "seam/stub-index.js"]) {
 		assert.ok(pkg.files.includes(f), `files must ship ${f}`);
 		assert.ok(existsSync(join(PACKAGE, f)), `${f} exists`);
 	}
@@ -289,4 +289,49 @@ test("regenerating the PR-diff artifact is byte-identical to the shipped anchors
 	const anchors = await import(`${SEAM_SHIPPED}/anchors.js`);
 	const out = anchors.applyPatch(await pristine());
 	assert.equal(out, await readFile(join(SEAM_REPO, "patched-client.js"), "utf8"), "run seam/make-patch.sh if this drifts");
+});
+
+test("the restart-pending marker follows the write → serve → clear lifecycle", { skip }, async (t) => {
+	// The marker is the bridge from install-time to the running UI: postinstall
+	// writes it when it patches, the status response serves it, and the plugin's
+	// node half clears it at the next boot. This pins the store round trip and
+	// that the hook/patcher actually earn the marker — the client render and the
+	// boot-time clear are driven by the node/client halves (see the surfaces
+	// logs when testing by hand).
+	const { readRestartMarker, clearRestartMarker } = await import(`${SEAM_SHIPPED}/store.js`);
+	const store = await makeTempDir(t, "dsh-seam-marker-");
+	process.env.SEAM_DATA_DIR = store; // hermetic override; store.dataDir() reads it per call
+	try {
+		assert.equal(readRestartMarker(), null, "no marker at rest");
+
+		// postinstall apply earns the marker…
+		const install = await fakeInstall(t);
+		await writeFile(install.client, await readFile(join(SEAM_REPO, "pristine-client.js"), "utf8"));
+		await writeFile(install.index, "// host\n");
+		const { spawnSync } = await import("node:child_process");
+		const hook = spawnSync(process.execPath, [join(SEAM_SHIPPED, "postinstall.js")], {
+			env: { ...process.env, DSH_INSTALL: install.root, SEAM_DATA_DIR: store },
+			encoding: "utf8",
+		});
+		assert.equal(hook.status, 0, `hook applied: ${hook.stderr}`);
+		assert.match(hook.stdout, /seam applied/);
+		const marker = readRestartMarker();
+		assert.ok(marker, "postinstall wrote the marker");
+		assert.equal(marker.by, "postinstall");
+		assert.equal(marker.schema, "dsh-git-badge/restart-pending/v1");
+
+		// …and so does the CLI apply (the reason field names the actor).
+		clearRestartMarker();
+		assert.equal(readRestartMarker(), null);
+		await writeFile(install.client, await pristine());
+		const cli = await apply(install, "apply", store);
+		assert.equal(cli.code, 0, `apply applied: ${hook.out}`);
+		assert.equal(readRestartMarker().by, "apply");
+
+		// the boot clears it — the change is live, nothing is pending
+		clearRestartMarker();
+		assert.equal(readRestartMarker(), null, "cleared at boot");
+	} finally {
+		delete process.env.SEAM_DATA_DIR;
+	}
 });
