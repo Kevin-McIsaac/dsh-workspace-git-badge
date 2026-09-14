@@ -695,6 +695,14 @@ window.__ModuleLoader__.load({
 		 * always, `detail=1` on hover), because it is the only one that renders
 		 * them — see targetQuery.
 		 */
+		/**
+		 * Set LATE (see apply) — never at apply() time, because the workspace
+		 * browser may not have declared the seam yet and a hint set then would
+		 * lie to patched installs for the whole session. Every chip render reads
+		 * it, so it reaches the DOM on the next refresh after it is set.
+		 */
+		let seamHint = null;
+
 		function ComposerGitChip({ sessionId }) {
 			const target = sessionId === void 0 ? void 0 : { kind: "session", id: sessionId };
 			// the PR/CI token is always on the chip, so its fetch is not gated
@@ -730,6 +738,11 @@ window.__ModuleLoader__.load({
 					whiteSpace: "nowrap",
 					cursor: "default"
 				},
+				// the only in-product message a market user gets when the seam is
+				// absent: hover the chip you CAN see to learn the one command that
+				// turns on the rows you cannot. null until the delayed check in
+				// apply() proves the seam never appeared.
+				title: seamHint === null ? undefined : seamHint,
 				// the card is fetched for a pointer that RESTS here, not one that
 				// merely crosses the chip
 				onPointerEnter: () => setHovered(true),
@@ -851,6 +864,19 @@ window.__ModuleLoader__.load({
 							// The patcher ships IN this package — no clone needed.
 							"off (seam absent) — run `npx dsh-git-badge apply` to add them, then restart dsh web.")
 			);
+			// The chip tooltip can only be set LATE. At apply() time the workspace
+			// browser may not have declared the seam yet (the boot race documented
+			// above), so claiming absence here would lie to patched installs for the
+			// whole session — the exact mistake that made the old one-shot line
+			// claim "sidebar rows = off" while five row badges were rendering. Give
+			// the composed graph a beat to settle; only a seam that is STILL absent
+			// earns the hint, and every chip render after that carries it.
+			setTimeout(() => {
+				if (rowsReported) return; // seam present; badges rendered — nothing to hint about
+				if (ctx.slots.spec("sidebar.workspaces.sessionRow") !== void 0) return;
+				seamHint =
+					"Session-row badges are off: run `npx dsh-git-badge apply`, then restart dsh web. (Input-chip badges are unaffected.)";
+			}, 5000);
 			// The hover card depends on a primitive the SHELL seeds, not on anything
 			// this plugin declares. Report the outcome rather than letting a missing
 			// seed look like a missing feature: the try/catch above deliberately keeps

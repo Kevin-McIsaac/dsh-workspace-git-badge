@@ -1,7 +1,7 @@
 {
   "name": "dsh-git-badge",
-  "version": "0.9.1",
-  "description": "Git status badges for DeepSeek Harness: sidebar session rows (via the sidebar.workspaces.sessionRow seam) and an input-row chip showing the current conversation's workspace git state. Event-driven freshness over SSE.",
+  "version": "0.10.0",
+  "description": "Git status badges for DeepSeek Harness: an input-row chip on every install, plus sidebar session-row badges (git status, PR/CI action tokens) after one manual step: `npx dsh-git-badge apply`, then restart dsh web. Event-driven freshness over SSE.",
   "type": "module",
   "main": "lib/index.js",
   "bin": {
@@ -13,7 +13,8 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "postinstall": "node seam/postinstall.js"
   },
   "dsh": {
     "bundle": {
@@ -50,6 +51,7 @@
     "lib/client.js",
     "seam/apply.js",
     "seam/anchors.js",
+    "seam/postinstall.js",
     "seam/stub-index.js",
     "cordis.patch.yml",
     "package.json",
