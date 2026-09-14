@@ -8,13 +8,26 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 Versions before 0.6.0 predate this file; their history is in `git log` and on
 npm. 0.6.0 is the first release recorded here.
 
+## [0.9.1] - 2026-09-14
+
+### Fixed
+
+- **The shipped patcher is reachable with npx.** `peerDependencies` named
+  `@deepseek-ai/dsh-client-runtime`, a DSH-internal package that is not on the
+  npm registry, so every `npx` invocation of the patcher died resolving peers
+  (pnpm inside a DSH profile only tolerated it because DSH itself provides the
+  runtime). The peers are removed — DSH supplies the runtime through the
+  `dsh.client.inject` declaration regardless — and the documented command is
+  `npx dsh-git-badge <verb>`: npx runs a package's single bin under the
+  package's own name. The boot hint and all docs now say that.
+
 ## [0.9.0] - 2026-09-14
 
 ### Added
 
 - **The seam patcher ships in the package** as the `dsh-git-badge-seam` bin, so a
   market install can add the sidebar session-row badges without cloning the
-  repository: `npx dsh-git-badge-seam apply`, then restart. Pure Node (no
+  repository: `npx dsh-git-badge apply`, then restart. Pure Node (no
   python3), anchor-based like the repo tooling it replaces, with the same
   refusal semantics: it writes nothing unless every anchor resolves exactly
   once, upgrades its own older artifacts by marker revision, and reverts to the

@@ -226,7 +226,7 @@ seam/apply.sh revert    # restore the bytes as found before patching
 
 `seam/apply.sh` is a dev wrapper around the SHIPPED patcher
 (`dsh-git-badge/seam/apply.js`, published as the `dsh-git-badge-seam` bin) — a
-market install runs `npx dsh-git-badge-seam apply` with no clone. The patch is
+market install runs `npx dsh-git-badge apply` with no clone. The patch is
 **anchor-based**: `seam/anchors.js` defines each change as a `[name, old, new]`
 triple, and `apply` locates each `old` block in the installed `client.js` (it
 must occur exactly once) and replaces it in place. A DSH update that changes
