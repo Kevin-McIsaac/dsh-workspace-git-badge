@@ -7,9 +7,9 @@ Notes for coding agents working in this repo.
 `dsh-git-badge` — a DeepSeek Harness cordis plugin (npm-published) providing
 git status badges: an input-row chip (`conversation.input.left`, works
 everywhere) and sidebar **session-row** badges via the
-`sidebar.workspaces.sessionRow` seam (a local +39/−3 patch in `seam/`, proposed
-upstream — see `PR.md`). The badge sits on the session row because that is the
-row that knows which checkout the conversation is working in.
+`sidebar.workspaces.sessionRow` seam (a local +74/−5 anchor patch in `seam/`,
+proposed upstream — see `PR.md`). The badge sits on the session row because that
+is the row that knows which checkout the conversation is working in.
 
 ## Read first
 
@@ -34,10 +34,11 @@ row that knows which checkout the conversation is working in.
    `~/.config/nvm/versions/node/v22.23.2/lib/node_modules/@deepseek-ai/dsh`;
    the seam patch targets
    `…/node_modules/@deepseek-ai/dsh-client-ui-workspace/lib/client.js`.
-   After any DSH update run `seam/apply.sh status` first — it reports
-   patched/pristine/drift by **hash** (a version string tells you nothing about
-   which bytes are installed) and exits 1 on drift, with the rebuild commands.
-   Then `seam/apply.sh apply` once the hash-guard would pass.
+   After any DSH update run `seam/apply.sh status` first — it reports whether the
+   anchors still resolve (naming the anchor that moved on drift; a version
+   string tells you nothing about which bytes are installed) and exits 1 on
+   drift. Then `seam/apply.sh apply` — it patches the installed file in place
+   and only needs `seam/anchors.py` edited when an anchor actually moved.
 3. The user's instance runs the **patched** setup; a clean-profile customer
    simulation is `TESTING.md` § "Clean-profile test".
 4. `dsh-git-badge/package.json` exports must keep `"./package.json"` — the client

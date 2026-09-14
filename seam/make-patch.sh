@@ -1,176 +1,25 @@
 #!/usr/bin/env bash
-# Build patched-client.js from pristine-client.js.
+# Regenerate patched-client.js from pristine-client.js — FOR THE UPSTREAM PR DIFF
+# ONLY. The runtime patch is applied by apply.sh directly to the installed
+# client.js via the anchors in anchors.py; the snapshot files in this directory
+# are not load-bearing anymore.
 #
-# The patch is SEAM-ONLY: it declares and renders two additive list slots on the
-# sidebar workspace browser — sidebar.workspaces.sessionRow (the badge) and
-# sidebar.workspaces.sessionRow.detail (its hover-card line) — mirroring the
-# conversation.composer.dock pattern. All git-badge UI/logic lives in the
-# dsh-git-badge plugin; with no plugin registered every row renders exactly as
-# upstream (a null fallback, not a placeholder span).
-#
-# WHY THE SESSION ROW and not the workspace row: a workspace row cannot know which
-# worktree a session is working in — DSH records no session→worktree link at all —
-# so a per-workspace badge must either guess or stay on the main checkout. A
-# session row carries a session id, and the plugin's route resolves that to the
-# checkout the session is actually working in.
-#
-# This file is the exact diff to turn into the upstream PR.
+# Keep pristine-client.js pinned to the upstream build the anchors were verified
+# against (the KNOWN_GOOD_HASH in apply.sh), so `git diff --no-index
+# pristine-client.js patched-client.js` produces the exact +39/−3 diff PR.md
+# proposes. If upstream moved an anchor, update anchors.py first — this script
+# fails loudly on any anchor that is not found exactly once.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-python3 - "$HERE/pristine-client.js" "$HERE/patched-client.js" <<'PY'
-import sys, re
+python3 - "$HERE" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
+import anchors
 
-src, dst = sys.argv[1], sys.argv[2]
-text = open(src, encoding="utf-8").read()
-count = 0
-
-def rep(old, new):
-    global text, count
-    assert text.count(old) == 1, f"anchor not unique/found: {old[:80]!r} ({text.count(old)})"
-    text = text.replace(old, new)
-    count += 1
-
-# --- 1. Session-row seam helper, inserted with the row component's props ---
-rep(
-"""\t\tfunction SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, t }) {""",
-"""\t\t/* dsh-git-badge:seam-patch — seam/apply.sh recognises its own artifact by this
-\t\t * marker, which upstream would never carry. */
-\t\t/**
-\t\t* Seam entry boundary. The host wraps each registered ENTRY in its own error
-\t\t* boundary, but the outlet a row renders is NOT covered by it, so a throw
-\t\t* anywhere in an occupant's render path would propagate into the workspace
-\t\t* browser itself — and the shell ABDICATES that browser entry, blanking the
-\t\t* whole sidebar. A seam must not be able to do that: this keeps the blast
-\t\t* radius at "no badge", and logs what happened instead of swallowing it.
-\t\t*/
-\t\tclass SeamBoundary extends react.Component {
-\t\t\tconstructor(props) {
-\t\t\t\tsuper(props);
-\t\t\t\tthis.state = { failed: false };
-\t\t\t}
-\t\t\tstatic getDerivedStateFromError() {
-\t\t\t\treturn { failed: true };
-\t\t\t}
-\t\t\tcomponentDidCatch(error) {
-\t\t\t\tconsole.error("[dsh-git-badge] seam entry failed; badge omitted:", error);
-\t\t\t}
-\t\t\trender() {
-\t\t\t\treturn this.state.failed ? null : this.props.children;
-\t\t\t}
-\t\t}
-\t\t/** Seam entry bodies, so the boundary above ENCLOSES the renderSlot call. */
-\t\tfunction SessionRowSeam({ renderSlot, sessionId, workspaceId, label }) {
-\t\t\treturn renderSlot("sidebar.workspaces.sessionRow", { sessionId, workspaceId, label });
-\t\t}
-\t\tfunction SessionRowDetailSeam({ renderSlot, sessionId, workspaceId, label }) {
-\t\t\treturn renderSlot("sidebar.workspaces.sessionRow.detail", { sessionId, workspaceId, label });
-\t\t}
-\t\t/**
-\t\t* Session-row seam (sidebar.workspaces.sessionRow): renders the additive
-\t\t* list-slot entries for one session row with the row owner share
-\t\t* ({ sessionId, workspaceId, label }).
-\t\t*
-\t\t* Returns null — not a fallback element — when no plugin occupies the seam,
-\t\t* so a pristine install renders exactly as upstream. `workspaceId` is only
-\t\t* ever passed from the TREE call site: the flat "all sessions" list and the
-\t\t* search-result list render this component without it, which is what keeps
-\t\t* badges off those lists without either of them needing a guard.
-\t\t*/
-\t\tfunction renderSessionRowSeam(renderSlot, sessionId, workspaceId, label) {
-\t\t\tif (renderSlot === void 0 || workspaceId === void 0) return null;
-\t\t\treturn (0, react_jsx_runtime.jsx)(SeamBoundary, {
-\t\t\t\tchildren: (0, react_jsx_runtime.jsx)(SessionRowSeam, { renderSlot, sessionId, workspaceId, label })
-\t\t\t});
-\t\t}
-\t\tfunction SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork, onArchive, onReveal, drag, flat = false, t, renderSlot, workspaceId }) {""")
-
-# --- 2. The badge sits with the title, before the schedule/time cluster ---
-rep(
-"""\t\t\t\t\t\t(0, react_jsx_runtime.jsx)("span", {
-\t\t\t\t\t\t\tclassName: Rows_module_css_default.title,
-\t\t\t\t\t\t\tchildren: title
-\t\t\t\t\t\t}),""",
-"""\t\t\t\t\t\t(0, react_jsx_runtime.jsx)("span", {
-\t\t\t\t\t\t\tclassName: Rows_module_css_default.title,
-\t\t\t\t\t\t\tchildren: title
-\t\t\t\t\t\t}),
-\t\t\t\t\t\trenderSessionRowSeam(renderSlot, node.id, workspaceId, title),""")
-
-# --- 3. The hover card gains the detail seam ---
-rep(
-"""\t\t\t\tcontent: (0, react_jsx_runtime.jsx)(SessionHoverContent, {
-\t\t\t\t\tnode,
-\t\t\t\t\tnow,
-\t\t\t\t\tt
-\t\t\t\t}),""",
-"""\t\t\t\tcontent: (0, react_jsx_runtime.jsx)(SessionHoverContent, {
-\t\t\t\t\tnode,
-\t\t\t\t\tnow,
-\t\t\t\t\tt,
-\t\t\t\t\trenderSlot,
-\t\t\t\t\tworkspaceId
-\t\t\t\t}),""")
-rep(
-"\t\tfunction SessionHoverContent({ node, now, t }) {",
-"\t\tfunction SessionHoverContent({ node, now, t, renderSlot, workspaceId }) {")
-rep(
-"""\t\t\t\t\t}, status.label))
-\t\t\t\t]
-\t\t\t});
-\t\t}""",
-"""\t\t\t\t\t}, status.label)),
-\t\t\t\t\trenderSlot !== void 0 && workspaceId !== void 0 ? (0, react_jsx_runtime.jsx)("div", {
-\t\t\t\t\t\tclassName: Rows_module_css_default.hoverStatus,
-\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)(SeamBoundary, {
-\t\t\t\t\t\t\tchildren: (0, react_jsx_runtime.jsx)(SessionRowDetailSeam, { renderSlot, sessionId: node.id, workspaceId, label: displayTitle(node, t) })
-\t\t\t\t\t\t})
-\t\t\t\t\t}) : null
-\t\t\t\t]
-\t\t\t});
-\t\t}""")
-
-# --- 4. Thread renderSlot: WorkspaceBrowser -> SessionTree ---
-# A bare `renderSlot` at the SessionNodeItem call site resolves in THIS scope. The
-# first cut of this patch threaded it into SessionNodeItem but not into SessionTree,
-# so the row render threw `ReferenceError: renderSlot is not defined` the moment
-# sessions appeared — and the shell abdicated the whole sidebar with it. Any prop a
-# patched call site reads by shorthand must arrive through every intermediate scope.
-rep(
-"""\t\tfunction SessionTree({ useSessions, useSessionPendingInteraction, startSession, open, forkSession, workspaces, archivedSessionIds, workspaceReady, usePanelInfo, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t, revealSessionId, onSessionRevealed }) {""",
-"""\t\tfunction SessionTree({ useSessions, useSessionPendingInteraction, startSession, open, forkSession, workspaces, archivedSessionIds, workspaceReady, usePanelInfo, onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive, insertWorkspaceBefore, insertSessionBefore, orderBy, groupExpansion, setGroupExpanded, sessionOrderByAccount, sessionUpdatedAtByAccount, syncSessionOrderAccount, setSessionOrder, home, t, renderSlot, revealSessionId, onSessionRevealed }) {""")
-rep(
-"""(0, react_jsx_runtime.jsx)(SessionTree, {\n\t\t\t\t\t\t\tusePanelInfo,""",
-"""(0, react_jsx_runtime.jsx)(SessionTree, {\n\t\t\t\t\t\t\trenderSlot,\n\t\t\t\t\t\t\tusePanelInfo,""")
-# --- 5. Thread renderSlot + the owning workspace id from the TREE call site only ---
-rep(
-"""\t\t\t\t\t\t\t\t\t\treturn (0, react_jsx_runtime.jsx)(SessionNodeItem, {
-\t\t\t\t\t\t\t\t\t\t\tnode,
-\t\t\t\t\t\t\t\t\t\t\tcurrentId: current,""",
-"""\t\t\t\t\t\t\t\t\t\treturn (0, react_jsx_runtime.jsx)(SessionNodeItem, {
-\t\t\t\t\t\t\t\t\t\t\tnode,
-\t\t\t\t\t\t\t\t\t\t\tcurrentId: current,
-\t\t\t\t\t\t\t\t\t\t\trenderSlot,
-\t\t\t\t\t\t\t\t\t\t\t// only the tree knows which workspace a row belongs to; the
-\t\t\t\t\t\t\t\t\t\t\t// flat and search lists pass neither prop, so they stay bare
-\t\t\t\t\t\t\t\t\t\t\tworkspaceId: group.workspaceId,""")
-
-# --- 6. Declare the two seam children on the sidebar.workspaces registration ---
-rep(
-"""\t\t\t\tchildren: { "sidebar.workspaces.directoryFlow": {
-\t\t\t\t\tkind: "single",
-\t\t\t\t\tscope: "root"
-\t\t\t\t} },""",
-"""\t\t\t\tchildren: { "sidebar.workspaces.directoryFlow": {
-\t\t\t\t\tkind: "single",
-\t\t\t\t\tscope: "root"
-\t\t\t\t}, "sidebar.workspaces.sessionRow": {
-\t\t\t\t\tkind: "list",
-\t\t\t\t\tscope: "root"
-\t\t\t\t}, "sidebar.workspaces.sessionRow.detail": {
-\t\t\t\t\tkind: "list",
-\t\t\t\t\tscope: "root"
-\t\t\t\t} },""")
-
-open(dst, "w", encoding="utf-8").write(text)
-print(f"patched-client.js written: {count} anchors replaced")
+text = open(f"{sys.argv[1]}/pristine-client.js", encoding="utf-8").read()
+fail = anchors.first_failure(text)
+if fail is not None:
+    sys.exit(f"anchor {fail[0]!r} found {fail[1]} times in pristine-client.js (need exactly 1) — update anchors.py")
+open(f"{sys.argv[1]}/patched-client.js", "w", encoding="utf-8").write(anchors.apply(text))
+print("patched-client.js regenerated (PR diff only; runtime patching is apply.sh + anchors.py)")
 PY

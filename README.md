@@ -37,18 +37,19 @@ upstream yet (discussion
 clone of this repo:
 
 ```bash
-seam/apply.sh apply     # patch the installed DSH (hash-guarded), then restart dsh web
-seam/apply.sh revert    # restore pristine at any time
+seam/apply.sh apply     # patch the installed DSH in place (anchor-guarded), then restart dsh web
+seam/apply.sh revert    # restore the bytes as found before patching
 ```
 
 Notes:
 
 - The patch lives in `node_modules`, so a DSH reinstall/update reverts it —
   re-run `seam/apply.sh apply` afterwards.
-- The hash-guard **refuses** to patch if the installed file doesn't match the
-  pinned upstream build (it never blind-overwrites an update). Rebuild the patch
-  with `seam/make-patch.sh` + `seam/stamp-hash.sh` after a DSH release changes the
-  file.
+- The patch is **anchor-based** (`seam/anchors.py`): it patches the installed
+  file in place and **refuses to write anything** unless every anchor block is
+  found exactly once — it never blind-overwrites an update. A DSH release only
+  needs work from you if it moved one of the anchored code blocks; `status`
+  names the anchor that moved.
 - Once upstream ships the seam itself, `apply` becomes a no-op and the
   npm-installed plugin picks it up with no changes on your side.
 

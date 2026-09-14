@@ -6,3 +6,6 @@ backup-*.js
 # file sandbox that cannot write ~/.dsh). Never commit it: it once reached 11M of
 # untracked store files before anyone noticed.
 /scratch/
+
+# python bytecode from the seam anchor module
+__pycache__/
