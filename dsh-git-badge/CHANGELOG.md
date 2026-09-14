@@ -10,6 +10,8 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-15
+
 ### Added
 
 - **A visible seam-absent notice on the input chip.** When `allowBuilds` keeps
