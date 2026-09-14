@@ -1,25 +1,28 @@
 #!/usr/bin/env bash
 # Regenerate patched-client.js from pristine-client.js — FOR THE UPSTREAM PR DIFF
-# ONLY. The runtime patch is applied by apply.sh directly to the installed
-# client.js via the anchors in anchors.py; the snapshot files in this directory
-# are not load-bearing anymore.
+# ONLY. The runtime patch is applied by the shipped dsh-git-badge/seam/apply.js
+# directly to the installed client.js via the anchors in
+# dsh-git-badge/seam/anchors.js; the snapshot files in this directory are not
+# load-bearing.
 #
 # Keep pristine-client.js pinned to the upstream build the anchors were verified
-# against (the KNOWN_GOOD_HASH in apply.sh), so `git diff --no-index
-# pristine-client.js patched-client.js` produces the exact +39/−3 diff PR.md
-# proposes. If upstream moved an anchor, update anchors.py first — this script
-# fails loudly on any anchor that is not found exactly once.
+# against (the KNOWN_GOOD_HASH in the shipped apply.js), so `git diff --no-index
+# pristine-client.js patched-client.js` produces the exact diff PR.md proposes.
+# If upstream moved an anchor, update dsh-git-badge/seam/anchors.js first — this
+# script fails loudly on any anchor that is not found exactly once.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-python3 - "$HERE" <<'PY'
-import sys
-sys.path.insert(0, sys.argv[1])
-import anchors
-
-text = open(f"{sys.argv[1]}/pristine-client.js", encoding="utf-8").read()
-fail = anchors.first_failure(text)
-if fail is not None:
-    sys.exit(f"anchor {fail[0]!r} found {fail[1]} times in pristine-client.js (need exactly 1) — update anchors.py")
-open(f"{sys.argv[1]}/patched-client.js", "w", encoding="utf-8").write(anchors.apply(text))
-print("patched-client.js regenerated (PR diff only; runtime patching is apply.sh + anchors.py)")
-PY
+node - "$HERE" <<'JS'
+import { readFileSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+const here = process.argv[2];
+const anchors = await import(pathToFileURL(`${here}/../dsh-git-badge/seam/anchors.js`));
+const text = readFileSync(`${here}/pristine-client.js`, "utf8");
+const fail = anchors.firstFailure(text);
+if (fail !== null) {
+	console.error(`anchor ${JSON.stringify(fail.name)} found ${fail.count} times in pristine-client.js (need exactly 1) — update dsh-git-badge/seam/anchors.js`);
+	process.exit(1);
+}
+writeFileSync(`${here}/patched-client.js`, anchors.applyPatch(text));
+console.log("patched-client.js regenerated (PR diff only; runtime patching is the shipped apply.js)");
+JS

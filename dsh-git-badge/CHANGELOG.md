@@ -10,6 +10,17 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Added
+
+- **The seam patcher ships in the package** as the `dsh-git-badge-seam` bin, so a
+  market install can add the sidebar session-row badges without cloning the
+  repository: `npx dsh-git-badge-seam apply`, then restart. Pure Node (no
+  python3), anchor-based like the repo tooling it replaces, with the same
+  refusal semantics: it writes nothing unless every anchor resolves exactly
+  once, upgrades its own older artifacts by marker revision, and reverts to the
+  bytes as found before patching. When the seam is absent the plugin's boot log
+  now says so and names the command.
+
 ## [0.9.0] - 2026-09-14
 
 ### Added

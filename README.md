@@ -33,19 +33,22 @@ chip on any install.
 
 Sidebar session-row tokens need a seam the workspace browser does not declare
 upstream yet (discussion
-[#5092](https://github.com/deepseek-ai/deepseek-harness/discussions/5092)). From a
-clone of this repo:
+[#5092](https://github.com/deepseek-ai/deepseek-harness/discussions/5092)). The
+patcher **ships inside the package** — no clone needed:
 
 ```bash
-seam/apply.sh apply     # patch the installed DSH in place (anchor-guarded), then restart dsh web
-seam/apply.sh revert    # restore the bytes as found before patching
+npx dsh-git-badge-seam apply     # patch the installed DSH in place, then restart dsh web
+npx dsh-git-badge-seam status    # patched / out of date / patchable / upstream-landed / drift
+npx dsh-git-badge-seam revert    # restore the bytes as found before patching
 ```
+
+(If you have this repo cloned, `seam/apply.sh` runs the same tool.)
 
 Notes:
 
 - The patch lives in `node_modules`, so a DSH reinstall/update reverts it —
-  re-run `seam/apply.sh apply` afterwards.
-- The patch is **anchor-based** (`seam/anchors.py`): it patches the installed
+  re-run the patcher afterwards.
+- The patch is **anchor-based** (`seam/anchors.js`): it patches the installed
   file in place and **refuses to write anything** unless every anchor block is
   found exactly once — it never blind-overwrites an update. A DSH release only
   needs work from you if it moved one of the anchored code blocks; `status`

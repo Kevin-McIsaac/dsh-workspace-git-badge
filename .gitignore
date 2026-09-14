@@ -7,5 +7,3 @@ backup-*.js
 # untracked store files before anyone noticed.
 /scratch/
 
-# python bytecode from the seam anchor module
-__pycache__/

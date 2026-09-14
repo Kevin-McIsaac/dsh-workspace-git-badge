@@ -842,7 +842,15 @@ window.__ModuleLoader__.load({
 				inject: (sessionId) => ({ sessionId })
 			}, ComposerGitChip));
 			const seamDeclared = ctx.slots.spec("sidebar.workspaces.sessionRow") !== void 0;
-			console.info("[dsh-git-badge] surfaces: input chip = on; sidebar session rows = " + (seamDeclared ? "on (seam present)." : "awaiting the sidebar.workspaces.sessionRow seam — the line above reports it if it appears."));
+			console.info(
+				"[dsh-git-badge] surfaces: input chip = on; sidebar session rows = " +
+					(seamDeclared
+						? "on (seam present)."
+						: // discoverability: the chip works everywhere, but the session rows
+							// need the seam patch, and on a market install nothing else says so.
+							// The patcher ships IN this package — no clone needed.
+							"off (seam absent) — run `npx dsh-git-badge-seam apply` to add them, then restart dsh web.")
+			);
 			// The hover card depends on a primitive the SHELL seeds, not on anything
 			// this plugin declares. Report the outcome rather than letting a missing
 			// seed look like a missing feature: the try/catch above deliberately keeps

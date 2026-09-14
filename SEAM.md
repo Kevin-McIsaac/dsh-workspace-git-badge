@@ -50,15 +50,25 @@ The patch is defined once, in [`seam/anchors.py`](seam/anchors.py), as
 With no plugin registered the rows render byte-identically to upstream. The
 full write-up for maintainers is in [`PR.md`](PR.md).
 
-## Applying it locally
+## Applying it
 
-`seam/apply.sh` patches the installed package in place:
+The patcher **ships in the npm package** (`seam/apply.js`, published as the
+`dsh-git-badge-seam` bin), so a market install needs no clone:
 
 ```bash
-seam/apply.sh status    # inspect: patched / out of date / pristine / upstream-landed / drift
-seam/apply.sh apply     # patch (and upgrade an older patch of ours in place)
-seam/apply.sh revert    # restore the upstream files from backup
+npx dsh-git-badge-seam status    # inspect: patched / out of date / patchable / upstream-landed / drift
+npx dsh-git-badge-seam apply     # patch (and upgrade an older patch of ours in place)
+npx dsh-git-badge-seam revert    # restore the bytes as found before patching
 ```
+
+In this repo, `seam/apply.sh` is a wrapper that runs the same shipped tool and
+keeps its revert backups in the repo's `seam/`; either entry point works.
+
+The patch is defined ONCE, in `dsh-git-badge/seam/anchors.js` (pure Node — no
+python3 prerequisite). `npx` runs it from the installed package; the wrapper
+runs it from the working tree, which is how a patch change is tested before
+release. `DSH_INSTALL` overrides the DSH root (default: the global npm root's
+`@deepseek-ai/dsh`), and `SEAM_DATA_DIR` overrides where revert backups go.
 
 `status` mutates nothing and is the first thing to run **after a DSH update**.
 It reports the installed hash, whether the anchors still resolve (and, on drift,
@@ -83,13 +93,13 @@ Safety rails:
   session-row patch blanked the sidebar a second after boot, and the revert did
   not say why.)
 - **Anchor guard, not a hash guard**: `apply` patches the INSTALLED `client.js`
-  in place, proceeding only when every anchor in `anchors.py` is found exactly
-  once; anything else is drift and NOTHING is written. A DSH update that changes
-  anything outside the anchor blocks no longer invalidates the patch — the old
-  whole-file sha256 pin was a rebuild every release, even when the seam targets
-  were untouched. The pinned hash (`KNOWN_GOOD_HASH`) survives as an advisory:
-  `status` reports whether the installed build is the one the anchors were
-  verified against, but `apply` does not require it.
+  in place, proceeding only when every anchor in `dsh-git-badge/seam/anchors.js`
+  is found exactly once; anything else is drift and NOTHING is written. A DSH
+  update that changes anything outside the anchor blocks no longer invalidates
+  the patch — the old whole-file sha256 pin was a rebuild every release, even
+  when the seam targets were untouched. The pinned hash (`KNOWN_GOOD_HASH`)
+  survives as an advisory: `status` reports whether the installed build is the
+  one the anchors were verified against, but `apply` does not require it.
 - **Own-artifact vs upstream-landed**: both make the seam string appear in the
   file, so the `dsh-git-badge:seam-patch` marker (with a rev number) is what
   distinguishes them. `apply` upgrades an older artifact of ours in place —
@@ -108,21 +118,23 @@ Safety rails:
 ## Rebuilding after a DSH upgrade
 
 A DSH update that changes `lib/client.js` is now usually a non-event: run
-`seam/apply.sh status` — if every anchor still resolves, `apply` patches the new
-build directly. Only when an anchor actually moved do you need to edit
-`seam/anchors.py`, and the drift report names the anchor to fix:
+`dsh-git-badge-seam status` — if every anchor still resolves, `apply` patches the
+new build directly. Only when an anchor actually moved do you need to edit
+`dsh-git-badge/seam/anchors.js`, and the drift report names the anchor to fix:
 
 ```bash
-seam/apply.sh status        # 1. drift? the report names the anchor that moved
-#   (only if an anchor moved) update that entry in seam/anchors.py to the new
-#   upstream text — never hand-edit anything else
-seam/apply.sh apply         # 2. patch the new build in place
+dsh-git-badge-seam status    # 1. drift? the report names the anchor that moved
+#   (only if an anchor moved) update that entry in dsh-git-badge/seam/anchors.js
+#   to the new upstream text — never hand-edit anything else
+dsh-git-badge-seam apply     # 2. patch the new build in place
 ```
 
 To re-verify the advisory pin, copy the new upstream `lib/client.js` over
 `seam/pristine-client.js`, run `seam/make-patch.sh` (regenerates
 `patched-client.js` — PR-diff artifact only), and update `KNOWN_GOOD_HASH` in
-`apply.sh` to the new file's sha256.
+`dsh-git-badge/seam/apply.js` to the new file's sha256. The test suite asserts
+the regenerated artifact stays byte-identical to the anchors, so a forgotten
+`make-patch.sh` fails CI rather than shipping a stale diff.
 
 Upstream refactors can rename props or reorder call sites while the seam
 concept is unchanged; that is exactly what the anchor names are for. Changing
