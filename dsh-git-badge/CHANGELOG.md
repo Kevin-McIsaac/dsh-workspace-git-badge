@@ -10,6 +10,19 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Added
+
+- **A visible seam-absent notice on the input chip.** When `allowBuilds` keeps
+  the postinstall from patching, a market install lands chip-working but
+  sidebar-off with no message anywhere — dshmarket cannot see host files, and
+  the old hint was a hover tooltip nobody finds. Now, once the 5-second boot
+  grace proves the seam is genuinely absent, the chip shows
+  *sidebar badges off — run `npx dsh-git-badge apply`* with a dismiss **×**.
+  The notice is always true and self-resolving: apply + restart makes the seam
+  declare and it never renders again. The × means *stop asking this boot* —
+  dismissal is session-scoped, so a seam that is still absent asks again at the
+  next boot, and the long-form explanation stays on the chip's hover tooltip.
+
 ## [0.12.0] - 2026-09-15
 
 ### Removed

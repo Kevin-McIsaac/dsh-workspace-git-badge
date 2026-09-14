@@ -703,6 +703,16 @@ window.__ModuleLoader__.load({
 		 */
 		let seamHint = null;
 
+		/**
+		 * Dismissal of the seam-absent notice, deliberately MODULE-level rather
+		 * than component state: a useState flag would un-dismiss when the chip
+		 * remounts (a sidebar toggle, a route change), and the × the user just
+		 * clicked would silently stop meaning anything. Session-scoped on
+		 * purpose — it resets at the next boot, so a seam that is STILL absent
+		 * asks again, while one fixed by apply + restart never nags at all.
+		 */
+		let seamNoticeDismissed = false;
+
 		function ComposerGitChip({ sessionId }) {
 			const target = sessionId === void 0 ? void 0 : { kind: "session", id: sessionId };
 			// the PR/CI token is always on the chip, so its fetch is not gated
@@ -715,6 +725,10 @@ window.__ModuleLoader__.load({
 			// the PR token's own hover/focus state: it underlines on hover (and on
 			// focus) rather than at rest, and that underline is applied inline below
 			const [linkHover, setLinkHover] = react.useState(false);
+			// seamHint is module state set once, 5s after boot; dismissing it needs a
+			// re-render that no fetch will schedule, so the × bumps a counter here.
+			const [, bumpNotice] = react.useState(0);
+			const seamNotice = seamHint !== null && !seamNoticeDismissed ? seamHint : null;
 			const detail = useGitStatus(target, { pr: true, detail: true, enabled: hovered });
 			if (info === void 0 || info.git !== true) return null;
 			// the mark is an element now rather than a leading glyph in the string, so
@@ -738,10 +752,10 @@ window.__ModuleLoader__.load({
 					whiteSpace: "nowrap",
 					cursor: "default"
 				},
-				// the only in-product message a market user gets when the seam is
-				// absent: hover the chip you CAN see to learn the one command that
-				// turns on the rows you cannot. null until the delayed check in
-				// apply() proves the seam never appeared.
+				// the long-form explanation, on hover; the inline seam-notice below is
+				// the visible channel (its text is the short form, its title this).
+				// null until the delayed check in apply() proves the seam never
+				// appeared.
 				title: seamHint === null ? undefined : seamHint,
 				// the card is fetched for a pointer that RESTS here, not one that
 				// merely crosses the chip
@@ -786,6 +800,68 @@ window.__ModuleLoader__.load({
 									onBlur: () => setLinkHover(false),
 									children: prToken
 								}),
+					/**
+					 * The seam-absent notice: the market-install notification for the
+					 * state a blocked postinstall leaves behind — chip working, sidebar
+					 * rows structurally off, nothing patched, nothing to restart INTO.
+					 * It is only ever TRUE (seamHint is set 5s after boot, only after
+					 * the composed graph is given its chance), and it is self-resolving:
+					 * apply + restart makes the seam declare, and this never renders
+					 * again. That is what distinguishes it from the old restart notice,
+					 * which outlived the restart it asked for. Dismissal is a session
+					 * value (see seamNoticeDismissed), so the × means "stop asking this
+					 * boot", never "stop asking forever".
+					 */
+					seamNotice === null
+						? null
+						: react_jsx_runtime.jsxs(
+								"span",
+								{
+									style: {
+										display: "inline-flex",
+										alignItems: "center",
+										gap: "6px",
+										paddingLeft: "6px",
+										borderLeft: "1px solid var(--dsw-alias-border-secondary, #d0d7de)",
+										whiteSpace: "normal",
+										maxWidth: "320px"
+									},
+									children: [
+										react_jsx_runtime.jsx(
+											"span",
+											{
+												title: seamHint,
+												children: "sidebar badges off — run `npx dsh-git-badge apply`"
+											},
+											"explain"
+										),
+										react_jsx_runtime.jsx(
+											"button",
+											{
+												"aria-label": "Dismiss the sidebar-badges notice (returns next boot while the seam is absent)",
+												onClick: () => {
+													seamNoticeDismissed = true;
+													bumpNotice((n) => n + 1);
+												},
+												style: {
+													cursor: "pointer",
+													color: "inherit",
+													background: "none",
+													border: "1px solid var(--dsw-alias-border-secondary, #d0d7de)",
+													borderRadius: "4px",
+													fontSize: "11px",
+													lineHeight: "18px",
+													padding: "0 6px",
+													flex: "none"
+												},
+												children: "×"
+											},
+											"dismiss"
+										)
+									]
+								},
+								"seam-notice"
+							),
 				]
 			});
 			// No Tooltip primitive (a shell that does not seed it): render the chip
