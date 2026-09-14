@@ -10,7 +10,7 @@
  * install needs no clone:
  *
  *     dsh plugin --profile web add dsh-git-badge
- *     npx dsh-git-badge-seam apply        # then restart the dsh web process
+ *     npx dsh-git-badge apply        # then restart the dsh web process
  *
  * HOW PATCHING WORKS — anchors, not hashes. The patch is defined once in
  * anchors.js as [name, old, new] triples. `apply` locates each `old` block in

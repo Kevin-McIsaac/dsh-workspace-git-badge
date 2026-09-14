@@ -37,9 +37,9 @@ upstream yet (discussion
 patcher **ships inside the package** — no clone needed:
 
 ```bash
-npx dsh-git-badge-seam apply     # patch the installed DSH in place, then restart dsh web
-npx dsh-git-badge-seam status    # patched / out of date / patchable / upstream-landed / drift
-npx dsh-git-badge-seam revert    # restore the bytes as found before patching
+npx dsh-git-badge apply     # patch the installed DSH in place, then restart dsh web
+npx dsh-git-badge status    # patched / out of date / patchable / upstream-landed / drift
+npx dsh-git-badge revert    # restore the bytes as found before patching
 ```
 
 (If you have this repo cloned, `seam/apply.sh` runs the same tool.)

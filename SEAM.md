@@ -56,9 +56,9 @@ The patcher **ships in the npm package** (`seam/apply.js`, published as the
 `dsh-git-badge-seam` bin), so a market install needs no clone:
 
 ```bash
-npx dsh-git-badge-seam status    # inspect: patched / out of date / patchable / upstream-landed / drift
-npx dsh-git-badge-seam apply     # patch (and upgrade an older patch of ours in place)
-npx dsh-git-badge-seam revert    # restore the bytes as found before patching
+npx dsh-git-badge status    # inspect: patched / out of date / patchable / upstream-landed / drift
+npx dsh-git-badge apply     # patch (and upgrade an older patch of ours in place)
+npx dsh-git-badge revert    # restore the bytes as found before patching
 ```
 
 In this repo, `seam/apply.sh` is a wrapper that runs the same shipped tool and

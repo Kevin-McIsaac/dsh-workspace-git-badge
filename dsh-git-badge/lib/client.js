@@ -849,7 +849,7 @@ window.__ModuleLoader__.load({
 						: // discoverability: the chip works everywhere, but the session rows
 							// need the seam patch, and on a market install nothing else says so.
 							// The patcher ships IN this package — no clone needed.
-							"off (seam absent) — run `npx dsh-git-badge-seam apply` to add them, then restart dsh web.")
+							"off (seam absent) — run `npx dsh-git-badge apply` to add them, then restart dsh web.")
 			);
 			// The hover card depends on a primitive the SHELL seeds, not on anything
 			// this plugin declares. Report the outcome rather than letting a missing

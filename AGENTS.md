@@ -40,7 +40,7 @@ is the row that knows which checkout the conversation is working in.
    drift. Then `seam/apply.sh apply` — it patches the installed file in place
    and only needs `dsh-git-badge/seam/anchors.js` edited when an anchor actually
    moved. The patcher SHIPS in the npm package (`dsh-git-badge-seam` bin), so a
-   market install runs `npx dsh-git-badge-seam apply` with no clone.
+   market install runs `npx dsh-git-badge apply` with no clone.
 3. The user's instance runs the **patched** setup; a clean-profile customer
    simulation is `TESTING.md` § "Clean-profile test".
 4. `dsh-git-badge/package.json` exports must keep `"./package.json"` — the client
