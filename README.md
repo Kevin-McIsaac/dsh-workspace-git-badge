@@ -32,7 +32,15 @@ npx dsh-git-badge apply                        # sidebar badges need this one ma
 Then **restart the web process** and refresh the browser:
 
 - without the `apply`, the **input chip** works but the sidebar session rows stay off — hover the chip for a reminder;
-- `apply` patches the installed DSH package in place (anchor-guarded — it refuses to write anything unless every anchor block matches exactly once). When your pnpm allows the package's postinstall, this step runs at install time automatically; `npx dsh-git-badge status` always tells you which state you are in.
+- `apply` patches the installed DSH package in place (anchor-guarded — it refuses to write anything unless every anchor block matches exactly once). `npx dsh-git-badge status` always tells you which state you are in.
+- **Make it automatic**: the package's `postinstall` runs the same guarded apply at install time — but pnpm blocks dependency scripts until you allow them (that boundary belongs to you, not the package). To default it to yes on a machine, allow the package once in the profile:
+
+  ```bash
+  cd ~/.dsh/profiles/web && pnpm approve-builds   # pick dsh-git-badge
+  # or add to pnpm-workspace.yaml:  allowBuilds: { "dsh-git-badge": true }
+  ```
+
+  After that, every later install/upgrade of the plugin applies the seam itself; only the restart stays manual.
 
 Sidebar session-row tokens need a seam the workspace browser does not declare
 upstream yet (discussion

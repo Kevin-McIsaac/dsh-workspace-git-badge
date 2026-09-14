@@ -10,6 +10,22 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-09-14
+
+### Fixed
+
+- **Revert backups now live in a stable, user-level store.** They defaulted to
+  the patcher's own directory — which for `npx dsh-git-badge` is a cache entry
+  keyed by package version, so a backup written by one `apply` was invisible to
+  the next `revert`, which then had to refuse ("patched but no backup exists")
+  even though the bytes were on disk somewhere. The default is now
+  `$DSH_HOME/git-badge-seam` (else `~/.dsh/git-badge-seam`), shared by npx
+  runs, the profile bin, the repo wrapper and the postinstall hook;
+  `SEAM_DATA_DIR` still overrides. Backups written by older versions to their
+  install directories are not migrated — the no-backup refusal now says so and
+  names both remaining routes (the repo wrapper's backup, or reinstalling the
+  DSH package).
+
 ## [0.10.0] - 2026-09-14
 
 ### Added
