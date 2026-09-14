@@ -69,6 +69,7 @@
 import { execFile } from "node:child_process";
 import { watch, existsSync, readFileSync } from "node:fs";
 import { basename, isAbsolute, join, resolve } from "node:path";
+import { clearRestartMarker, readRestartMarker } from "../seam/store.js";
 
 const inject = ["webServer", "workspaceRegistry"];
 const name = "dsh-git-badge";
@@ -1218,6 +1219,11 @@ async function effectiveTarget(target, bySession, wantPr, notify) {
 
 /** Host plugin body — register the status route and the SSE change feed. */
 function apply(ctx) {
+	// A fresh boot composed the files on disk into the new bundles — any
+	// restart-pending marker was written by an install/apply against the PREVIOUS
+	// boot and its change is now live. Clearing here is what makes the marker
+	// self-expiring: it survives exactly until the restart it asks for happens.
+	clearRestartMarker();
 	ctx.effect(() => ctx.webServer.register({
 		kind: "exact",
 		path: "/api/git-badge",
@@ -1230,6 +1236,7 @@ function apply(ctx) {
 					res.end(JSON.stringify({ git: false, error: target.error }));
 					return;
 				}
+				const pending = readRestartMarker();
 				const detail = url.searchParams.get("detail") === "1";
 				const pr = url.searchParams.get("pr") === "1";
 				// WHO asked decides whether a linked worktree may stand in for the
@@ -1268,6 +1275,12 @@ function apply(ctx) {
 				// tell whether an event belongs to it — without this the input chip
 				// only ever refreshed on remount or the 60s poll.
 				res.writeHead(200, { "content-type": "application/json" });
+				if (pending !== null) {
+					// dshmarket cannot see postinstall/apply host-file changes; this
+					// flag is how the running UI learns a restart is pending and
+					// offers its own Restart button (dshmarket v1 restart endpoint).
+					body.seamRestartPending = { by: pending.by, at: pending.at };
+				}
 				res.end(JSON.stringify(body));
 			} catch (error) {
 				res.writeHead(400, { "content-type": "application/json" });

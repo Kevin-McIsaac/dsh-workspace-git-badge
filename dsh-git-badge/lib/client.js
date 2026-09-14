@@ -703,6 +703,48 @@ window.__ModuleLoader__.load({
 		 */
 		let seamHint = null;
 
+		/**
+		 * The restart affordance for a seam change made while the host was
+		 * running. dshmarket cannot see host-file mutations (its restart banner
+		 * tracks only its own package bookkeeping), so the flag this reads is
+		 * written by our own postinstall/apply — see seam/store.js. The Restart
+		 * button calls dshmarket's PUBLIC, documented v1 restart endpoint
+		 * (UPDATE-API-V1.md): feature-detected via capabilities, same-origin, and
+		 * rendered as text-only on hosts that delegate restart (desktop /
+		 * supervised), never a hand-rolled process-control path.
+		 */
+		async function marketRestartSupported() {
+			try {
+				const cap = await fetch("/dsh-market/api/v1/capabilities", { headers: { accept: "application/json" } }).then((r) => r.json());
+				return cap !== null && typeof cap === "object" && cap.restart !== void 0 && cap.restart.supported === true;
+			} catch {
+				return false;
+			}
+		}
+
+		async function marketRestart() {
+			await fetch("/dsh-market/api/v1/restart", {
+				method: "POST",
+				headers: { accept: "application/json", "content-type": "application/json" },
+				body: "{}",
+			}).catch(() => void 0); // the host drops the socket mid-restart — expected
+			// Poll until the origin is serving again, then reload into the
+			// recomposed boot. Bounded so a failed relaunch cannot spin forever.
+			for (let waited = 0; waited < 30000; waited += 500) {
+				await new Promise((r) => setTimeout(r, 500));
+				try {
+					const cap = await fetch("/dsh-market/api/v1/capabilities", { headers: { accept: "application/json" } });
+					if (cap.ok) {
+						location.reload();
+						return;
+					}
+				} catch {
+					// host down mid-restart — expected; keep polling
+				}
+			}
+			location.reload();
+		}
+
 		function ComposerGitChip({ sessionId }) {
 			const target = sessionId === void 0 ? void 0 : { kind: "session", id: sessionId };
 			// the PR/CI token is always on the chip, so its fetch is not gated
@@ -715,7 +757,29 @@ window.__ModuleLoader__.load({
 			// the PR token's own hover/focus state: it underlines on hover (and on
 			// focus) rather than at rest, and that underline is applied inline below
 			const [linkHover, setLinkHover] = react.useState(false);
+			// The restart affordance: idle → checking (capabilities) → restarting.
+			// One status refresh carries seamRestartPending at a time; when the
+			// restart lands, the marker is cleared at the new boot and this reverts.
+			const [restarting, setRestarting] = react.useState(false);
+			const [canRestart, setCanRestart] = react.useState(null); // null = not yet checked
 			const detail = useGitStatus(target, { pr: true, detail: true, enabled: hovered });
+			const restartPending = info !== void 0 && info.git === true && info.seamRestartPending !== void 0;
+			react.useEffect(() => {
+				if (!restartPending || canRestart !== null) return;
+				let cancelled = false;
+				marketRestartSupported().then((v) => {
+					if (!cancelled) setCanRestart(v);
+				});
+				return () => {
+					cancelled = true;
+				};
+			}, [restartPending, canRestart]);
+			async function restartNow() {
+				setRestarting(true);
+				if (await marketRestartSupported()) await marketRestart();
+				// Unsupported host: the text stays and says restart dsh web manually.
+				else setRestarting(false);
+			}
 			if (info === void 0 || info.git !== true) return null;
 			// the mark is an element now rather than a leading glyph in the string, so
 			// the SAME StatusMark the sidebar row draws carries the status here too;
@@ -723,6 +787,63 @@ window.__ModuleLoader__.load({
 			const text = info.branch + formatOperationToken(info) + formatGitSuffix(info);
 			const prToken = formatPrToken(info);
 			const prUrl = prLinkUrl(info);
+			// One-line explanation + one-click restart, ONLY while a restart is
+			// actually pending. The button exists because dshmarket's own banner
+			// cannot see the host-file change our installer made; the endpoint is
+			// its documented public API. On hosts that delegate restart (desktop,
+			// supervisors) canRestart is false and the text names the manual step.
+			const restartNotice =
+				!restartPending || restarting
+					? null
+					: react_jsx_runtime.jsxs(
+							"span",
+							{
+								style: {
+									display: "inline-flex",
+									alignItems: "center",
+									gap: "6px",
+									paddingLeft: "6px",
+									borderLeft: "1px solid var(--dsw-alias-border-secondary, #d0d7de)",
+									whiteSpace: "normal",
+									maxWidth: "320px"
+								},
+								children: [
+									react_jsx_runtime.jsx(
+										"span",
+										{
+											title: "The installer applied dsh-git-badge's sidebar patch to DSH's own files; client bundles are composed at boot, so a restart is needed for it to take effect. Revert anytime with `npx dsh-git-badge revert`.",
+											children:
+												canRestart === false
+													? "restart dsh web to activate the sidebar badges (one-click restart is unavailable on this host)"
+													: "installer patched DSH — restart to activate the sidebar badges"
+										},
+										"explain"
+									),
+									canRestart === true
+										? react_jsx_runtime.jsx(
+												"button",
+												{
+													onClick: () => void restartNow(),
+													style: {
+														cursor: "pointer",
+														color: "inherit",
+														background: "none",
+														border: "1px solid var(--dsw-alias-border-secondary, #d0d7de)",
+														borderRadius: "4px",
+														fontSize: "11px",
+														lineHeight: "18px",
+														padding: "0 6px",
+														flex: "none"
+													},
+													children: "Restart"
+												},
+												"btn"
+											)
+										: null
+								]
+							},
+							"restart"
+						);
 			const chip = react_jsx_runtime.jsxs("span", {
 				style: {
 					display: "inline-flex",
@@ -785,7 +906,8 @@ window.__ModuleLoader__.load({
 									onFocus: () => setLinkHover(true),
 									onBlur: () => setLinkHover(false),
 									children: prToken
-								})
+								}),
+					restartNotice
 				]
 			});
 			// No Tooltip primitive (a shell that does not seed it): render the chip

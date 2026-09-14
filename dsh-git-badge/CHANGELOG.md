@@ -10,6 +10,26 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-14
+
+### Added
+
+- **A one-click restart for the change the marketplace cannot see.** The
+  postinstall/apply patches DSH's own files, which is invisible to dshmarket's
+  restart bookkeeping — a market install could complete "restart-free" while
+  the running bundles no longer matched the disk. Now: the installer writes a
+  `restart-pending` marker (`seam/store.js`); the plugin's status response
+  carries it; and while it is pending the input chip shows a one-line
+  explanation — *the installer patched DSH, client bundles are composed at
+  boot* — plus a **Restart** button calling dshmarket's PUBLIC, documented v1
+  restart endpoint (`POST /dsh-market/api/v1/restart`, feature-detected via
+  `capabilities`; hosts that delegate restart — desktop/supervised — get the
+  manual instruction instead, never a hand-rolled process-control path). The
+  button polls until the host is serving again, then reloads into the
+  recomposed boot. The marker is cleared by the node half at the next boot, so
+  it self-expires exactly when the restart it asks for has happened. Applies
+  to `revert` too — removing the patch equally needs a restart to take effect.
+
 ## [0.10.1] - 2026-09-14
 
 ### Fixed

@@ -55,18 +55,16 @@ import {
 	seamPresent,
 } from "./anchors.js";
 
+import { dataDir, writeRestartMarker } from "./store.js";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 /**
- * Where revert backups live. A STABLE, user-level directory by default — NOT
- * this script's own directory. For an npx run that directory is a cache entry
- * keyed by package version: a backup written by one `npx dsh-git-badge apply`
- * was invisible to the next `npx dsh-git-badge revert`, which then had to
- * refuse ("patched but no backup exists") even though the bytes were on disk
- * somewhere. Sharing one store across npx runs, the profile bin and the repo
- * wrapper makes the apply→revert round trip reliable for everyone. Override
- * with SEAM_DATA_DIR (the test suite does, to stay hermetic).
+ * The stable backup store — shared with the postinstall hook and any future
+ * invocation path, so an apply→revert round trip works across npx cache
+ * entries. SEAM_DATA_DIR overrides (the test suite does, to stay hermetic).
+ * See seam/store.js for the full rationale and the restart marker.
  */
-const DATA_DIR = process.env.SEAM_DATA_DIR || join(process.env.DSH_HOME || join(process.env.HOME || "", ".dsh"), "git-badge-seam");
+const DATA_DIR = dataDir();
 
 // sha256 of the upstream build the anchors were last verified against. ADVISORY:
 // status prints it for orientation; apply does NOT require it.
@@ -156,6 +154,9 @@ function doPatch() {
 	writeText(CLIENT, patched);
 	copyFileSync(STUB_INDEX, INDEX);
 	console.log("patched lib/client.js in place (anchors applied); host half stubbed.");
+	// dshmarket cannot see this host-file change; the plugin surfaces the
+	// restart itself (marker → status response → chip button).
+	writeRestartMarker("apply");
 }
 
 function writeText(path, text) {
@@ -291,6 +292,8 @@ if (verb === "apply") {
 			writeText(CLIENT, readText(BACKUP_CLIENT));
 			copyFileSync(BACKUP_INDEX, INDEX);
 			console.log("reverted client.js/index.js to the bytes as found before patching.");
+			// A revert also changes bytes the running bundles were composed from.
+			writeRestartMarker("revert");
 		} else {
 			// Installed file is not ours => upstream replaced it since patching.
 			console.error("REFUSING to revert: the installed client.js is not this repo's");
