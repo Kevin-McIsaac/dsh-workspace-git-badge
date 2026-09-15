@@ -12,6 +12,25 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Changed
 
+- **A smarter next-action state machine.** `nextStep` now ranks rule
+  candidates by category instead of first-match, and two new rules join the
+  table: a **diverged** branch (ahead AND behind) suggests `/gh sync` —
+  rebase-then-push, with the force-push confirmed by you — instead of a plain
+  pull that would discard the local-commit context; and a **merge-ready** PR
+  (GitHub's own `mergeState: CLEAN`, or checks passing + review approved)
+  suggests `/gh merge <n>` — the endgame action the old table could never see.
+- **Configurable ranking via `/gh order`.** The category order is one line of
+  JSON at `~/.dsh/git-badge-next.json`
+  (`{"order": ["operation","unmerged","sync","publish","merge","commit","checks"]}`);
+  any subset in any order, unlisted categories rank after in default order.
+  The `gh` skill gains the `sync`, `merge <n>` and `order` verbs — say
+  "/gh order commit first" and the agent edits the file. The server's ranked
+  `next` now carries the skill `args` directly, so the hover card and the (+)
+  picker lead with exactly what the server decided and only add secondary
+  actions around it.
+
+## [0.14.1] - 2026-09-15
+
 - **Skill alignment:** the `gh` skill gains an explicit handoff — one verb per
   invocation is its whole job; the multi-step PR lifecycle (review, merge,
   verify, cleanup) belongs to the `gh-pr` skill. The `gh-pr` skill states the

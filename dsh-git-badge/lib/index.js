@@ -678,60 +678,98 @@ const OPERATION_NEXT = {
 };
 
 /**
- * The hover card's "next" row: the single highest-priority thing to do next,
- * as a conservative command plus the reason it applies. Pure derivation over
- * fields the status response already carries — no extra git invocations, so it
- * rides the base response and a future surface gets it for free. Ranking (the
- * first match wins):
+ * The configurable action ranking. Every rule carries a category; the order
+ * below (first match wins) is the default, and a user can override it by
+ * naming categories in `~/.dsh/git-badge-next.json`:
  *
- *   1. a paused operation (conflicts included) — resuming it subsumes everything
- *      else; unmerged files without a marker fall back to `git status`
- *   2. behind — reconciling comes before publishing
- *   3. no upstream on a dirty branch — publish it for the first time
- *   4. ahead — publish
- *   5. dirty — stage and commit (add -p for unstaged work; -A only when the
- *      change is untracked-only, which add -p cannot see)
- *   6. PR checks failing — watch them land
+ *   { "order": ["operation", "unmerged", "sync", "publish", "merge", "commit", "checks"] }
+ *
+ * Any subset in any order; categories not listed rank after the listed ones in
+ * default order, unknown names are ignored. Typically edited for you by the
+ * agent via `/gh order`.
+ */
+const DEFAULT_NEXT_ORDER = ["operation", "unmerged", "sync", "publish", "merge", "commit", "checks"];
+
+/** The ranking override file — read per call (one tiny stat+read per status). */
+function nextOrder() {
+	try {
+		const home = process.env.DSH_HOME || join(process.env.HOME || "", ".dsh");
+		const raw = JSON.parse(readFileSync(join(home, "git-badge-next.json"), "utf8"));
+		if (!Array.isArray(raw?.order)) return DEFAULT_NEXT_ORDER;
+		const known = raw.order.filter((cat) => DEFAULT_NEXT_ORDER.includes(cat));
+		return [...known, ...DEFAULT_NEXT_ORDER.filter((cat) => !known.includes(cat))];
+	} catch {
+		return DEFAULT_NEXT_ORDER;
+	}
+}
+
+/**
+ * The hover card's "action" row and the (+) menu's picker: every sub-action the
+ * checkout justifies, each as a `gh`-skill invocation ({ args, why, what } —
+ * what the invocation DOES, why THIS checkout justifies it now), ranked. Pure
+ * derivation over fields the status response already carries — no extra git
+ * invocations, so it rides the base response.
+ *
+ * Ranking: rule candidates are collected with a category, then sorted by the
+ * configured order (nextOrder) — NOT first-match — so a configuration can, for
+ * example, rank "commit" above "sync" without touching code. Ties keep
+ * collection order.
+ *
+ * The new rules this generation adds:
+ *   - diverged (ahead AND behind) → `sync`: reconciling means rebase-then-push,
+ *     which the agent must confirm step by step — a plain pull would discard
+ *     the local-commit context
+ *   - merge-ready (`pr.mergeState === "CLEAN"`, GitHub's own verdict, or checks
+ *     passing + review approved) → `merge <n>`: the endgame action the old
+ *     table could never see
  *
  * Clean, synced, nothing failing → null: the row is omitted entirely, because
- * "no suggestion" is also a suggestion. Commands are conservative on purpose —
- * the card COPIES them into the user's terminal, it never runs them, but the
- * register still avoids anything destructive.
+ * "no suggestion" is also a suggestion.
  *
- * @returns {{ command: string|undefined, why: string } | null}
+ * @returns {{ args: string, command: string|undefined, why: string, what: string } | null}
  */
 function nextStep(info) {
 	if (info === void 0 || info === null || info.git !== true) return null;
 	const unmerged = info.unmergedFiles || 0;
 	const plural = (n) => (n === 1 ? "" : "s");
-	if (info.operation !== void 0 && info.operation !== null) {
-		const op = String(info.operation);
-		return {
-			command: OPERATION_NEXT[op],
-			why: unmerged > 0
-				? `${unmerged} unmerged file${plural(unmerged)} blocking the paused ${op}`
-				: `a ${op} is paused mid-operation`
-		};
-	}
-	if (unmerged > 0) {
-		return { command: "git status", why: `${unmerged} unmerged file${plural(unmerged)} to resolve` };
-	}
 	const ahead = info.ahead || 0;
 	const behind = info.behind || 0;
-	if (behind > 0) {
-		return { command: "git pull --ff-only", why: `${behind} behind ${info.upstream ?? "upstream"}` };
-	}
 	const staged = info.stagedFiles || 0;
 	const unstaged = info.unstagedFiles || 0;
 	const untracked = info.untrackedFiles || 0;
-	if (info.upstream === void 0 && staged + unstaged + untracked > 0) {
-		return { command: `git push -u origin ${info.branch}`, why: "no upstream configured" };
+	const dirty = staged + unstaged + untracked;
+	const rules = [];
+	const add = (cat, args, why, what, command) => rules.push({ cat, args, why, what, command });
+
+	if (info.operation !== void 0 && info.operation !== null) {
+		const op = String(info.operation);
+		add("operation", "next",
+			unmerged > 0
+				? `${unmerged} unmerged file${plural(unmerged)} blocking the paused ${op}`
+				: `a ${op} is paused mid-operation`,
+			`resume the paused ${op}`,
+			OPERATION_NEXT[op]);
 	}
-	if (ahead > 0) {
-		return { command: "git push", why: `${ahead} ahead of ${info.upstream ?? "upstream"}` };
+	if (unmerged > 0) {
+		add("unmerged", "next", `${unmerged} unmerged file${plural(unmerged)} to resolve`, "resolve the unmerged files (with you)", "git status");
 	}
-	if (staged + unstaged + untracked > 0) {
-		const why = [
+	if (behind > 0 && ahead > 0) {
+		add("sync", "sync", `${ahead} ahead, ${behind} behind — diverged`, "rebase your commits onto upstream and push (asks before any force)");
+	} else if (behind > 0) {
+		add("sync", "pull", `${behind} behind ${info.upstream ?? "upstream"}`, "update this branch from upstream", "git pull --ff-only");
+	}
+	if (info.upstream === void 0 && dirty > 0) {
+		add("publish", "push", "no upstream configured", `publish ${info.branch} for the first time`, `git push -u origin ${info.branch}`);
+	} else if (ahead > 0) {
+		add("publish", "push", `${ahead} ahead of ${info.upstream ?? "upstream"}`, "push local commits to the remote", "git push");
+	}
+	const pr = info.pr === void 0 || info.pr === null ? void 0 : info.pr;
+	if (pr !== void 0 && pr.number !== void 0 && pr.open !== false
+		&& (pr.mergeState === "CLEAN" || (pr.state === "passing" && pr.review === "APPROVED"))) {
+		add("merge", `merge ${pr.number}`, `pull request ${pr.number} is ready to merge`, `merge pull request ${pr.number} (squash)`);
+	}
+	if (dirty > 0) {
+		const parts = [
 			staged > 0 ? `${staged} staged` : null,
 			unstaged > 0 ? `${unstaged} unstaged` : null,
 			untracked > 0 ? `${untracked} untracked` : null
@@ -741,12 +779,20 @@ function nextStep(info) {
 			: untracked > 0 && unstaged === 0
 				? "git add -A && git commit"
 				: "git add -p && git commit";
-		return { command, why: `work to commit: ${why}` };
+		add("commit", "commit", `work to commit: ${parts}`, staged > 0 ? "commit the staged changes" : "stage and commit the working changes", command);
 	}
-	if (info.pr !== void 0 && info.pr !== null && info.pr.number !== void 0 && info.pr.state === "failing") {
-		return { command: `gh pr checks ${info.pr.number} --watch`, why: `checks failing on #${info.pr.number}` };
+	if (pr !== void 0 && pr.number !== void 0 && pr.state === "failing") {
+		add("checks", `checks ${pr.number}`, `checks failing on #${pr.number}`, "watch the CI checks on pull request " + pr.number, `gh pr checks ${pr.number} --watch`);
 	}
-	return null;
+	if (rules.length === 0) return null;
+
+	const order = nextOrder();
+	const rank = (cat) => {
+		const at = order.indexOf(cat);
+		return at === -1 ? order.length : at;
+	};
+	const [top] = [...rules].sort((a, b) => rank(a.cat) - rank(b.cat));
+	return { args: top.args, command: top.command, why: top.why, what: top.what };
 }
 
 /**

@@ -59,6 +59,25 @@ unstaged / untracked / unmerged), plus any in-progress operation marker
 - **`/gh checks <n>`** — `gh pr checks <n>` and summarise: what fails, what is
   pending, and the single most useful next step.
 
+- **`/gh sync`** — the branch has diverged (local commits AND upstream
+  changes): `git fetch`, then rebase the local commits onto
+  `upstream/<branch>`, then `git push --force-with-lease`. The force-push
+  ALWAYS needs an explicit user yes first, with a one-line summary of what
+  would move.
+
+- **`/gh merge <n>`** — squash-merge pull request `<n>` (`gh pr merge <n>
+  --squash`), the repo's stated convention. Confirm with the user before
+  merging; afterwards report the merge and offer to update the local main.
+
+- **`/gh order`** — reconfigure which action class the badge ranks first. The
+  order is one line of JSON at `~/.dsh/git-badge-next.json`:
+  `{ "order": ["operation", "unmerged", "sync", "publish", "merge", "commit",
+  "checks"] }` — any subset, any order; unlisted categories rank after in
+  default order. Read the file (it may not exist yet), apply the requested
+  change, show the resulting order, and never invent categories. Typical
+  invocations: "/gh order commit first", "/gh order never suggest checks
+  before push".
+
 ## Handoff
 
 One verb per invocation is this skill's whole job. Anything multi-step around a
