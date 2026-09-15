@@ -10,6 +10,39 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Changed
+
+- **A smarter next-action state machine.** `nextStep` now ranks rule
+  candidates by category instead of first-match, and two new rules join the
+  table: a **diverged** branch (ahead AND behind) suggests `/gh sync` —
+  rebase-then-push, with the force-push confirmed by you — instead of a plain
+  pull that would discard the local-commit context; and a **merge-ready** PR
+  (GitHub's own `mergeState: CLEAN`, or checks passing + review approved)
+  suggests `/gh merge <n>` — the endgame action the old table could never see.
+- **Configurable ranking via `/gh order`.** The category order is one line of
+  JSON at `~/.dsh/git-badge-next.json`
+  (`{"order": ["operation","unmerged","sync","publish","merge","commit","checks"]}`);
+  any subset in any order, unlisted categories rank after in default order.
+  The `gh` skill gains the `sync`, `merge <n>` and `order` verbs — say
+  "/gh order commit first" and the agent edits the file. The server's ranked
+  `next` now carries the skill `args` directly, so the hover card and the (+)
+  picker lead with exactly what the server decided and only add secondary
+  actions around it.
+
+## [0.14.1] - 2026-09-15
+
+- **Skill alignment:** the `gh` skill gains an explicit handoff — one verb per
+  invocation is its whole job; the multi-step PR lifecycle (review, merge,
+  verify, cleanup) belongs to the `gh-pr` skill. The `gh-pr` skill states the
+  mirror scope: one-shot verbs are `gh`'s, lifecycle is its own. The catalog
+  stays global-only; repo conventions stay in `AGENTS.md`.
+
+- **The hover card is 33% wider** (360px → 480px) and its `action:` row now
+  carries a trailing what-comment in git-comment convention — e.g.
+  `action: /gh push  # push local commits to the remote` — so the row says
+  what the invocation does, not just which invocation it is. The picker in the
+  (+) menu shares the same descriptions.
+
 ## [0.14.1] - 2026-09-15
 
 ### Changed

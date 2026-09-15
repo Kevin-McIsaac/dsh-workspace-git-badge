@@ -233,41 +233,42 @@ window.__ModuleLoader__.load({
 
 		/**
 		 * The /gh picker's sub-actions — the skill invocations the checkout
-		 * justifies, most urgent first. Same ranking the server's nextStep uses,
-		 * but spoken in skill arguments; the generic "next" entry is skipped when
-		 * a specific rule already names the same situation (its why would be
-		 * identical, and two rows for one fact is noise).
+		 * justifies, most urgent first. The server's `next` (the ranked top rule,
+		 * already carrying args/why/what) always leads; the client adds the other
+		 * justified actions as secondary entries, mirroring the server's category
+		 * rules but never re-deciding the winner.
 		 */
 		function ghSkillActions(info) {
 			if (info === void 0 || info === null || info.git !== true) return [];
 			const subs = [];
 			const seen = new Set();
-			const add = (args, why) => {
-				if (seen.has(args)) return;
+			const add = (args, why, what) => {
+				if (args === void 0 || args === null || args === "" || seen.has(args)) return;
 				seen.add(args);
-				subs.push({ args, why });
+				subs.push({ args, why, what });
 			};
+			const next = info.next;
+			if (next !== void 0 && next !== null) add(next.args, next.why, next.what);
 			const ahead = info.ahead || 0;
 			const behind = info.behind || 0;
 			const staged = info.stagedFiles || 0;
 			const unstaged = info.unstagedFiles || 0;
 			const untracked = info.untrackedFiles || 0;
-			if (behind > 0) add("pull", behind + " behind " + (info.upstream ?? "upstream"));
-			if (ahead > 0) add("push", ahead + " ahead of " + (info.upstream ?? "upstream"));
-			if (staged > 0) add("commit", staged + " staged");
-			if (unstaged > 0) add("commit", unstaged + " unstaged");
-			if (unstaged === 0 && untracked > 0) add("commit", untracked + " untracked");
+			if (behind > 0 && ahead > 0) {
+				add("sync", ahead + " ahead, " + behind + " behind — diverged", "rebase your commits onto upstream and push (asks before any force)");
+			} else {
+				if (behind > 0) add("pull", behind + " behind " + (info.upstream ?? "upstream"), "update this branch from upstream");
+				if (ahead > 0) add("push", ahead + " ahead of " + (info.upstream ?? "upstream"), "push local commits to the remote");
+			}
+			if (staged > 0) add("commit", staged + " staged", "commit the staged changes");
+			if (unstaged > 0) add("commit", unstaged + " unstaged", "stage and commit the working changes");
+			if (unstaged === 0 && untracked > 0) add("commit", untracked + " untracked", "stage the new files and commit them");
 			const pr = info.pr;
 			if (pr !== void 0 && pr !== null && pr.number !== void 0) {
-				if (pr.state === "failing") add("checks " + pr.number, "checks failing on #" + pr.number);
-				add("pr view " + pr.number, "open pull request #" + pr.number);
+				if (pr.state === "failing") add("checks " + pr.number, "checks failing on #" + pr.number, "watch the CI checks on pull request " + pr.number);
+				add("pr view " + pr.number, "open pull request #" + pr.number, "show pull request " + pr.number + " on GitHub");
 			} else if (ahead === 0 && behind === 0 && info.upstream !== void 0 && staged + unstaged + untracked === 0) {
-				add("pr", "branch is pushed and has no pull request");
-			}
-			const next = info.next;
-			if (next !== void 0 && next !== null && typeof next.command === "string"
-				&& !subs.some((entry) => entry.why === next.why)) {
-				add("next", next.why);
+				add("pr", "branch is pushed and has no pull request", "open a pull request for this branch");
 			}
 			return subs.slice(0, 6);
 		}
@@ -658,7 +659,11 @@ window.__ModuleLoader__.load({
 			gap: "4px",
 			fontSize: "12px",
 			lineHeight: "18px",
-			maxWidth: "340px"
+			// Auto-width: the card fits its widest row instead of a guessed
+			// constant, capped at 600px. The Tooltip's maxWidth must stay >= the
+			// cap or IT becomes the clamp.
+			width: "max-content",
+			maxWidth: "600px"
 		};
 		const CARD_ROW = { display: "flex", gap: "8px", alignItems: "baseline" };
 		const CARD_LABEL = { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", flex: "none", minWidth: "62px" };
@@ -695,7 +700,9 @@ window.__ModuleLoader__.load({
 			// this row is the read-only pointer to it.
 			const topAction = ghSkillActions(data)[0];
 			if (topAction !== void 0) {
-				add("action:", "/gh " + topAction.args);
+				// git-comment convention: the invocation, two spaces, then "# "
+				// plus what it does
+				add("action:", "/gh " + topAction.args + "  # " + topAction.what);
 			}
 			add("branch", info.branch);
 			add("upstream", info.upstream === void 0 ? "none configured" : info.upstream);
@@ -803,7 +810,8 @@ window.__ModuleLoader__.load({
 				if (Tooltip === void 0) return mark;
 				return react_jsx_runtime.jsx(Tooltip, {
 					side: "top",
-					maxWidth: 360,
+					// matches the body cap: the tooltip must never be the clamp
+				maxWidth: 600,
 					// a function label keeps the card's element tree out of every render
 					// until the tooltip actually opens
 					label: () => react_jsx_runtime.jsx(HoverCard, { info, detail }),

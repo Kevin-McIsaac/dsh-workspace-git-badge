@@ -256,18 +256,21 @@ test("a submodule is NOT a worktree, though its git dir is out-of-tree too", asy
 });
 
 // ---------------------------------------------------------------------------
-// nextStep — the hover card's "next" row. Pure ranking over the status fields,
-// so the table is asserted directly, plus two end-to-end cases against real
-// repositories to prove the field actually rides the response.
+// nextStep — the hover card's action row and the (+) picker. Rules carry a
+// category and are ranked by the configured order (nextOrder), so the tests
+// assert the default ranking, the new diverged/merge-ready rules, and the
+// override file — plus two end-to-end cases against real repositories.
 // ---------------------------------------------------------------------------
 
+const rule = (info) => nextStep(info);
+
 test("nextStep: clean, synced, no PR → null (no suggestion is a suggestion)", () => {
-	assert.equal(nextStep({ git: true, branch: "main", upstream: "origin/main", ahead: 0, behind: 0 }), null);
+	assert.equal(rule({ git: true, branch: "main", upstream: "origin/main", ahead: 0, behind: 0 }), null);
 });
 
 test("nextStep: not-a-repo or garbage input → null", () => {
-	assert.equal(nextStep(void 0), null);
-	assert.equal(nextStep({ git: false }), null);
+	assert.equal(rule(void 0), null);
+	assert.equal(rule({ git: false }), null);
 });
 
 test("nextStep: a paused operation wins and names its resume command", () => {
@@ -278,60 +281,106 @@ test("nextStep: a paused operation wins and names its resume command", () => {
 		["revert", "git revert --continue"],
 		["squash", "git commit"],
 	]) {
-		assert.deepEqual(
-			nextStep({ git: true, operation, unmergedFiles: 2 }),
-			{ command, why: "2 unmerged files blocking the paused " + operation },
-			operation,
-		);
+		const next = rule({ git: true, operation, unmergedFiles: 2 });
+		assert.equal(next.args, "next", operation);
+		assert.equal(next.command, command, operation);
+		assert.match(next.why, /2 unmerged files blocking the paused/, operation);
+		assert.match(next.what, /resume the paused/, operation);
 	}
 });
 
 test("nextStep: a paused bisect gets a why but no command (the call is the user's)", () => {
-	const next = nextStep({ git: true, operation: "bisect" });
+	const next = rule({ git: true, operation: "bisect" });
 	assert.equal(next.command, void 0);
 	assert.match(next.why, /bisect/);
 });
 
 test("nextStep: unmerged without a marker falls back to git status", () => {
-	assert.deepEqual(nextStep({ git: true, unmergedFiles: 1 }), { command: "git status", why: "1 unmerged file to resolve" });
+	const next = rule({ git: true, unmergedFiles: 1 });
+	assert.equal(next.args, "next");
+	assert.equal(next.why, "1 unmerged file to resolve");
 });
 
-test("nextStep: behind ranks ahead of dirty work", () => {
-	const next = nextStep({ git: true, upstream: "origin/main", behind: 3, stagedFiles: 1 });
+test("nextStep: diverged (ahead AND behind) → sync, not a plain pull", () => {
+	const next = rule({ git: true, upstream: "o/m", ahead: 2, behind: 3 });
+	assert.equal(next.args, "sync");
+	assert.equal(next.command, void 0, "rebase+force-push is the agent's confirmed work, not a copied command");
+	assert.match(next.why, /2 ahead, 3 behind/);
+	assert.match(next.what, /asks before any force/);
+});
+
+test("nextStep: behind alone → pull", () => {
+	const next = rule({ git: true, upstream: "o/m", behind: 3, stagedFiles: 1 });
+	assert.equal(next.args, "pull");
 	assert.equal(next.command, "git pull --ff-only");
-	assert.match(next.why, /3 behind origin\/main/);
+	assert.match(next.why, /3 behind o\/m/);
+	assert.match(next.what, /update this branch/);
 });
 
 test("nextStep: ahead → push", () => {
-	const next = nextStep({ git: true, upstream: "origin/main", ahead: 2 });
-	assert.deepEqual(next, { command: "git push", why: "2 ahead of origin/main" });
+	const next = rule({ git: true, upstream: "o/m", ahead: 2 });
+	assert.deepEqual(
+		{ args: next.args, command: next.command, why: next.why },
+		{ args: "push", command: "git push", why: "2 ahead of o/m" },
+	);
 });
 
 test("nextStep: no upstream on a dirty branch → publish it", () => {
-	const next = nextStep({ git: true, branch: "feat/x", stagedFiles: 1 });
-	assert.deepEqual(next, { command: "git push -u origin feat/x", why: "no upstream configured" });
+	const next = rule({ git: true, branch: "feat/x", stagedFiles: 1 });
+	assert.equal(next.args, "push");
+	assert.equal(next.command, "git push -u origin feat/x");
+	assert.equal(next.why, "no upstream configured");
 });
 
 test("nextStep: dirty work — staged, unstaged, untracked choose the command", () => {
 	// an upstream is set in every case: a dirty branch with NO upstream is the
-	// publish-it-first rule's business, asserted separately below
-	assert.equal(nextStep({ git: true, upstream: "o/m", stagedFiles: 2 }).command, "git commit");
-	assert.equal(nextStep({ git: true, upstream: "o/m", unstagedFiles: 1 }).command, "git add -p && git commit");
-	assert.equal(nextStep({ git: true, upstream: "o/m", untrackedFiles: 1 }).command, "git add -A && git commit");
+	// publish-it-first rule's business, asserted separately above
+	assert.equal(rule({ git: true, upstream: "o/m", stagedFiles: 2 }).command, "git commit");
+	assert.equal(rule({ git: true, upstream: "o/m", unstagedFiles: 1 }).command, "git add -p && git commit");
+	assert.equal(rule({ git: true, upstream: "o/m", untrackedFiles: 1 }).command, "git add -A && git commit");
 	// staged work is committed as-is even with further unstaged edits — add -p
 	// would mix the two, and committing exactly what was staged is the safe move
-	assert.equal(nextStep({ git: true, upstream: "o/m", stagedFiles: 1, unstagedFiles: 1 }).command, "git commit");
-	assert.match(nextStep({ git: true, upstream: "o/m", stagedFiles: 2 }).why, /work to commit/);
+	assert.equal(rule({ git: true, upstream: "o/m", stagedFiles: 1, unstagedFiles: 1 }).command, "git commit");
+	assert.match(rule({ git: true, upstream: "o/m", stagedFiles: 2 }).why, /work to commit/);
+	assert.match(rule({ git: true, upstream: "o/m", stagedFiles: 2 }).what, /commit the staged/);
+});
+
+test("nextStep: merge-ready PR (GitHub's own CLEAN verdict) → merge <n>", () => {
+	const next = rule({ git: true, upstream: "o/m", pr: { number: 31, state: "passing", mergeState: "CLEAN" } });
+	assert.equal(next.args, "merge 31");
+	assert.equal(next.command, void 0, "merging is the agent's confirmed work");
+	assert.match(next.why, /31 is ready to merge/);
+	assert.match(next.what, /squash/);
+	// review-approved + passing is the fallback verdict when mergeState is absent
+	const alt = rule({ git: true, upstream: "o/m", pr: { number: 9, state: "passing", review: "APPROVED" } });
+	assert.equal(alt.args, "merge 9");
+	// BLOCKED is GitHub saying no — no merge suggestion
+	assert.equal(rule({ git: true, upstream: "o/m", pr: { number: 31, state: "passing", mergeState: "BLOCKED" } }), null);
 });
 
 test("nextStep: failing PR checks → watch them", () => {
-	assert.deepEqual(
-		nextStep({ git: true, pr: { number: 142, state: "failing" } }),
-		{ command: "gh pr checks 142 --watch", why: "checks failing on #142" },
-	);
+	const next = rule({ git: true, pr: { number: 142, state: "failing" } });
+	assert.equal(next.args, "checks 142");
+	assert.equal(next.command, "gh pr checks 142 --watch");
 	// passing or absent checks suggest nothing
-	assert.equal(nextStep({ git: true, pr: { number: 142, state: "passing" } }), null);
-	assert.equal(nextStep({ git: true }), null);
+	assert.equal(rule({ git: true, pr: { number: 142, state: "passing" } }), null);
+	assert.equal(rule({ git: true }), null);
+});
+
+test("nextStep: the ranking order can be overridden by the config file", async (t) => {
+	const home = await makeTempDir(t, "dsh-git-badge-next-");
+	process.env.DSH_HOME = home;
+	t.after(() => { delete process.env.DSH_HOME; });
+	await writeFile(join(home, "git-badge-next.json"), JSON.stringify({ order: ["commit", "sync"] }));
+	// dirty + behind: default ranks sync first; the override puts commit first
+	const next = rule({ git: true, upstream: "o/m", behind: 2, stagedFiles: 1 });
+	assert.equal(next.args, "commit");
+	// unknown categories and omitted ones behave: unlisted rank after, in default order
+	await writeFile(join(home, "git-badge-next.json"), JSON.stringify({ order: ["bogus", "merge"] }));
+	assert.equal(
+		rule({ git: true, upstream: "o/m", pr: { number: 5, state: "passing", mergeState: "CLEAN" } }).args,
+		"merge 5",
+	);
 });
 
 test("a clean repository response carries no next field", async (t) => {
@@ -342,7 +391,7 @@ test("a clean repository response carries no next field", async (t) => {
 	assert.equal(info.next, void 0);
 });
 
-test("a dirty repository with no upstream suggests publishing it", async (t) => {
+test("a dirty repository response carries the commit suggestion", async (t) => {
 	// makeRepo has no remote: upstream is undefined, so the first-publish rule
 	// outranks the commit suggestion — documented here end-to-end.
 	const repo = await makeRepo(t);
@@ -350,6 +399,6 @@ test("a dirty repository with no upstream suggests publishing it", async (t) => 
 	await repo.write("b.txt", "dirty\n");
 	const info = await gitStatus(repo.root);
 	assert.equal(info.git, true);
-	assert.equal(info.next.command, "git push -u origin main");
+	assert.equal(info.next.args, "push");
 	assert.equal(info.next.why, "no upstream configured");
 });
