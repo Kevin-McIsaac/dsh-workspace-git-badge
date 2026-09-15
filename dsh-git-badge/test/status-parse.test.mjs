@@ -23,7 +23,8 @@ test("clean branch with upstream: branch, upstream and ahead/behind", () => {
 		unstaged: 0,
 		unmerged: 0,
 		untracked: 0,
-		untrackedNames: []
+		untrackedNames: [],
+		unstagedNames: []
 	});
 });
 

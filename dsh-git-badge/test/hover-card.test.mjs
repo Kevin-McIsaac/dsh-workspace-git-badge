@@ -45,6 +45,8 @@ const DETAIL = {
 	stashCount: 2,
 	untrackedNames: ["notes/todo.txt", "scratch.md"],
 	untrackedNamesTotal: 5,
+	unstagedNames: ["edited.txt"],
+	unstagedNamesTotal: 1,
 	branchCommits: [
 		{ hash: "abc1234", subject: "fix the thing", when: "2 hours ago" },
 		{ hash: "def5678", subject: "add another thing", when: "yesterday" }

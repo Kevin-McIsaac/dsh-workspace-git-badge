@@ -12,6 +12,12 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Added
 
+- **Unstaged names join the count's hover.** The ✎n tooltip stacks one column
+  with two sub-headers — `unstaged` (tracked, edited files; valid regardless of
+  the collapsed-untracked retry) above `untracked` — each capped at 20 with the
+  same last-two-segments shortening and "… and k more" arithmetic. The picker
+  question "what are these?" now answers for both halves of the count.
+
 - **A commits hover on the branch name.** Hovering the branch lists the
   COMMITS THIS BRANCH ADDS (`log <upstream>..HEAD`) — hash + subject + age,
   capped at 10 with the total from one `rev-list --count` so "… and k more" is

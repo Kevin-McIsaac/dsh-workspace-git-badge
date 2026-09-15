@@ -666,33 +666,46 @@ window.__ModuleLoader__.load({
 			maxWidth: "600px"
 		};
 		/**
-		 * The ✎n count's own hover body — the untracked list and NOTHING else:
-		 * the full card stays on the status mark, and this tooltip answers the
-		 * one question the count poses ("what are these?"). Reads the same lazy
-		 * detail payload the mark's card uses; when nothing is untracked there
-		 * is no tooltip at all (the count itself is absent when the tree is
-		 * clean, so an empty list is rare — a mid-fetch hover shows it plain
-		 * until the response lands).
+		 * The ✎n count's own hover body — the changed-file lists and NOTHING
+		 * else: the full card stays on the status mark, and this tooltip answers
+		 * the one question the count poses ("what are these?"). One stacked
+		 * column with sub-headers: UNSTAGED (tracked, edited — valid regardless
+		 * of the collapsed untracked retry) then UNTRACKED. Reads the same lazy
+		 * detail payload the mark's card uses; no tooltip at all when neither
+		 * list has names (the count itself is absent on a clean tree, so an
+		 * empty list is rare — a mid-fetch hover shows it plain until the
+		 * response lands).
 		 */
-		function UntrackedList({ info }) {
-			const names = info?.untrackedNames;
-			if (!Array.isArray(names) || names.length === 0) {
-				return react_jsx_runtime.jsx("span", { style: CARD_CONTAINER, children: "no untracked files" });
+		function CountNames({ info }) {
+			const sections = [
+				{
+					label: "unstaged",
+					names: info?.unstagedNames,
+					total: info?.unstagedNamesTotal
+				},
+				{
+					label: "untracked",
+					names: info?.untrackedNames,
+					total: info?.untrackedNamesTotal
+				}
+			].filter((section) => Array.isArray(section.names) && section.names.length > 0);
+			if (sections.length === 0) {
+				return react_jsx_runtime.jsx("span", { style: CARD_CONTAINER, children: "no changed files" });
 			}
-			return react_jsx_runtime.jsxs("div", { style: CARD_CONTAINER, children: [
-				react_jsx_runtime.jsxs("div", { style: CARD_ROW, children: [
-					react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: "untracked" }),
+			return react_jsx_runtime.jsxs("div", { style: CARD_CONTAINER, children:
+				sections.map((section) => react_jsx_runtime.jsxs("div", { style: CARD_ROW, children: [
+					react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: section.label }),
 					react_jsx_runtime.jsx("span", {
 						style: { ...CARD_VALUE, display: "flex", flexDirection: "column", gap: "2px" },
 						children: [
-							...names.map((name) => react_jsx_runtime.jsx("span", { children: name }, name)),
-							(typeof info.untrackedNamesTotal === "number" && info.untrackedNamesTotal > names.length
-								? "\u2026 and " + (info.untrackedNamesTotal - names.length) + " more"
+							...section.names.map((name) => react_jsx_runtime.jsx("span", { children: name }, section.label + name)),
+							(typeof section.total === "number" && section.total > section.names.length
+								? "\u2026 and " + (section.total - section.names.length) + " more"
 								: null)
 						]
 					})
-				] }, "untracked")
-			] });
+				] }, section.label))
+			});
 		}
 
 		/**
@@ -896,13 +909,15 @@ window.__ModuleLoader__.load({
 					style: { cursor: "default" },
 					children: formatGitSuffix(info)
 				});
-				if (Tooltip === void 0 || !Array.isArray(detail?.untrackedNames) || detail.untrackedNames.length === 0) {
+				const hasNames = (Array.isArray(detail?.untrackedNames) && detail.untrackedNames.length > 0)
+					|| (Array.isArray(detail?.unstagedNames) && detail.unstagedNames.length > 0);
+				if (Tooltip === void 0 || !hasNames) {
 					return count;
 				}
 				return react_jsx_runtime.jsx(Tooltip, {
 					side: "top",
 					maxWidth: 480,
-					label: () => react_jsx_runtime.jsx(UntrackedList, { info: detail }),
+					label: () => react_jsx_runtime.jsx(CountNames, { info: detail }),
 					children: count
 				});
 			})();

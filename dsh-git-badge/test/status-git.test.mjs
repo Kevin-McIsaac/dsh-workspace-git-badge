@@ -418,6 +418,29 @@ test("the detail payload carries the commits this branch adds", async (t) => {
 	assert.equal(synced.branchCommits, void 0);
 });
 
+test("the detail payload carries unstaged names too", async (t) => {
+	const repo = await makeRepo(t);
+	// two TRACKED files (committed, then edited) + one untracked file
+	await repo.commit("initial", { "a.txt": "base\n", "deep/nested/tracked-b.txt": "base\n" });
+	await repo.write("a.txt", "changed\n");
+	await repo.write("deep/nested/tracked-b.txt", "changed\n");
+	await repo.write("untracked.txt", "new\n");
+	const detail = await gitStatus(repo.root, true);
+	assert.equal(detail.unstagedFiles, 2);
+	assert.deepEqual(
+		detail.unstagedNames,
+		["a.txt", "nested/tracked-b.txt"],
+		"unstaged names shorten to the last two segments",
+	);
+	assert.equal(detail.unstagedNamesTotal, 2);
+	assert.deepEqual(detail.untrackedNames, ["untracked.txt"]);
+	// unstaged names survive the collapsed-untracked mode: they are tracked files
+	// (the collapsed retry only rewrites the untracked list)
+	assert.ok(!detail.unstagedNames.includes("untracked.txt"), "untracked never leaks into the unstaged list");
+	const base = await gitStatus(repo.root);
+	assert.equal(base.unstagedNames, void 0, "hover-gated: the base request never carries them");
+});
+
 test("the detail payload carries capped, shortened untracked names", async (t) => {
 	const repo = await makeRepo(t);
 	await repo.commit("initial");

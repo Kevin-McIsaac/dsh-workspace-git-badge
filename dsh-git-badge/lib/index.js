@@ -532,6 +532,7 @@ function parseStatusV2(out) {
 	let unmerged = 0;
 	let untracked = 0;
 	const untrackedNames = [];
+	const unstagedNames = [];
 	for (const line of out.split("\n")) {
 		if (line.startsWith("# branch.head ")) branch = line.slice(14).trim();
 		else if (line.startsWith("# branch.upstream ")) upstream = line.slice(18).trim();
@@ -545,7 +546,16 @@ function parseStatusV2(out) {
 		} else if (line.startsWith("1 ") || line.startsWith("2 ")) {
 			// XY columns: X = index (staged), Y = worktree (unstaged)
 			if (line[2] !== ".") staged += 1;
-			if (line[3] !== ".") unstaged += 1;
+			if (line[3] !== ".") {
+				unstaged += 1;
+				// the path is the LAST field in both records (space-separated, and
+				// the path itself may contain spaces) — collected untruncated and
+				// capped by the caller, exactly like the untracked names
+				const path = line.startsWith("2 ")
+					? line.split("\t").pop().trim()
+					: line.split(" ").slice(8).join(" ").trim();
+				if (path !== "") unstagedNames.push(path);
+			}
 		} else if (line.startsWith("u ")) unmerged += 1;
 		else if (line.startsWith("? ")) {
 			untracked += 1;
@@ -556,7 +566,7 @@ function parseStatusV2(out) {
 			if (name !== "") untrackedNames.push(name);
 		}
 	}
-	return { branch, upstream, ahead, behind, staged, unstaged, unmerged, untracked, untrackedNames };
+	return { branch, upstream, ahead, behind, staged, unstaged, unmerged, untracked, untrackedNames, unstagedNames };
 }
 
 /**
@@ -910,13 +920,23 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 		// never absolute — AGENTS.md rule 7 is relaxed by an inch, not a mile),
 		// truncated to the last two path segments, capped at 20 with the total
 		// carried separately so the client can say "… and k more" honestly.
-		if (parsed.untrackedNames.length > 0 && untrackedMode === "all") {
+		if (untrackedMode === "all" && parsed.untrackedNames.length > 0) {
 			const shorthen = (name) => {
 				const parts = name.split("/");
 				return parts.length <= 2 ? name : parts.slice(-2).join("/");
 			};
 			info.untrackedNames = parsed.untrackedNames.slice(0, 20).map(shorthen);
 			info.untrackedNamesTotal = parsed.untrackedNames.length;
+		}
+		// unstaged names are TRACKED files: the collapsed untracked retry never
+		// affects them, so they ride regardless of untrackedMode
+		if (parsed.unstagedNames.length > 0) {
+			const shorthen = (name) => {
+				const parts = name.split("/");
+				return parts.length <= 2 ? name : parts.slice(-2).join("/");
+			};
+			info.unstagedNames = parsed.unstagedNames.slice(0, 20).map(shorthen);
+			info.unstagedNamesTotal = parsed.unstagedNames.length;
 		}
 		// The COMMITS THIS BRANCH ADDS (`log <upstream>..HEAD`) — the branch
 		// name's own hover answers "what is on this line of work that isn't on
