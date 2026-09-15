@@ -12,6 +12,25 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Added
 
+- **A commits hover on the branch name.** Hovering the branch lists the
+  COMMITS THIS BRANCH ADDS (`log <upstream>..HEAD`) — hash + subject + age,
+  capped at 10 with the total from one `rev-list --count` so "… and k more" is
+  arithmetic — not the card's last-three-overall list. Hover-gated with the
+  rest of `detail=1`; absent when the branch adds nothing (no tooltip rather
+  than an empty one) and when there is no upstream (the publish suggestion
+  covers that case).
+
+### Changed
+
+- **The status card no longer repeats what the other hovers own.** Its commits
+  row and untracked-names row are gone — commit listings live on the branch
+  name's hover, untracked names on the count's hover, and the server stopped
+  fetching the unused last-three-commits on every detail read. The card keeps
+  action, branch, upstream, sync, files, operation, PR, worktree, checkout,
+  stash.
+
+### Added
+
 - **A names-only hover on the ✎n count.** The count gets its own tooltip —
   just the untracked list (one name per line, "… and k more"), no action row —
   while the full card stays on the status mark. It shares the mark's lazy

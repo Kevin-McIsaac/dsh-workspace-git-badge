@@ -904,14 +904,6 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 		behind: parsed.behind
 	};
 	if (wantDetail) {
-		// last 3 commits (subject + relative age) for the planned hover card
-		const logOut = await runGit(toplevel, ["log", "-3", "--format=%h%x09%s%x09%cr"]);
-		if (logOut.stdout !== null && logOut.stdout.trim() !== "") {
-			info.lastCommits = logOut.stdout.trim().split("\n").map((line) => {
-				const [hash, subject, when] = line.split("\t");
-				return { hash, subject: subject ?? "", when: when ?? "" };
-			}).filter((c) => c.hash !== void 0);
-		}
 		// The untracked NAMES — the one part of ✎n the counts cannot answer
 		// ("what did I create here?"). Hover-gated with the rest of detail=1, so
 		// no refresh pays for it. Posture: RELATIVE names only (git's own output,
@@ -925,6 +917,26 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 			};
 			info.untrackedNames = parsed.untrackedNames.slice(0, 20).map(shorthen);
 			info.untrackedNamesTotal = parsed.untrackedNames.length;
+		}
+		// The COMMITS THIS BRANCH ADDS (`log <upstream>..HEAD`) — the branch
+		// name's own hover answers "what is on this line of work that isn't on
+		// upstream". Hover-gated with the rest of detail=1; capped at 10 with the
+		// total from one `rev-list --count` so "… and k more" is arithmetic.
+		// No upstream → the field is absent (the publish suggestion covers that
+		// case); a failed read is omitted like every other "nothing to say".
+		if (parsed.upstream !== void 0) {
+			const countOut = await runGit(toplevel, ["rev-list", "--count", parsed.upstream + "..HEAD"]);
+			const total = Number.parseInt((countOut.stdout ?? "").trim(), 10);
+			if (Number.isFinite(total) && total > 0) {
+				const logOut2 = await runGit(toplevel, ["log", `-10`, "--format=%h%x09%s%x09%cr", parsed.upstream + "..HEAD"]);
+				if (logOut2.stdout !== null && logOut2.stdout.trim() !== "") {
+					info.branchCommits = logOut2.stdout.trim().split("\n").map((line) => {
+						const [hash, subject, when] = line.split("\t");
+						return { hash, subject: subject ?? "", when: when ?? "" };
+					}).filter((c) => c.hash !== void 0);
+					info.branchCommitsTotal = total;
+				}
+			}
 		}
 		// stash count, only surfaced when nonzero
 		const stashOut = await runGit(toplevel, ["stash", "list"]);

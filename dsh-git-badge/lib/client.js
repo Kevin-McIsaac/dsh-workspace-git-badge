@@ -695,6 +695,40 @@ window.__ModuleLoader__.load({
 			] });
 		}
 
+		/**
+		 * The branch name's own hover body — the COMMITS THIS BRANCH ADDS
+		 * (`log <upstream>..HEAD`), not the card's last-three-overall list: the
+		 * question the branch name poses is "what is on this line of work that
+		 * isn't on upstream". Same lazy detail payload, cap, and "… and k more"
+		 * contract as the count's untracked list; absent when the branch adds
+		 * nothing (up to date) — no tooltip rather than an empty one.
+		 */
+		function BranchCommitsList({ info }) {
+			const commits = info?.branchCommits;
+			if (!Array.isArray(commits) || commits.length === 0) {
+				return react_jsx_runtime.jsx("span", { style: CARD_CONTAINER, children: "no commits beyond upstream" });
+			}
+			return react_jsx_runtime.jsxs("div", { style: CARD_CONTAINER, children: [
+				react_jsx_runtime.jsxs("div", { style: CARD_ROW, children: [
+					react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: "commits" }),
+					react_jsx_runtime.jsx("span", {
+						style: { ...CARD_VALUE, display: "flex", flexDirection: "column", gap: "2px" },
+						children: [
+							...commits.map((commit) => react_jsx_runtime.jsxs("span", {
+								children: [
+									react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: commit.hash }),
+									" " + commit.subject + (commit.when === "" ? "" : " \u00B7 " + commit.when)
+								]
+							}, commit.hash)),
+							(typeof info.branchCommitsTotal === "number" && info.branchCommitsTotal > commits.length
+								? "\u2026 and " + (info.branchCommitsTotal - commits.length) + " more"
+								: null)
+						]
+					})
+				] }, "branch-commits")
+			] });
+		}
+
 		const CARD_ROW = { display: "flex", gap: "8px", alignItems: "baseline" };
 		const CARD_LABEL = { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", flex: "none", minWidth: "62px" };
 		const CARD_VALUE = { minWidth: 0, overflowWrap: "anywhere" };
@@ -740,32 +774,6 @@ window.__ModuleLoader__.load({
 				add("sync", "\u2191" + (info.ahead || 0) + " \u2193" + (info.behind || 0));
 			}
 			add("files", formatFileBreakdown(info));
-			// The untracked NAMES, hover-gated with the rest of detail=1 — the one
-			// part of ✎n the counts cannot answer. Relative, last-two-segments,
-			// capped by the node half at 20 with the total carried separately, so
-			// "… and k more" is arithmetic, not a guess. A collapsed-count payload
-			// omits the field entirely (directories, not files — saying them would
-			// under-report).
-			const names = data.untrackedNames;
-			if (Array.isArray(names) && names.length > 0) {
-				rows.push(
-					react_jsx_runtime.jsxs("div", {
-						style: CARD_ROW,
-						children: [
-							react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: "untracked" }),
-							react_jsx_runtime.jsx("span", {
-								style: { ...CARD_VALUE, display: "flex", flexDirection: "column", gap: "2px" },
-								children: [
-									...names.map((name) => react_jsx_runtime.jsx("span", { children: name }, name)),
-									(typeof data.untrackedNamesTotal === "number" && data.untrackedNamesTotal > names.length
-										? "\u2026 and " + (data.untrackedNamesTotal - names.length) + " more"
-										: null)
-								]
-							})
-						]
-					}, "untracked-names")
-				);
-			}
 			add("operation", info.operation === void 0 || info.operation === null ? void 0 : String(info.operation));
 			add("pull request", formatPrDetail(data.pr));
 			// WHICH checkout the badge describes, when it is a worktree. The chip shows
@@ -776,27 +784,6 @@ window.__ModuleLoader__.load({
 			// tree's in that case, so this is where the checkout's own state stays
 			// visible. Absent until the `detail=1` response lands, like commits/stash.
 			if (data.worktreeInferred === true) add("checkout", formatCheckoutDetail(data.checkout));
-			if (Array.isArray(data.lastCommits) && data.lastCommits.length > 0) {
-				rows.push(
-					react_jsx_runtime.jsxs("div", {
-						style: CARD_ROW,
-						children: [
-							react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: "commits" }),
-							react_jsx_runtime.jsx("span", {
-								style: { ...CARD_VALUE, display: "flex", flexDirection: "column", gap: "2px" },
-								children: data.lastCommits.map((commit) =>
-									react_jsx_runtime.jsxs("span", {
-										children: [
-											react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: commit.hash }),
-											" " + commit.subject + (commit.when === "" ? "" : " \u00B7 " + commit.when)
-										]
-									}, commit.hash)
-								)
-							})
-						]
-					}, "commits")
-				);
-			}
 			add("stash", data.stashCount === void 0 ? void 0 : data.stashCount + " stashed");
 			return react_jsx_runtime.jsx("div", { style: CARD_CONTAINER, children: rows });
 		}
@@ -877,7 +864,28 @@ window.__ModuleLoader__.load({
 			// the mark is an element now rather than a leading glyph in the string, so
 			// the SAME StatusMark the sidebar row draws carries the status here too;
 			// the container's 4px gap supplies the space the emoji's own did
-			const text = info.branch + formatOperationToken(info);
+			// The branch NAME is its own hover surface: the commits this branch adds
+			// (BranchCommitsList), sharing the mark's lazy detail fetch. The rest of
+			// the leading text (operation token) and the count keep their own
+			// surfaces. Degrades to plain text without the Tooltip primitive or
+			// when the branch adds nothing beyond upstream.
+			const branchHover = (() => {
+				const branch = react_jsx_runtime.jsx("span", {
+					onPointerEnter: () => setHovered(true),
+					style: { cursor: "default" },
+					children: info.branch
+				});
+				if (Tooltip === void 0 || !Array.isArray(detail?.branchCommits) || detail.branchCommits.length === 0) {
+					return branch;
+				}
+				return react_jsx_runtime.jsx(Tooltip, {
+					side: "top",
+					maxWidth: 480,
+					label: () => react_jsx_runtime.jsx(BranchCommitsList, { info: detail }),
+					children: branch
+				});
+			})();
+			const text = formatOperationToken(info);
 			// The ✎n count is its OWN hover surface: a names-only tooltip (see
 			// UntrackedList). It shares the mark's lazy detail fetch — resting on
 			// either triggers it once — and degrades to a plain count on a shell
@@ -930,6 +938,7 @@ window.__ModuleLoader__.load({
 					// stays on the whole chip — it is about the badge, not the mark.
 					hoverableMark,
 
+						branchHover,
 						react_jsx_runtime.jsx("span", { key: "text", children: text }),
 					countHover,
 					prToken === ""
