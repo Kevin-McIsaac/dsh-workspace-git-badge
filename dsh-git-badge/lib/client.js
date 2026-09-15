@@ -1122,26 +1122,40 @@ window.__ModuleLoader__.load({
 					trigger: "!",
 					name: "git-actions",
 					candidates: async (session, req) => {
-						const sessionId = session?.sessionId;
-						if (sessionId === void 0) return [];
-						const query = targetQuery({ kind: "session", id: sessionId }, { pr: true });
-						if (query === void 0) return [];
-						// cache-first: the menu opens instantly with the badge's own
-						// knowledge; a cold session falls back to one status fetch.
-						let info = GIT_CACHE.get(query)?.data;
-						if (info === void 0 || info === null) {
-							try {
-								info = await fetch("/api/git-badge?" + query).then((r) => r.json());
-							} catch {
+						// A thrown candidate is an EMPTY MENU with no trace — the one
+						// failure mode this surface must never have silently. Every exit
+						// is logged with its reason.
+						try {
+							const sessionId = session?.sessionId;
+							if (sessionId === void 0) {
+								console.info("[dsh-git-badge] ! candidates: no session on the projection");
 								return [];
 							}
+							const query = targetQuery({ kind: "session", id: sessionId }, { pr: true });
+							if (query === void 0) {
+								console.info("[dsh-git-badge] ! candidates: unqueryable session");
+								return [];
+							}
+							// cache-first: the menu opens instantly with the badge's own
+							// knowledge; a cold session falls back to one status fetch.
+							let info = GIT_CACHE.get(query)?.data;
+							if (info === void 0 || info === null) {
+								info = await fetch("/api/git-badge?" + query).then((r) => r.json());
+							}
+							const actions = buildActions(info);
+							console.info("[dsh-git-badge] ! candidates:", actions.length, "actions for", query, "query:", JSON.stringify(req?.query ?? ""));
+							if (actions.length === 0) return [];
+							actionsBySession.set(sessionId, actions);
+							// names are the deduped commands, so a flat registry is unambiguous
+							for (const action of actions) actionsByName.set(action.command, action);
+							const rows = actions.map((action) => ({ name: action.command, description: action.why }));
+							const ranked = rankByName === void 0 ? rows : rankByName(rows, req?.query ?? "");
+							// a ranker that drops everything must not blank the menu
+							return ranked.length > 0 ? ranked : rows;
+						} catch (error) {
+							console.error("[dsh-git-badge] ! candidates failed:", error);
+							return [];
 						}
-						const actions = buildActions(info);
-						actionsBySession.set(sessionId, actions);
-						// names are the deduped commands, so a flat registry is unambiguous
-						for (const action of actions) actionsByName.set(action.command, action);
-						const rows = actions.map((action) => ({ name: action.command, description: action.why }));
-						return rankByName === void 0 ? rows : rankByName(rows, req.query);
 					},
 					onPick: (pick) => {
 						// the pipeline may deliver the row object or just its name — take
