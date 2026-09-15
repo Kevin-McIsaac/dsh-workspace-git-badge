@@ -10,6 +10,8 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-09-15
+
 ### Added
 
 - **A "next" row at the top of the chip's hover card.** The node half derives
