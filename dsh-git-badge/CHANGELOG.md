@@ -10,6 +10,13 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Changed
+
+- **Internal polish, no behaviour change:** the `detail=1` hover reads run in
+  one parallel batch (hover latency is the longest call, not the sum of seven
+  serial git spawns), the path-shortening and remote-URL conversion moved into
+  named helpers, and the three hover bodies share one row builder.
+
 ### Added
 
 - **Merge-blocker phrasing in the branch hover.** A `BLOCKED` verdict says why

@@ -741,15 +741,7 @@ window.__ModuleLoader__.load({
 			const rows = [];
 			const add = (label, value) => {
 				if (value === void 0 || value === null || value === "") return;
-				rows.push(
-					react_jsx_runtime.jsxs("div", {
-						style: CARD_ROW,
-						children: [
-							react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: label }),
-							react_jsx_runtime.jsx("span", { style: CARD_VALUE, children: value })
-						]
-					}, label)
-				);
+				rows.push(cardRow(label, value));
 			};
 			add("upstream", info?.upstream === void 0 ? "none configured" : info.upstream);
 			const ahead = info?.ahead || 0;
@@ -828,6 +820,17 @@ window.__ModuleLoader__.load({
 		const CARD_LABEL = { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", flex: "none", minWidth: "62px" };
 		const CARD_VALUE = { minWidth: 0, overflowWrap: "anywhere" };
 
+		/** One label/value row — the shape every hover body shares. */
+		function cardRow(label, value) {
+			return react_jsx_runtime.jsxs("div", {
+				style: CARD_ROW,
+				children: [
+					react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: label }),
+					react_jsx_runtime.jsx("span", { style: CARD_VALUE, children: value })
+				]
+			}, label);
+		}
+
 
 		/**
 		 * Hover card body for the input chip — INPUT CHIP ONLY. Pure presentation
@@ -842,15 +845,7 @@ window.__ModuleLoader__.load({
 			const rows = [];
 			const add = (label, value) => {
 				if (value === void 0 || value === null || value === "") return;
-				rows.push(
-					react_jsx_runtime.jsxs("div", {
-						style: CARD_ROW,
-						children: [
-							react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: label }),
-							react_jsx_runtime.jsx("span", { style: CARD_VALUE, children: value })
-						]
-					}, label)
-				);
+				rows.push(cardRow(label, value));
 			};
 			// The "action" row — the top line, in the card's ordinary row layout:
 			// the gh skill invocation the checkout justifies, derived from the same

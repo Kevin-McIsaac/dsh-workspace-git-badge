@@ -522,6 +522,32 @@ function prStatusFor(toplevel, branch, notify) {
  * two-column XY status (X = index/staged, Y = worktree), `u` unmerged,
  * `?` untracked.
  */
+/** Relative path shortened to its last two segments — the hover-name contract. */
+function shortenPath(name) {
+	const parts = name.split("/");
+	return parts.length <= 2 ? name : parts.slice(-2).join("/");
+}
+
+/**
+ * Convert a remote URL to the hosted repo's WEB root: https stays https,
+ * `git@host:path` ssh syntax converts, a `.git` suffix is stripped. Null when
+ * the URL is neither form — the caller decides what a null is worth.
+ */
+function remoteToWebUrl(raw) {
+	const trimmed = raw.trim().replace(/\.git$/u, "");
+	const https = trimmed.match(/^https:\/\/([^/]+)\/(.+?)\/?$/u);
+	const ssh = trimmed.match(/^[^@]+@([^:]+):(.+)$/u);
+	const web = https !== null ? https[1] + "/" + https[2] : ssh !== null ? ssh[1] + "/" + ssh[2] : null;
+	if (web === null) return null;
+	try {
+		const url = new URL("https://" + web);
+		if (url.protocol === "https:" && url.pathname.length > 1) return url.origin + url.pathname.replace(/\/$/u, "");
+	} catch {
+		// not a URL we can vouch for
+	}
+	return null;
+}
+
 function parseStatusV2(out) {
 	let branch = "HEAD (detached)";
 	let upstream;
@@ -921,32 +947,25 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 		behind: parsed.behind
 	};
 	if (wantDetail) {
-		// The untracked NAMES — the one part of ✎n the counts cannot answer
-		// ("what did I create here?"). Hover-gated with the rest of detail=1, so
-		// no refresh pays for it. Posture: RELATIVE names only (git's own output,
+		// The ✎n NAMES — the one part of the count the numbers cannot answer
+		// ("what are these?"). Hover-gated with the rest of detail=1, so no
+		// refresh pays for it. Posture: RELATIVE names only (git's own output,
 		// never absolute — AGENTS.md rule 7 is relaxed by an inch, not a mile),
-		// truncated to the last two path segments, capped at 20 with the total
+		// shortened to the last two path segments, capped at 20 with the total
 		// carried separately so the client can say "… and k more" honestly.
+		// Staged and unstaged names are TRACKED files: the collapsed untracked
+		// retry never affects them, so they ride regardless of untrackedMode.
+		const capped = (names) => names.slice(0, 20).map(shortenPath);
 		if (untrackedMode === "all" && parsed.untrackedNames.length > 0) {
-			const shorthen = (name) => {
-				const parts = name.split("/");
-				return parts.length <= 2 ? name : parts.slice(-2).join("/");
-			};
-			info.untrackedNames = parsed.untrackedNames.slice(0, 20).map(shorthen);
+			info.untrackedNames = capped(parsed.untrackedNames);
 			info.untrackedNamesTotal = parsed.untrackedNames.length;
 		}
-		// unstaged and staged names are TRACKED files: the collapsed untracked
-		// retry never affects them, so they ride regardless of untrackedMode
-		const shorten = (name) => {
-			const parts = name.split("/");
-			return parts.length <= 2 ? name : parts.slice(-2).join("/");
-		};
 		if (parsed.unstagedNames.length > 0) {
-			info.unstagedNames = parsed.unstagedNames.slice(0, 20).map(shorten);
+			info.unstagedNames = capped(parsed.unstagedNames);
 			info.unstagedNamesTotal = parsed.unstagedNames.length;
 		}
 		if (parsed.stagedNames.length > 0) {
-			info.stagedNames = parsed.stagedNames.slice(0, 20).map(shorten);
+			info.stagedNames = capped(parsed.stagedNames);
 			info.stagedNamesTotal = parsed.stagedNames.length;
 		}
 		// The branch's recent commits — WHAT THIS BRANCH HAS, full stop: the last
@@ -966,30 +985,23 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 		// so no payload value can reach an anchor as a scheme. Derived from
 		// `remote get-url origin` with ssh syntax converted; absent when there is
 		// no origin or the URL is not recognisably a hosted repo.
-		const remoteUrl = await runGit(toplevel, ["remote", "get-url", "origin"]);
+		// These reads are independent — one batch, so hover latency is the
+		// longest call rather than their sum. The only dependent call (the
+		// left-right count needs a probed base ref) runs after the batch and
+		// tolerates its own failure.
+		const [remoteUrl, probeMain, probeMaster, logOut2, stashOut] = await Promise.all([
+			runGit(toplevel, ["remote", "get-url", "origin"]),
+			runGit(toplevel, ["rev-parse", "--verify", "--quiet", "origin/main"]),
+			runGit(toplevel, ["rev-parse", "--verify", "--quiet", "origin/master"]),
+			runGit(toplevel, ["log", "-10", "--format=%h%x09%s%x09%cr", "HEAD"]),
+			runGit(toplevel, ["stash", "list"])
+		]);
 		if (remoteUrl.stdout !== null && remoteUrl.stdout.trim() !== "") {
-			const raw = remoteUrl.stdout.trim().replace(/\.git$/u, "");
-			const https = raw.match(/^https:\/\/([^/]+)\/(.+?)\/?$/u);
-			const ssh = raw.match(/^[^@]+@([^:]+):(.+)$/u);
-			const web = https !== null ? https[1] + "/" + https[2] : ssh !== null ? ssh[1] + "/" + ssh[2] : null;
-			if (web !== null) {
-				try {
-					const url = new URL("https://" + web);
-					if (url.protocol === "https:" && url.pathname.length > 1) {
-						info.repoUrl = url.origin + url.pathname.replace(/\/$/u, "");
-					}
-				} catch {
-					// not a URL we can vouch for — the field stays absent
-				}
-			}
+			info.repoUrl = remoteToWebUrl(remoteUrl.stdout);
 		}
-		const baseRef = await (async () => {
-			for (const candidate of ["origin/main", "origin/master"]) {
-				const probe = await runGit(toplevel, ["rev-parse", "--verify", "--quiet", candidate]);
-				if (probe.stdout !== null && probe.stdout.trim() !== "") return candidate;
-			}
-			return null;
-		})();
+		const baseRef = probeMain.stdout !== null && probeMain.stdout.trim() !== ""
+			? "origin/main"
+			: probeMaster.stdout !== null && probeMaster.stdout.trim() !== "" ? "origin/master" : null;
 		if (baseRef !== null && info.repoUrl !== void 0) {
 			const baseName = baseRef.replace(/^origin\//u, "");
 			try {
@@ -1007,15 +1019,12 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 				info.mainBehind = mBehind;
 			}
 		}
-		const logOut2 = await runGit(toplevel, ["log", "-10", "--format=%h%x09%s%x09%cr", "HEAD"]);
 		if (logOut2.stdout !== null && logOut2.stdout.trim() !== "") {
 			info.branchCommits = logOut2.stdout.trim().split("\n").map((line) => {
 				const [hash, subject, when] = line.split("\t");
 				return { hash, subject: subject ?? "", when: when ?? "" };
 			}).filter((c) => c.hash !== void 0);
 		}
-		// stash count, only surfaced when nonzero
-		const stashOut = await runGit(toplevel, ["stash", "list"]);
 		if (stashOut.stdout !== null) {
 			const count = stashOut.stdout.split("\n").filter((l) => l.trim() !== "").length;
 			if (count > 0) info.stashCount = count;
