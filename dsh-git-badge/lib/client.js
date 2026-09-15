@@ -1160,7 +1160,11 @@ window.__ModuleLoader__.load({
 					try {
 					scope.effect(() => scope.commandUi.register({
 						name: "gh",
-						description: "git/gh actions for this checkout — push, pull, pr, commit, checks",
+						// the contract calls description() as a FUNCTION at menu-build
+						// time (candidates: contribution.description()) — a string throws
+						// TypeError on every candidates pass and kills the whole menu,
+						// (+) button included
+						description: () => "git/gh actions for this checkout — push, pull, pr, commit, checks",
 						available: (session) => {
 							// called during the host's menu build — a throw here kills the
 							// whole menu, so it degrades to "hidden" instead
