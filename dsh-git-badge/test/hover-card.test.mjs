@@ -44,7 +44,12 @@ const DETAIL = {
 	],
 	stashCount: 2,
 	untrackedNames: ["notes/todo.txt", "scratch.md"],
-	untrackedNamesTotal: 5
+	untrackedNamesTotal: 5,
+	branchCommits: [
+		{ hash: "abc1234", subject: "fix the thing", when: "2 hours ago" },
+		{ hash: "def5678", subject: "add another thing", when: "yesterday" }
+	],
+	branchCommitsTotal: 4
 };
 
 /**
@@ -177,24 +182,35 @@ test("the collapsed untracked fallback is disclosed in the card", () => {
 	assert.ok(body.includes("(collapsed)"), `expected the caveat: ${body}`);
 });
 
-test("the card lists untracked names, hover-gated, with an honest and-k-more", () => {
-	const without = card(createClient({ tooltip: true, hover: false }), BASE, DETAIL);
-	assert.ok(!without.includes("notes/todo.txt"), "no names before the detail request");
+test("the card does NOT repeat what the count and branch hovers own", () => {
+	// de-duplication contract: untracked names live on the count's tooltip,
+	// branch-unique commits live on the branch's tooltip — the card carries
+	// neither, at rest or on hover
 	const body = card(createClient({ tooltip: true, hover: true }), BASE, DETAIL);
-	assert.ok(body.includes("untracked"), `the row label: ${body}`);
-	assert.ok(body.includes("notes/todo.txt"), `the shortened name: ${body}`);
-	assert.ok(body.includes("scratch.md"), "each name on its own line");
-	assert.ok(body.includes("\u2026 and 3 more"), `5 total - 2 shown = 3 more: ${body}`);
+	assert.ok(!body.includes("notes/todo.txt"), `no untracked row: ${body}`);
+	assert.ok(!body.includes("\u2026 and 3 more"), "no untracked and-k-more");
+	assert.ok(!body.includes("def5678"), "no last-commits row (branch hover owns commits)");
+	assert.ok(body.includes("2 stashed"), "stash stays on the card");
+});
+
+test("the branch hover lists the commits this branch adds", () => {
+	// the BranchCommitsList body is the tooltip's label function — exercised the
+	// same way the card body is
+	const client = createClient({ tooltip: true, hover: true });
+	const rendered = client.rawChip(BASE, DETAIL);
+	const tooltip = elements(expand(rendered)).filter((el) => el.type === "Tooltip");
+	const labels = tooltip.map((el) => text(expand(el.props.label())));
+	// the branch-commits label is commits-only: hash+subject rows and its own
+	// and-k-more (4 total - 2 shown), distinct from the card's commits row
+	const branchLabel = labels.find((l) => l.includes("commits") && l.includes("\u2026 and 2 more"));
+	assert.ok(branchLabel !== void 0, `expected a commits-only label: ${JSON.stringify(labels)}`);
+	assert.ok(!branchLabel.includes("pull request"), "no card content bleeds into it");
 });
 
 test("the detail fields appear only once detail has been fetched", () => {
 	const without = card(createClient({ tooltip: true, hover: false }), BASE, DETAIL);
-	assert.ok(!without.includes("abc1234"), "no commits before the detail request");
 	assert.ok(!without.includes("stashed"), "no stash before the detail request");
 	const withDetail = card(createClient({ tooltip: true, hover: true }), BASE, DETAIL);
-	assert.ok(withDetail.includes("abc1234"), "the short hash");
-	assert.ok(withDetail.includes("fix the thing"), "the subject");
-	assert.ok(withDetail.includes("2 hours ago"), "the age");
 	assert.ok(withDetail.includes("2 stashed"), "the stash count");
 });
 

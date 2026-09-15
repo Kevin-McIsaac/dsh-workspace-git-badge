@@ -155,20 +155,17 @@ test("with an upstream configured, ahead/behind come from the remote-tracking re
 	assert.equal(diverged.behind, 0);
 });
 
-test("detail=1 adds the last commits and the stash count", async (t) => {
+test("detail=1 adds the stash count (commit listings moved to their hovers)", async (t) => {
 	const repo = await makeRepo(t);
 	await repo.commit("initial");
 	const withoutDetail = await gitStatus(repo.root);
-	assert.equal(withoutDetail.lastCommits, undefined);
 	assert.equal(withoutDetail.stashCount, undefined);
+	assert.equal(withoutDetail.lastCommits, undefined, "the last-commits field is gone: branch hover owns commits");
 	await repo.write("a.txt", "changed\n");
 	await repo.stashPush();
 	const info = await gitStatus(repo.root, true);
 	assert.equal(info.stashCount, 1);
-	assert.ok(Array.isArray(info.lastCommits));
-	assert.equal(info.lastCommits.length, 1);
-	assert.match(info.lastCommits[0].hash, /^[0-9a-f]+$/);
-	assert.equal(info.lastCommits[0].subject, "initial");
+	assert.equal(info.lastCommits, undefined);
 });
 
 test("the TTL fetch is out of band: it never delays the answer", async (t) => {
@@ -389,6 +386,36 @@ test("a clean repository response carries no next field", async (t) => {
 	const info = await gitStatus(repo.root);
 	assert.equal(info.git, true);
 	assert.equal(info.next, void 0);
+});
+
+test("the detail payload carries the commits this branch adds", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("base");
+	// upstream tracking, then two local commits: upstream..HEAD = 2
+	await repo.git(["config", "user.name", "Test User"]);
+	const bare = join(repo.root, "origin-bare.git");
+	await runGit(repo.root, ["clone", "--bare", repo.root, bare]);
+	await runGit(repo.root, ["remote", "add", "origin", bare]);
+	await runGit(repo.root, ["push", "-u", "origin", "main"]);
+	await repo.commit("first on branch");
+	await repo.commit("second on branch");
+	const detail = await gitStatus(repo.root, true);
+	assert.equal(detail.git, true);
+	assert.equal(detail.branchCommitsTotal, 2);
+	assert.equal(detail.branchCommits.length, 2);
+	assert.deepEqual(
+		detail.branchCommits.map((c) => c.subject),
+		["second on branch", "first on branch"],
+		"newest first, upstream..HEAD only",
+	);
+	assert.ok(detail.branchCommits.every((c) => c.hash && c.subject && typeof c.when === "string"));
+	// the BASE request stays lean: no commit list without detail=1
+	const base = await gitStatus(repo.root);
+	assert.equal(base.branchCommits, void 0);
+	// up to date with upstream → no field at all (no tooltip rather than empty)
+	await runGit(repo.root, ["push"]);
+	const synced = await gitStatus(repo.root, true);
+	assert.equal(synced.branchCommits, void 0);
 });
 
 test("the detail payload carries capped, shortened untracked names", async (t) => {

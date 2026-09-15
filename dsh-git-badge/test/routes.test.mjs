@@ -139,11 +139,15 @@ test("without the optional resolveByPath, a non-member session degrades to 404",
 });
 
 test("detail=1 is honoured at the route level", async (t) => {
-	const { routes } = await setup(t);
+	const { routes, repo } = await setup(t);
+	await repo.write("untracked.txt", "x\n");
 	const res = await get(routes, `?workspace=${WORKSPACE_ID}&detail=1`);
 	const body = JSON.parse(res.text());
-	assert.ok(Array.isArray(body.lastCommits));
-	assert.equal(body.lastCommits[0].subject, "initial");
+	assert.ok(Array.isArray(body.untrackedNames) && body.untrackedNames.includes("untracked.txt"), "detail-only fields ride the flag");
+	// and the base request still carries none of them
+	const base = await get(routes, `?workspace=${WORKSPACE_ID}`);
+	const baseBody = JSON.parse(base.text());
+	assert.equal(baseBody.untrackedNames, void 0);
 });
 
 test("a workspace id wins over a session id when both are supplied", async (t) => {
