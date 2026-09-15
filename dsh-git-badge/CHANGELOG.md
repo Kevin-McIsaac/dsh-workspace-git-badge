@@ -47,6 +47,13 @@ npm. 0.6.0 is the first release recorded here.
   sync arrows: "3 ahead, 0 behind" reads as "this is the PR's content";
   "0 ahead, 5 behind" as "stale, rebase first". Absent entirely when in sync.
 
+- **The branch hover's commit list is signed and base-relative.** One mixed
+  list from `main...HEAD`: entries marked `+` are only on this branch (the
+  PR's content), `\u2212` only on main (what a rebase/merge brings in) — git's
+  own left-right verdict mapped onto the diff convention, sign before the
+  hash. Capped at 10 with the total from the same base; without a default
+  branch it degrades to the plain last 10, unsigned.
+
 - **A commits hover on the branch name.** Hovering the branch lists the
   COMMITS THIS BRANCH ADDS (`log <upstream>..HEAD`) — hash + subject + age,
   capped at 10 with the total from one `rev-list --count` so "… and k more" is
