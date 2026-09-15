@@ -6,4 +6,6 @@ backup-*.js
 # file sandbox that cannot write ~/.dsh). Never commit it: it once reached 11M of
 # untracked store files before anyone noticed.
 /scratch/
+# Per-machine agent memory (memoryfield) — session notes, not repo content.
+/memoryfield/
 
