@@ -1,14 +1,15 @@
 /**
- * Worktree-aware status: the selection rule, the repository-wide open-PR read,
- * the watcher a follow needs, and the route contract that exposes it.
+ * Worktree-aware status, registration-only.
  *
  * The contract has one hard edge. The plugin CANNOT know which worktree a session
- * uses — DSH records no session→worktree link, session cwd is immutable creation
- * metadata, and `attachSession` requires it to equal the workspace path — so the
- * only selection it may make is the one that cannot be ambiguous: a repository
- * with exactly one linked worktree whose branch has an OPEN pull request.
- * Everything else must leave the badge on the directory the session actually
- * names. Most of these tests are therefore about the cases that must NOT swap.
+ * uses — DSH records no session→worktree link and session cwd is immutable
+ * creation metadata — so the ONLY way a session badge follows a linked worktree
+ * is an explicit registration (`dsh-git-badge-checkout <path>`, written by the
+ * agent). There is no inference from pull requests: the badge never guesses.
+ *
+ * The registration is advisory, so most of these tests are about the cases that
+ * must NOT swap: stale entries, paths that are not worktrees, workspace-targeted
+ * rows, and sessions already inside a worktree of their own.
  *
  * No `gh`, no network: `config.prRunner` substitutes for the CLI, exactly as in
  * pr.test.mjs.
@@ -16,7 +17,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { realpath } from "node:fs/promises";
-import { writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	apply,
@@ -24,15 +26,11 @@ import {
 	config,
 	effectiveTarget,
 	gitStatus,
-	openPrsFor,
 	parseWorktreeList,
-	prListState,
 	prState,
 	prStatusFor,
-	readOpenPrs,
 	readWorktrees,
 	runGit,
-	selectSessionWorktree,
 	selectedWorktrees,
 	statusInFlight,
 	syncWatchers,
@@ -109,13 +107,30 @@ function spyOn(t) {
 function clearState(t) {
 	const reset = () => {
 		prState.clear();
-		prListState.clear();
 		selectedWorktrees.clear();
 		statusInFlight.clear();
 		for (const key of [...watchers.keys()]) unwatchWorkspace(key);
 	};
 	reset();
 	t.after(reset);
+}
+
+/**
+ * Register a checkout for a session the way the agent does — through the
+ * store's file, pointed at a per-test temp path by the config seam (no env
+ * mutation, so the suite stays order-independent).
+ */
+function register(t, sessionId, path, { at = new Date().toISOString(), sessions } = {}) {
+	const dir = mkdtempSync(join(tmpdir(), "dsh-git-badge-checkout-"));
+	const file = join(dir, "session-checkouts.json");
+	const body = sessions ?? { [sessionId]: { path, at } };
+	writeFileSync(file, JSON.stringify({ schema: "dsh-git-badge/session-checkout/v1", sessions: body }));
+	const previous = config.sessionCheckoutsFile;
+	config.sessionCheckoutsFile = file;
+	t.after(() => {
+		config.sessionCheckoutsFile = previous;
+	});
+	return file;
 }
 
 /** Registered-workspace repo plus the captured routes, as routes.test.mjs builds it. */
@@ -215,245 +230,105 @@ test("readWorktrees degrades to no worktrees when git cannot answer", async (t) 
 });
 
 //#endregion
-//#region selection rule
 
-const MAIN = { path: "/repo", name: "repo", branch: "main", detached: false, bare: false, prunable: false };
-const linked = (name, branch, overrides = {}) => ({
-	path: `/repo/.wt/${name}`,
-	name,
-	branch,
-	detached: false,
-	bare: false,
-	prunable: false,
-	...overrides
-});
+//#region effectiveTarget (registration only)
 
-test("selectSessionWorktree takes the single worktree whose branch has an open PR", () => {
-	const two = linked("two", "feat/two");
-	assert.equal(selectSessionWorktree([MAIN, two], new Map([["feat/two", { number: 1 }]]), "/repo"), two);
-});
-
-test("selectSessionWorktree refuses an ambiguous repository", () => {
-	const map = new Map([
-		["feat/two", { number: 1 }],
-		["feat/three", { number: 2 }]
-	]);
-	const picked = selectSessionWorktree([MAIN, linked("two", "feat/two"), linked("three", "feat/three")], map, "/repo");
-	assert.equal(picked, void 0, "two candidates is a reason to say nothing, not to guess");
-});
-
-test("selectSessionWorktree never picks the checkout itself, a detached head or an unusable entry", () => {
-	const map = new Map([
-		["main", { number: 1 }],
-		["feat/detached", { number: 2 }],
-		["feat/bare", { number: 3 }],
-		["feat/gone", { number: 4 }],
-		["feat/ok", { number: 5 }]
-	]);
-	// each of these would be the single candidate if its flag were ignored: the
-	// branch IS in the map, so only the exclusion can produce silence
-	assert.equal(selectSessionWorktree([MAIN], map, "/repo"), void 0);
-	assert.equal(selectSessionWorktree([MAIN, linked("detached", "feat/detached", { detached: true })], map, "/repo"), void 0);
-	assert.equal(selectSessionWorktree([MAIN, linked("bare", "feat/bare", { bare: true })], map, "/repo"), void 0);
-	assert.equal(selectSessionWorktree([MAIN, linked("gone", "feat/gone", { prunable: true })], map, "/repo"), void 0);
-	// a branch with no PR is not a candidate either, and an empty map is silence
-	assert.equal(selectSessionWorktree([MAIN, linked("two", "feat/other")], map, "/repo"), void 0);
-	assert.equal(selectSessionWorktree([MAIN, linked("ok", "feat/ok")], new Map(), "/repo"), void 0);
-	assert.equal(selectSessionWorktree([MAIN, linked("ok", "feat/ok")], void 0, "/repo"), void 0);
-});
-
-//#endregion
-//#region open-PR list
-
-test("readOpenPrs keys the repository's open PRs by head branch", async (t) => {
-	const repo = await githubRepo(t);
-	stubForge(t, {
-		list: [
-			...openPrBody("feat/two", { number: 2 }),
-			...openPrBody("feat/three", { number: 3, conclusion: "FAILURE" }),
-			// rows gh can return but the chip cannot use
-			{ number: 4, state: "OPEN" },
-			{ headRefName: "feat/no-number", state: "OPEN" }
-		]
-	});
-	const byBranch = await readOpenPrs(repo.root);
-	assert.deepEqual([...byBranch.keys()].sort(), ["feat/three", "feat/two"]);
-	assert.equal(byBranch.get("feat/three").state, "failing");
-	assert.equal(byBranch.get("feat/three").number, 3);
-});
-
-test("readOpenPrs is an empty map for every failure shape, never an error", async (t) => {
-	const repo = await githubRepo(t);
-	// gh ran and refused
-	config.prRunner = () => Promise.resolve({ stdout: null, exitCode: 1 });
-	t.after(() => {
-		config.prRunner = null;
-	});
-	assert.equal((await readOpenPrs(repo.root)).size, 0);
-	// unparseable output
-	config.prRunner = () => Promise.resolve({ stdout: "not json" });
-	assert.equal((await readOpenPrs(repo.root)).size, 0);
-	// a JSON body of the wrong shape
-	config.prRunner = () => Promise.resolve({ stdout: JSON.stringify({ nope: true }) });
-	assert.equal((await readOpenPrs(repo.root)).size, 0);
-	// a missing binary
-	config.prRunner = () => Promise.resolve({ stdout: null, missing: true });
-	assert.equal((await readOpenPrs(repo.root)).size, 0);
-});
-
-test("a non-GitHub origin never spawns gh", async (t) => {
-	const repo = await makeRepo(t);
-	await repo.commit("initial");
-	const { calls } = stubForge(t, { list: openPrBody("feat/two") });
-	assert.equal((await readOpenPrs(repo.root)).size, 0);
-	assert.equal(calls.length, 0);
-});
-
-test("openPrsFor serves the cached set and refreshes it out of band", async (t) => {
-	clearState(t);
-	const repo = await githubRepo(t);
-	const { calls, state } = stubForge(t, { list: openPrBody("feat/two") });
-	// first call: nothing cached, so it answers nothing and spawns the refresh
-	assert.equal(openPrsFor(repo.root, () => {}), void 0);
-	await waitFor(() => prListState.get(repo.root)?.value !== void 0);
-	assert.equal(calls.length, 1);
-	// fresh window: the same answer without a second forge call
-	assert.equal(openPrsFor(repo.root, () => {}).get("feat/two").number, 391);
-	assert.equal(calls.length, 1);
-	// lapse the window with a CHANGED set: the refresh lands and notifies, because a
-	// changed set can change which worktree a session badge follows
-	const notifications = [];
-	state.list = openPrBody("feat/two", { number: 392 });
-	prListState.get(repo.root).lastAttemptAt = 0;
-	openPrsFor(repo.root, (key) => notifications.push(key));
-	await waitFor(() => prListState.get(repo.root)?.value?.get("feat/two")?.number === 392);
-	assert.equal(calls.length, 2);
-	assert.deepEqual(notifications, [repo.root]);
-});
-
-//#endregion
-//#region effectiveTarget
-
-test("a session badge follows the one linked worktree whose branch has an open PR", async (t) => {
+test("a session badge follows its registered worktree", async (t) => {
 	clearState(t);
 	const repo = await githubRepo(t);
 	const tree = await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
-	stubForge(t, { list: openPrBody("feat/tree") });
-	const target = { id: WORKSPACE_ID, path: repo.root };
-	// the first request has no cached PR list yet: it answers with the session's own
-	// directory and spawns the refresh, exactly as the PR region serves stale-then-
-	// corrected — the chip picks the tree up on the notify that follows
-	assert.equal((await effectiveTarget(target, true, true, () => {})).path, repo.root);
-	await waitFor(() => prListState.get(repo.root)?.value !== void 0);
-	const effective = await effectiveTarget(target, true, true, () => {});
-	assert.equal(effective.id, WORKSPACE_ID, "the workspace id is untouched: clients match SSE events on it");
+	register(t, SESSION_ID, tree);
+	const effective = await effectiveTarget({ id: WORKSPACE_ID, path: repo.root }, SESSION_ID);
 	assert.equal(effective.path, await realpath(tree));
 	assert.deepEqual(effective.worktree, { name: "linked-tree", branch: "feat/tree" });
+	// the follow needs its own watcher: a worktree is usually not a registered workspace
+	assert.ok(watchers.has(await realpath(tree)), "a followed worktree must be watched");
 });
 
-test("the swapped status describes the worktree, not the session's own checkout", async (t) => {
+test("without a registration the badge stays on the session's own checkout", async (t) => {
 	clearState(t);
 	const repo = await githubRepo(t);
 	const tree = await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
-	writeFileSync(join(tree, "work.txt"), "work\n");
-	stubForge(t, { list: openPrBody("feat/tree") });
-	const target = { id: WORKSPACE_ID, path: repo.root };
-	await effectiveTarget(target, true, true, () => {});
-	await waitFor(() => prListState.get(repo.root)?.value !== void 0);
-	const effective = await effectiveTarget(target, true, true, () => {});
-	const info = await gitStatus(effective.path, false, true);
-	// the PR read answers from cache and refreshes out of band, so the first call
-	// after a swap carries no `pr` — warm it the way the chip does, by asking again
-	await waitFor(() => prStatusFor(effective.path, "feat/tree", () => {}) !== void 0);
-	const settled = await gitStatus(effective.path, false, true);
-	assert.equal(info.branch, "feat/tree");
-	assert.equal(info.isWorktree, true);
-	assert.equal(info.worktreeName, "linked-tree");
-	assert.equal(info.untrackedFiles, 1);
-	assert.equal(settled.pr.number, 391);
-	// and the checkout the session names is untouched by any of it
-	const own = await gitStatus(target.path, false, false);
-	assert.equal(own.branch, "main");
-	assert.equal(own.isWorktree, false);
-	assert.equal(own.untrackedFiles, 0);
+	const effective = await effectiveTarget({ id: WORKSPACE_ID, path: repo.root }, SESSION_ID);
+	assert.equal(effective.path, repo.root, "no registration, no follow");
+	assert.equal(watchers.has(await realpath(tree)), false);
 });
 
-test("a workspace-targeted row never follows a worktree", async (t) => {
+test("a workspace-targeted request never follows a worktree", async (t) => {
 	clearState(t);
 	const repo = await githubRepo(t);
-	await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
-	const { calls } = stubForge(t, { list: openPrBody("feat/tree") });
-	const target = { id: WORKSPACE_ID, path: repo.root };
-	const effective = await effectiveTarget(target, false, true, () => {});
-	assert.equal(effective.path, repo.root);
+	const tree = await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
+	register(t, SESSION_ID, tree);
+	const effective = await effectiveTarget({ id: WORKSPACE_ID, path: repo.root }, void 0);
+	assert.equal(effective.path, repo.root, "a row surveys the checkout the registry owns");
 	assert.equal(effective.worktree, void 0);
-	assert.equal(calls.length, 0, "a row must not even consult the forge about a worktree");
 });
 
-test("a repository with no linked worktree costs no forge call", async (t) => {
+test("a stale registration is ignored", async (t) => {
 	clearState(t);
 	const repo = await githubRepo(t);
-	const { calls } = stubForge(t, { list: openPrBody("feat/tree") });
-	const target = { id: WORKSPACE_ID, path: repo.root };
-	const effective = await effectiveTarget(target, true, true, () => {});
-	assert.equal(effective.path, repo.root);
-	assert.equal(calls.length, 0, "no worktrees means the selection can never fire, so gh is never asked");
+	const tree = await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
+	register(t, SESSION_ID, tree, { at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString() });
+	const effective = await effectiveTarget({ id: WORKSPACE_ID, path: repo.root }, SESSION_ID);
+	assert.equal(effective.path, repo.root, "older than the 24h TTL");
 });
 
-test("a caller not asking about PR state is left alone", async (t) => {
+test("a registration that names a non-worktree is ignored", async (t) => {
 	clearState(t);
 	const repo = await githubRepo(t);
 	await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
-	const { calls } = stubForge(t, { list: openPrBody("feat/tree") });
-	const target = { id: WORKSPACE_ID, path: repo.root };
-	assert.equal((await effectiveTarget(target, true, false, () => {})).path, repo.root);
-	assert.equal(calls.length, 0);
+	register(t, SESSION_ID, join(repo.root, "not-a-worktree"));
+	const effective = await effectiveTarget({ id: WORKSPACE_ID, path: repo.root }, SESSION_ID);
+	assert.equal(effective.path, repo.root, "git's worktree list is the authority, not the file");
 });
 
 test('worktreeStatus "off" restores the plain checkout', async (t) => {
 	clearState(t);
 	const repo = await githubRepo(t);
 	const tree = await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
-	stubForge(t, { list: openPrBody("feat/tree") });
-	const target = { id: WORKSPACE_ID, path: repo.root };
-	await effectiveTarget(target, true, true, () => {});
-	await waitFor(() => prListState.get(repo.root)?.value !== void 0);
+	register(t, SESSION_ID, tree);
+	const previous = config.worktreeStatus;
 	config.worktreeStatus = "off";
 	t.after(() => {
-		config.worktreeStatus = "auto";
+		config.worktreeStatus = previous;
 	});
-	assert.equal((await effectiveTarget(target, true, true, () => {})).path, repo.root);
-	assert.equal(selectedWorktrees.size, 0, "and the follow is retired");
+	const effective = await effectiveTarget({ id: WORKSPACE_ID, path: repo.root }, SESSION_ID);
+	assert.equal(effective.path, repo.root);
+	assert.equal(watchers.has(await realpath(tree)), false);
 });
 
 test("a session already inside a linked worktree is never swapped sideways", async (t) => {
 	clearState(t);
 	const repo = await githubRepo(t);
+	const mine = await repo.worktreeAdd({ name: "mine", branch: "feat/mine" });
+	const other = await repo.worktreeAdd({ name: "other", branch: "feat/other" });
+	register(t, SESSION_ID, other);
+	const effective = await effectiveTarget({ id: WORKSPACE_ID, path: mine }, SESSION_ID);
+	assert.equal(effective.path, mine, "the session's own directory IS the answer");
+});
+
+test("the swapped status describes the worktree, not the session's own checkout", async (t) => {
+	clearState(t);
+	const repo = await githubRepo(t);
 	const tree = await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
-	const other = await repo.worktreeAdd({ name: "other-tree", branch: "feat/other" });
-	stubForge(t, { list: openPrBody("feat/other") });
-	// the session's own directory IS a worktree: its own answer, even though a
-	// SIBLING worktree is the one with the open PR
-	const target = { id: WORKSPACE_ID, path: tree };
-	await effectiveTarget(target, true, true, () => {});
-	await waitFor(() => prListState.get(repo.root)?.value !== void 0);
-	const effective = await effectiveTarget(target, true, true, () => {});
-	assert.equal(effective.path, tree);
-	assert.equal(effective.worktree, void 0);
-	assert.ok(other);
+	register(t, SESSION_ID, tree);
+	const effective = await effectiveTarget({ id: WORKSPACE_ID, path: repo.root }, SESSION_ID);
+	const info = await gitStatus(effective.path);
+	assert.equal(info.git, true);
+	assert.equal(info.branch, "feat/tree");
+	assert.equal(info.isWorktree, true);
+	assert.equal(info.worktreeName, "linked-tree");
 });
 
 //#endregion
 //#region watchers for a followed worktree
 
-test("the followed worktree is watched, and its events name the owning workspace", async (t) => {
+test("the registered worktree is watched, and its events name the owning workspace", async (t) => {
 	clearState(t);
 	const { repo, entities } = await setup(t);
 	const tree = await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
-	stubForge(t, { list: openPrBody("feat/tree") });
-	await effectiveTarget(entities[0], true, true, () => {});
-	await waitFor(() => prListState.get(repo.root)?.value !== void 0);
-	await effectiveTarget(entities[0], true, true, () => {});
+	register(t, SESSION_ID, tree);
+	await effectiveTarget(entities[0], SESSION_ID);
 	const record = watchers.get(await realpath(tree));
 	assert.ok(record, "a followed worktree needs its own watcher: it is usually not a registered workspace");
 	assert.equal(
@@ -469,18 +344,16 @@ test("the followed worktree is watched, and its events name the owning workspace
 	assert.equal(seen[0].workspace, WORKSPACE_ID);
 });
 
-test("syncWatchers keeps a followed worktree and retires an unregistered owner", async (t) => {
+test("syncWatchers keeps a registered follow and retires an unregistered owner", async (t) => {
 	clearState(t);
 	const { repo, entities, routes } = await setup(t);
 	const tree = await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
-	stubForge(t, { list: openPrBody("feat/tree") });
-	await effectiveTarget(entities[0], true, true, () => {});
-	await waitFor(() => prListState.get(repo.root)?.value !== void 0);
-	await effectiveTarget(entities[0], true, true, () => {});
+	register(t, SESSION_ID, tree);
+	await effectiveTarget(entities[0], SESSION_ID);
 	assert.ok(watchers.has(await realpath(tree)));
 	// a reconcile is what an SSE connect runs: it must not tear the follow down
 	syncWatchers({ workspaceRegistry: { list: () => entities } });
-	assert.ok(watchers.has(await realpath(tree)), "syncWatchers must keep a live selection");
+	assert.ok(watchers.has(await realpath(tree)), "syncWatchers must keep a live follow");
 	// with the workspace gone, the reconcile retires both the owner and its follow
 	syncWatchers({ workspaceRegistry: { list: () => [] } });
 	assert.equal(watchers.has(await realpath(tree)), false);
@@ -488,22 +361,17 @@ test("syncWatchers keeps a followed worktree and retires an unregistered owner",
 	assert.ok(routes.has("/api/git-badge"));
 });
 
-test("a follow is retired when the PR list no longer offers the worktree", async (t) => {
+test("a follow is retired when the registration is cleared", async (t) => {
 	clearState(t);
 	const { repo, entities } = await setup(t);
 	const tree = await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
-	const { state } = stubForge(t, { list: openPrBody("feat/tree") });
-	await effectiveTarget(entities[0], true, true, () => {});
-	await waitFor(() => prListState.get(repo.root)?.value !== void 0);
-	assert.equal((await effectiveTarget(entities[0], true, true, () => {})).path, await realpath(tree));
+	const file = register(t, SESSION_ID, tree);
+	assert.equal((await effectiveTarget(entities[0], SESSION_ID)).path, await realpath(tree));
 	assert.ok(watchers.has(await realpath(tree)));
-	// the PR merges/closes: no candidate is left, so the badge returns to the
-	// session's own directory and the extra watcher must go with it
-	state.list = [];
-	prListState.get(repo.root).lastAttemptAt = 0;
-	await effectiveTarget(entities[0], true, true, () => {});
-	await waitFor(() => prListState.get(repo.root)?.value?.size === 0);
-	const effective = await effectiveTarget(entities[0], true, true, () => {});
+	// the agent clears it (worktree removed, session moved back): the extra
+	// watcher must go with the follow
+	writeFileSync(file, JSON.stringify({ schema: "dsh-git-badge/session-checkout/v1", sessions: {} }));
+	const effective = await effectiveTarget(entities[0], SESSION_ID);
 	assert.equal(effective.path, repo.root);
 	assert.equal(watchers.has(await realpath(tree)), false);
 	assert.equal(selectedWorktrees.size, 0);
@@ -512,21 +380,21 @@ test("a follow is retired when the PR list no longer offers the worktree", async
 //#endregion
 //#region route + caches
 
-test("the route swaps a session target onto the worktree and says so", async (t) => {
+test("the route swaps a session target onto the registered worktree and says so", async (t) => {
 	clearState(t);
 	const { repo, routes } = await setup(t);
 	const tree = await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
+	register(t, SESSION_ID, tree);
 	stubForge(t, { list: openPrBody("feat/tree") });
-	// warm the two TTL caches the way the chip does, then take the answer it sees
-	const treeReal = await realpath(tree);
+	// the PR read is TTL-bounded and out of band: the first request spawns it and
+	// answers without, the second carries it — exactly what the chip sees
 	await get(routes, `?session=${SESSION_ID}&pr=1`);
-	await waitFor(() => prListState.get(repo.root)?.value !== void 0);
-	await waitFor(() => prStatusFor(treeReal, "feat/tree", () => {}) !== void 0);
+	await waitFor(async () => (await prStatusFor(await realpath(tree), "feat/tree", () => {})) !== void 0);
 	const body = JSON.parse((await get(routes, `?session=${SESSION_ID}&pr=1`)).text());
 	assert.equal(body.branch, "feat/tree");
 	assert.equal(body.isWorktree, true);
 	assert.equal(body.worktreeName, "linked-tree");
-	assert.equal(body.worktreeInferred, true);
+	assert.equal(body.worktreeFollowed, true);
 	assert.equal(body.pr.number, 391);
 	// the workspace id is still echoed for SSE attribution
 	assert.equal(body.workspace, WORKSPACE_ID);
@@ -535,34 +403,32 @@ test("the route swaps a session target onto the worktree and says so", async (t)
 test("the route leaves a workspace target on its own checkout", async (t) => {
 	clearState(t);
 	const { repo, routes } = await setup(t);
-	await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
+	const tree = await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
+	register(t, SESSION_ID, tree);
 	stubForge(t, { list: openPrBody("feat/tree") });
-	await get(routes, `?session=${SESSION_ID}&pr=1`);
-	await waitFor(() => prListState.get(repo.root)?.value !== void 0);
 	const body = JSON.parse((await get(routes, `?workspace=${WORKSPACE_ID}&pr=1`)).text());
 	assert.equal(body.branch, "main");
-	assert.equal(body.worktreeInferred, void 0);
+	assert.equal(body.worktreeFollowed, void 0);
 	assert.equal("pr" in body, false, "a row never gets the worktree's PR either");
 });
 
 test("the hover card's checkout row is served only with detail=1", async (t) => {
 	clearState(t);
 	const { repo, routes } = await setup(t);
-	await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
+	const tree = await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
+	register(t, SESSION_ID, tree);
 	writeFileSync(join(repo.root, "dirty.txt"), "dirty\n");
-	stubForge(t, { list: openPrBody("feat/tree") });
-	await get(routes, `?session=${SESSION_ID}&pr=1`);
-	await waitFor(() => prListState.get(repo.root)?.value !== void 0);
 	// the chip's own request (pr only) carries no checkout: the card's extras are
 	// lazy, and this is one of them
 	const plain = JSON.parse((await get(routes, `?session=${SESSION_ID}&pr=1`)).text());
 	assert.equal("checkout" in plain, false);
 	const detailed = JSON.parse((await get(routes, `?session=${SESSION_ID}&pr=1&detail=1`)).text());
-	assert.equal(detailed.worktreeInferred, true);
+	assert.equal(detailed.worktreeFollowed, true);
 	assert.equal(detailed.checkout.branch, "main");
 	assert.equal(detailed.checkout.untrackedFiles, 1);
 	assert.equal(detailed.branch, "feat/tree", "the badge still describes the worktree");
 });
+
 
 test("identical concurrent status reads collapse into one git invocation", async (t) => {
 	clearState(t);

@@ -5,7 +5,8 @@
   "type": "module",
   "main": "lib/index.js",
   "bin": {
-    "dsh-git-badge-seam": "seam/apply.js"
+    "dsh-git-badge-seam": "seam/apply.js",
+    "dsh-git-badge-checkout": "seam/checkout.js"
   },
   "exports": {
     ".": "./lib/index.js",
@@ -56,6 +57,7 @@
     "package.json",
     "seam/anchors.js",
     "seam/apply.js",
+    "seam/checkout.js",
     "seam/postinstall.js",
     "seam/skill.js",
     "seam/store.js",

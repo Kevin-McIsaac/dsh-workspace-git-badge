@@ -436,9 +436,9 @@ window.__ModuleLoader__.load({
 				"aria-label":
 					(isWorktree ? "git worktree: " : "git: ") +
 					STATUS_LABEL[status] +
-					// an inferred checkout is not where the conversation lives, so the
-					// accessible name says where the fact came from
-					(info.worktreeInferred === true ? " (inferred from an open pull request in this repository)" : ""),
+					// a followed checkout is not where the conversation lives, and the
+					// accessible name says so — the session registered it explicitly
+					(info.worktreeFollowed === true ? " (registered for this session)" : ""),
 				focusable: "false",
 				style: { flex: "none", display: "block", color: META_STYLE.color }
 			};
@@ -585,7 +585,7 @@ window.__ModuleLoader__.load({
 				const checkout = [name === "" ? String(info.branch) : name + " on " + info.branch];
 				// the node half followed this tree because it is the one whose branch
 				// has the open PR — say so, because nothing on the row can
-				if (info.worktreeInferred === true) checkout.push("its branch has the open pull request");
+
 				bits.push("checkout: " + checkout.join(" \u00B7 "));
 			}
 			const pr = formatPrDetail(info.pr);
@@ -623,7 +623,7 @@ window.__ModuleLoader__.load({
 
 		/**
 		 * The `checkout` row: the directory the CONVERSATION itself names, present
-		 * only when the badge is describing an inferred worktree instead. The chip's
+		 * only when the badge is describing a FOLLOWED worktree instead. The chip's
 		 * branch and counts are the tree's in that case, so without this row the
 		 * checkout's own state is nowhere on screen. Branch, then files (or "clean"),
 		 * then sync counts only when they are nonzero — the chip's own rule.
@@ -642,15 +642,13 @@ window.__ModuleLoader__.load({
 		 * The `worktree` row: WHICH linked worktree the badge is describing. The chip
 		 * names only the branch (see the note above formatOperationToken), so the
 		 * card is the one place a tree is identified — the mark's shape can only say
-		 * *that* the checkout is a worktree, never which. An inferred follow also says
-		 * why, because "which tree" and "why this tree" are different questions and
-		 * the second is the one a reader will ask.
+		 * *that* the checkout is a worktree, never which.
 		 */
 		function worktreeDetail(info) {
 			if (info === void 0 || info === null || info.isWorktree !== true) return void 0;
 			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
 			if (name === "") return void 0;
-			return info.worktreeInferred === true ? name + " (inferred from its open pull request)" : name;
+			return name;
 		}
 
 		const CARD_CONTAINER = {
@@ -880,10 +878,10 @@ window.__ModuleLoader__.load({
 			// the branch alone, so this row is the only place the tree is named.
 			add("worktree", worktreeDetail(data));
 			// The conversation's OWN directory, present only when the badge is
-			// describing an inferred worktree — the chip's branch and counts are the
+			// describing a followed worktree — the chip's branch and counts are the
 			// tree's in that case, so this is where the checkout's own state stays
 			// visible. Absent until the `detail=1` response lands, like commits/stash.
-			if (data.worktreeInferred === true) add("checkout", formatCheckoutDetail(data.checkout));
+			if (data.worktreeFollowed === true) add("checkout", formatCheckoutDetail(data.checkout));
 			add("stash", data.stashCount === void 0 ? void 0 : data.stashCount + " stashed");
 			return react_jsx_runtime.jsx("div", { style: CARD_CONTAINER, children: rows });
 		}
