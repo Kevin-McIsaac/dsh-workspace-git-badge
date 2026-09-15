@@ -69,6 +69,16 @@ unstaged / untracked / unmerged), plus any in-progress operation marker
   --squash`), the repo's stated convention. Confirm with the user before
   merging; afterwards report the merge and offer to update the local main.
 
+- **`/gh stash pop`** — with stashes present: show the top entry's subject,
+  confirm with the user, then `git stash pop`. If pop conflicts, report the
+  conflict verbatim and note that the stash is NOT dropped — suggest
+  `git stash apply` as the retry that keeps it.
+
+- **`/gh checkout <branch>`** — switch to an existing local branch. Establish
+  state first: uncommitted changes may block or travel with the checkout — say
+  what is dirty and confirm the switch when work would carry over. Unknown
+  branch → say so and list the closest local names.
+
 - **`/gh order`** — reconfigure which action class the badge ranks first. The
   order is one line of JSON at `~/.dsh/git-badge-next.json`:
   `{ "order": ["operation", "unmerged", "sync", "publish", "merge", "commit",

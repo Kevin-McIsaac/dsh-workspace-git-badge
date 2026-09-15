@@ -12,6 +12,23 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Added
 
+- **Merge-blocker phrasing in the branch hover.** A `BLOCKED` verdict says why
+  — `blocked: review required`, `blocked: checks failing`, `blocked: draft` —
+  combined with the ahead/behind-main counts when both apply, so a dead-end
+  word names the next action. CLEAN stays silent: the action row already
+  offers `/gh merge`.
+
+- **Staged names in the count's hover.** The stacked column gains a `staged:`
+  section above `unstaged` and `untracked`, completing the ✎n story — and
+  pairing with `/gh commit` when work is already staged.
+
+- **Two new `gh` verbs:** `/gh stash pop` (shows the top stash's subject,
+  confirms, and on conflict reports that the stash was NOT dropped) and
+  `/gh checkout <branch>` (states what is dirty and confirms when work would
+  carry over).
+
+### Added
+
 - **Unstaged names join the count's hover.** The ✎n tooltip stacks one column
   with two sub-headers — `unstaged` (tracked, edited files; valid regardless of
   the collapsed-untracked retry) above `untracked` — each capped at 20 with the

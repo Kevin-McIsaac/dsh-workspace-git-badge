@@ -679,6 +679,11 @@ window.__ModuleLoader__.load({
 		function CountNames({ info }) {
 			const sections = [
 				{
+					label: "staged",
+					names: info?.stagedNames,
+					total: info?.stagedNamesTotal
+				},
+				{
 					label: "unstaged",
 					names: info?.unstagedNames,
 					total: info?.unstagedNamesTotal
@@ -761,13 +766,27 @@ window.__ModuleLoader__.load({
 			}
 			// The merge-state row, in WORDS (deliberately not arrows — the sync
 			// row above already uses ↑↓ for the push axis, and two arrow pairs
-			// with different references would be read as one). "merge:" is its
-			// label because it is the merge axis — the counterpart of "sync:",
+			// with different references would be read as one). "merge" is its
+			// label because it is the merge axis — the counterpart of "sync",
 			// the push axis — and it stays correct whatever the default branch
-			// is named.
-			if (info?.mainAhead !== void 0 || info?.mainBehind !== void 0) {
-				add("merge", (info.mainAhead || 0) + " ahead, " + (info.mainBehind || 0) + " behind main");
+			// is named. A BLOCKED verdict becomes the reason (review required,
+			// checks failing, draft) so a dead-end word names the next action;
+			// CLEAN stays silent — the action row already offers /gh merge.
+			const pr = info?.pr;
+			const mergeParts = [];
+			if (pr !== void 0 && pr !== null && pr.number !== void 0) {
+				if (pr.draft === true) mergeParts.push("blocked: draft");
+				else if (pr.mergeState === "BLOCKED") {
+					mergeParts.push(pr.review === "REVIEW_REQUIRED" ? "blocked: review required"
+						: pr.state === "failing" ? "blocked: checks failing"
+						: "blocked");
+				} else if (pr.state === "failing") mergeParts.push("blocked: checks failing");
+				else if (pr.mergeState !== "CLEAN" && pr.review === "REVIEW_REQUIRED") mergeParts.push("blocked: review required");
 			}
+			if (info?.mainAhead !== void 0 || info?.mainBehind !== void 0) {
+				mergeParts.push((info.mainAhead || 0) + " ahead, " + (info.mainBehind || 0) + " behind main");
+			}
+			if (mergeParts.length > 0) add("merge", mergeParts.join(" \u00B7 "));
 			const commits = info?.branchCommits;
 			if (Array.isArray(commits) && commits.length > 0) {
 				// Full-width block, not the label/value two-column row: commit lines

@@ -533,6 +533,7 @@ function parseStatusV2(out) {
 	let untracked = 0;
 	const untrackedNames = [];
 	const unstagedNames = [];
+	const stagedNames = [];
 	for (const line of out.split("\n")) {
 		if (line.startsWith("# branch.head ")) branch = line.slice(14).trim();
 		else if (line.startsWith("# branch.upstream ")) upstream = line.slice(18).trim();
@@ -545,7 +546,13 @@ function parseStatusV2(out) {
 			if (Number.isFinite(b)) behind = b;
 		} else if (line.startsWith("1 ") || line.startsWith("2 ")) {
 			// XY columns: X = index (staged), Y = worktree (unstaged)
-			if (line[2] !== ".") staged += 1;
+			if (line[2] !== ".") {
+				staged += 1;
+				const path = line.startsWith("2 ")
+					? line.split("\t").pop().trim()
+					: line.split(" ").slice(8).join(" ").trim();
+				if (path !== "") stagedNames.push(path);
+			}
 			if (line[3] !== ".") {
 				unstaged += 1;
 				// the path is the LAST field in both records (space-separated, and
@@ -566,7 +573,7 @@ function parseStatusV2(out) {
 			if (name !== "") untrackedNames.push(name);
 		}
 	}
-	return { branch, upstream, ahead, behind, staged, unstaged, unmerged, untracked, untrackedNames, unstagedNames };
+	return { branch, upstream, ahead, behind, staged, unstaged, unmerged, untracked, untrackedNames, unstagedNames, stagedNames };
 }
 
 /**
@@ -928,15 +935,19 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 			info.untrackedNames = parsed.untrackedNames.slice(0, 20).map(shorthen);
 			info.untrackedNamesTotal = parsed.untrackedNames.length;
 		}
-		// unstaged names are TRACKED files: the collapsed untracked retry never
-		// affects them, so they ride regardless of untrackedMode
+		// unstaged and staged names are TRACKED files: the collapsed untracked
+		// retry never affects them, so they ride regardless of untrackedMode
+		const shorten = (name) => {
+			const parts = name.split("/");
+			return parts.length <= 2 ? name : parts.slice(-2).join("/");
+		};
 		if (parsed.unstagedNames.length > 0) {
-			const shorthen = (name) => {
-				const parts = name.split("/");
-				return parts.length <= 2 ? name : parts.slice(-2).join("/");
-			};
-			info.unstagedNames = parsed.unstagedNames.slice(0, 20).map(shorthen);
+			info.unstagedNames = parsed.unstagedNames.slice(0, 20).map(shorten);
 			info.unstagedNamesTotal = parsed.unstagedNames.length;
+		}
+		if (parsed.stagedNames.length > 0) {
+			info.stagedNames = parsed.stagedNames.slice(0, 20).map(shorten);
+			info.stagedNamesTotal = parsed.stagedNames.length;
 		}
 		// The branch's recent commits — WHAT THIS BRANCH HAS, full stop: the last
 		// 10 on HEAD, newest first, no base-relative filtering (against upstream
