@@ -10,6 +10,17 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Changed
+
+- **The chip's hover card top line is now an `action:` row** — the gh skill
+  invocation the checkout justifies (e.g. `/gh push`), in the card's ordinary
+  label/value layout, replacing the next-step line's why-plus-copy-chip. The
+  actionable surface remains the (+) menu's `/gh` picker; the card row is its
+  read-only pointer.
+- **The branch pull-down is removed from the chip.** The (+) menu's `/gh`
+  picker supersedes it as the actionable surface, and the chip returns to
+  mark + branch + PR token + notice.
+
 ## [0.14.0] - 2026-09-15
 
 ### Added
