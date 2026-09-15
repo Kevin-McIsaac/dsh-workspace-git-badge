@@ -1200,12 +1200,20 @@ window.__ModuleLoader__.load({
 								// Send the invocation: the message lands in the transcript
 								// and the agent executes the gh skill — the approval flow
 								// for anything destructive is the agent's, per the skill
-								// text.
+								// text. The prompt path is the conversation's own: the
+								// sessions service binds a sessionId to { session } and
+								// binding.session.prompt(content, "queue") is exactly what
+								// the composer's send() calls.
 								const sessionId = session?.sessionId;
-								const manager = typeof scope.sessions === "function" ? scope.sessions() : scope.sessions;
-								const target = manager?.get?.(sessionId);
+								const sessions = typeof scope.sessions === "function" ? scope.sessions() : scope.sessions;
+								const binding = sessions?.binding?.(sessionId);
+								const target = binding?.session;
 								if (target?.prompt === void 0) {
-									console.error("[dsh-git-badge] /gh: no prompt path on the session");
+									console.error("[dsh-git-badge] /gh: no prompt path (binding missing or session-less)", {
+										sessionId,
+										hasSessions: sessions !== void 0,
+										hasBinding: binding !== void 0
+									});
 									return;
 								}
 								const result = await target.prompt([{ type: "text", text: "/gh " + option.args }], "queue");
