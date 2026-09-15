@@ -12,6 +12,12 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Changed
 
+- **Skill alignment:** the `gh` skill gains an explicit handoff — one verb per
+  invocation is its whole job; the multi-step PR lifecycle (review, merge,
+  verify, cleanup) belongs to the `gh-pr` skill. The `gh-pr` skill states the
+  mirror scope: one-shot verbs are `gh`'s, lifecycle is its own. The catalog
+  stays global-only; repo conventions stay in `AGENTS.md`.
+
 - **The hover card is 33% wider** (360px → 480px) and its `action:` row now
   carries a trailing what-comment in git-comment convention — e.g.
   `action: /gh push  # push local commits to the remote` — so the row says

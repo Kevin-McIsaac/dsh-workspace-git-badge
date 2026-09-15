@@ -59,6 +59,12 @@ unstaged / untracked / unmerged), plus any in-progress operation marker
 - **`/gh checks <n>`** — `gh pr checks <n>` and summarise: what fails, what is
   pending, and the single most useful next step.
 
+## Handoff
+
+One verb per invocation is this skill's whole job. Anything multi-step around a
+pull request — review, merge, verify it landed, clean up the branch — belongs to
+the `gh-pr` skill; hand off rather than improvise a lifecycle.
+
 ## Hard rules
 
 - Never `git reset --hard`, `git clean`, `git checkout -- .`, `git push
