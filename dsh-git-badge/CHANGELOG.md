@@ -10,6 +10,14 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Changed
+
+- **The hover card is 33% wider** (360px → 480px) and its `action:` row now
+  carries a trailing what-comment in git-comment convention — e.g.
+  `action: /gh push  # push local commits to the remote` — so the row says
+  what the invocation does, not just which invocation it is. The picker in the
+  (+) menu shares the same descriptions.
+
 ## [0.14.1] - 2026-09-15
 
 ### Changed

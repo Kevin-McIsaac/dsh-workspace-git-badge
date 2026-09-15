@@ -242,32 +242,36 @@ window.__ModuleLoader__.load({
 			if (info === void 0 || info === null || info.git !== true) return [];
 			const subs = [];
 			const seen = new Set();
-			const add = (args, why) => {
+			// `what` is the plain-words description shown as the hover card's
+			// trailing comment (`action: /gh push # push local commits …`) — what
+			// the sub-command DOES, as distinct from `why`, which is why THIS
+			// checkout justifies it now.
+			const add = (args, why, what) => {
 				if (seen.has(args)) return;
 				seen.add(args);
-				subs.push({ args, why });
+				subs.push({ args, why, what });
 			};
 			const ahead = info.ahead || 0;
 			const behind = info.behind || 0;
 			const staged = info.stagedFiles || 0;
 			const unstaged = info.unstagedFiles || 0;
 			const untracked = info.untrackedFiles || 0;
-			if (behind > 0) add("pull", behind + " behind " + (info.upstream ?? "upstream"));
-			if (ahead > 0) add("push", ahead + " ahead of " + (info.upstream ?? "upstream"));
-			if (staged > 0) add("commit", staged + " staged");
-			if (unstaged > 0) add("commit", unstaged + " unstaged");
-			if (unstaged === 0 && untracked > 0) add("commit", untracked + " untracked");
+			if (behind > 0) add("pull", behind + " behind " + (info.upstream ?? "upstream"), "update this branch from upstream");
+			if (ahead > 0) add("push", ahead + " ahead of " + (info.upstream ?? "upstream"), "push local commits to the remote");
+			if (staged > 0) add("commit", staged + " staged", "commit the staged changes");
+			if (unstaged > 0) add("commit", unstaged + " unstaged", "stage and commit the working changes");
+			if (unstaged === 0 && untracked > 0) add("commit", untracked + " untracked", "stage the new files and commit them");
 			const pr = info.pr;
 			if (pr !== void 0 && pr !== null && pr.number !== void 0) {
-				if (pr.state === "failing") add("checks " + pr.number, "checks failing on #" + pr.number);
-				add("pr view " + pr.number, "open pull request #" + pr.number);
+				if (pr.state === "failing") add("checks " + pr.number, "checks failing on #" + pr.number, "watch the CI checks on pull request " + pr.number);
+				add("pr view " + pr.number, "open pull request #" + pr.number, "show pull request " + pr.number + " on GitHub");
 			} else if (ahead === 0 && behind === 0 && info.upstream !== void 0 && staged + unstaged + untracked === 0) {
-				add("pr", "branch is pushed and has no pull request");
+				add("pr", "branch is pushed and has no pull request", "open a pull request for this branch");
 			}
 			const next = info.next;
 			if (next !== void 0 && next !== null && typeof next.command === "string"
 				&& !subs.some((entry) => entry.why === next.why)) {
-				add("next", next.why);
+				add("next", next.why, "do the highest-priority git action for this checkout");
 			}
 			return subs.slice(0, 6);
 		}
@@ -695,7 +699,9 @@ window.__ModuleLoader__.load({
 			// this row is the read-only pointer to it.
 			const topAction = ghSkillActions(data)[0];
 			if (topAction !== void 0) {
-				add("action:", "/gh " + topAction.args);
+				// git-comment convention: the invocation, two spaces, then "# "
+				// plus what it does
+				add("action:", "/gh " + topAction.args + "  # " + topAction.what);
 			}
 			add("branch", info.branch);
 			add("upstream", info.upstream === void 0 ? "none configured" : info.upstream);
@@ -803,7 +809,8 @@ window.__ModuleLoader__.load({
 				if (Tooltip === void 0) return mark;
 				return react_jsx_runtime.jsx(Tooltip, {
 					side: "top",
-					maxWidth: 360,
+					// 480 = 360 + 33%: the action row now carries a trailing what-comment
+				maxWidth: 480,
 					// a function label keeps the card's element tree out of every render
 					// until the tooltip actually opens
 					label: () => react_jsx_runtime.jsx(HoverCard, { info, detail }),
