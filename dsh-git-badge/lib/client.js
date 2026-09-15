@@ -666,67 +666,143 @@ window.__ModuleLoader__.load({
 			maxWidth: "600px"
 		};
 		/**
-		 * The ✎n count's own hover body — the untracked list and NOTHING else:
-		 * the full card stays on the status mark, and this tooltip answers the
-		 * one question the count poses ("what are these?"). Reads the same lazy
-		 * detail payload the mark's card uses; when nothing is untracked there
-		 * is no tooltip at all (the count itself is absent when the tree is
-		 * clean, so an empty list is rare — a mid-fetch hover shows it plain
-		 * until the response lands).
+		 * The ✎n count's own hover body — the changed-file lists and NOTHING
+		 * else: the full card stays on the status mark, and this tooltip answers
+		 * the one question the count poses ("what are these?"). One stacked
+		 * column with sub-headers: UNSTAGED (tracked, edited — valid regardless
+		 * of the collapsed untracked retry) then UNTRACKED. Reads the same lazy
+		 * detail payload the mark's card uses; no tooltip at all when neither
+		 * list has names (the count itself is absent on a clean tree, so an
+		 * empty list is rare — a mid-fetch hover shows it plain until the
+		 * response lands).
 		 */
-		function UntrackedList({ info }) {
-			const names = info?.untrackedNames;
-			if (!Array.isArray(names) || names.length === 0) {
-				return react_jsx_runtime.jsx("span", { style: CARD_CONTAINER, children: "no untracked files" });
+		function CountNames({ info }) {
+			const sections = [
+				{
+					label: "unstaged",
+					names: info?.unstagedNames,
+					total: info?.unstagedNamesTotal
+				},
+				{
+					label: "untracked",
+					names: info?.untrackedNames,
+					total: info?.untrackedNamesTotal
+				}
+			].filter((section) => Array.isArray(section.names) && section.names.length > 0);
+			if (sections.length === 0) {
+				return react_jsx_runtime.jsx("span", { style: CARD_CONTAINER, children: "no changed files" });
 			}
-			return react_jsx_runtime.jsxs("div", { style: CARD_CONTAINER, children: [
-				react_jsx_runtime.jsxs("div", { style: CARD_ROW, children: [
-					react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: "untracked" }),
+			return react_jsx_runtime.jsxs("div", { style: CARD_CONTAINER, children:
+				sections.map((section) => react_jsx_runtime.jsxs("div", { style: CARD_ROW, children: [
+					react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: section.label }),
 					react_jsx_runtime.jsx("span", {
 						style: { ...CARD_VALUE, display: "flex", flexDirection: "column", gap: "2px" },
 						children: [
-							...names.map((name) => react_jsx_runtime.jsx("span", { children: name }, name)),
-							(typeof info.untrackedNamesTotal === "number" && info.untrackedNamesTotal > names.length
-								? "\u2026 and " + (info.untrackedNamesTotal - names.length) + " more"
+							...section.names.map((name) => react_jsx_runtime.jsx("span", { children: name }, section.label + name)),
+							(typeof section.total === "number" && section.total > section.names.length
+								? "\u2026 and " + (section.total - section.names.length) + " more"
 								: null)
 						]
 					})
-				] }, "untracked")
-			] });
+				] }, section.label))
+			});
 		}
 
 		/**
-		 * The branch name's own hover body — the COMMITS THIS BRANCH ADDS
-		 * (`log <upstream>..HEAD`), not the card's last-three-overall list: the
-		 * question the branch name poses is "what is on this line of work that
-		 * isn't on upstream". Same lazy detail payload, cap, and "… and k more"
-		 * contract as the count's untracked list; absent when the branch adds
-		 * nothing (up to date) — no tooltip rather than an empty one.
+		 * Compress git's relative age to its shortest honest form: 43 seconds
+		 * ago -> 43s ago, 2 hours ago -> 2h ago, weeks -> w, months -> mo (to
+		 * stay distinct from minutes), years -> y.
 		 */
-		function BranchCommitsList({ info }) {
-			const commits = info?.branchCommits;
-			if (!Array.isArray(commits) || commits.length === 0) {
-				return react_jsx_runtime.jsx("span", { style: CARD_CONTAINER, children: "no commits beyond upstream" });
-			}
-			return react_jsx_runtime.jsxs("div", { style: CARD_CONTAINER, children: [
-				react_jsx_runtime.jsxs("div", { style: CARD_ROW, children: [
-					react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: "commits" }),
-					react_jsx_runtime.jsx("span", {
-						style: { ...CARD_VALUE, display: "flex", flexDirection: "column", gap: "2px" },
+		function shortWhen(when) {
+			return String(when)
+				.replace(/(\d+) seconds? ago/u, "$1s ago")
+				.replace(/(\d+) minutes? ago/u, "$1m ago")
+				.replace(/(\d+) hours? ago/u, "$1h ago")
+				.replace(/(\d+) days? ago/u, "$1d ago")
+				.replace(/(\d+) weeks? ago/u, "$1w ago")
+				.replace(/(\d+) months? ago/u, "$1mo ago")
+				.replace(/(\d+) years? ago/u, "$1y ago");
+		}
+
+		/**
+		 * The branch name's own hover body — the branch's LINEAGE, and it ALWAYS
+		 * renders once the lazy detail payload has landed. Rows: upstream, sync
+		 * in words, the branch's last 10 commits (WHAT THIS BRANCH HAS, full
+		 * stop — no base-relative filtering, which empties on every push or
+		 * merge). The pull request has no row here — the chip's own PR token
+		 * already carries number, CI state and the link.
+		 */
+		function BranchLineage({ info }) {
+			const rows = [];
+			const add = (label, value) => {
+				if (value === void 0 || value === null || value === "") return;
+				rows.push(
+					react_jsx_runtime.jsxs("div", {
+						style: CARD_ROW,
 						children: [
-							...commits.map((commit) => react_jsx_runtime.jsxs("span", {
-								children: [
-									react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: commit.hash }),
-									" " + commit.subject + (commit.when === "" ? "" : " \u00B7 " + commit.when)
-								]
-							}, commit.hash)),
-							(typeof info.branchCommitsTotal === "number" && info.branchCommitsTotal > commits.length
-								? "\u2026 and " + (info.branchCommitsTotal - commits.length) + " more"
-								: null)
+							react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: label }),
+							react_jsx_runtime.jsx("span", { style: CARD_VALUE, children: value })
 						]
-					})
-				] }, "branch-commits")
-			] });
+					}, label)
+				);
+			};
+			add("upstream", info?.upstream === void 0 ? "none configured" : info.upstream);
+			const ahead = info?.ahead || 0;
+			const behind = info?.behind || 0;
+			// The sync row speaks ONLY about the upstream it names: with no
+			// upstream configured there are no ahead/behind counts at all (no
+			// `# branch.ab` header), and falling back to 0/0 would claim "in
+			// sync" — a lie the upstream row directly contradicts. Omit it; the
+			// "none configured" row above carries the fact.
+			if (info?.upstream !== void 0) {
+				add("sync", ahead === 0 && behind === 0
+					? "in sync with upstream"
+					: "\u2191" + ahead + " \u2193" + behind);
+			}
+			// The merge-state row, in WORDS (deliberately not arrows — the sync
+			// row above already uses ↑↓ for the push axis, and two arrow pairs
+			// with different references would be read as one). "merge:" is its
+			// label because it is the merge axis — the counterpart of "sync:",
+			// the push axis — and it stays correct whatever the default branch
+			// is named.
+			if (info?.mainAhead !== void 0 || info?.mainBehind !== void 0) {
+				add("merge", (info.mainAhead || 0) + " ahead, " + (info.mainBehind || 0) + " behind main");
+			}
+			const commits = info?.branchCommits;
+			if (Array.isArray(commits) && commits.length > 0) {
+				// Full-width block, not the label/value two-column row: commit lines
+				// use the card's whole width, and each line is nowrap with CSS
+				// ellipsis so long subjects clip at the edge instead of pushing the
+				// card out. `when` is compressed the way git log users shorten it:
+				// 43 seconds ago -> 43s ago.
+				rows.push(
+					react_jsx_runtime.jsxs("div", {
+						style: { display: "flex", flexDirection: "column", gap: "2px", minWidth: 0 },
+						children:
+							commits.map((commit) => react_jsx_runtime.jsxs("span", {
+								style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+								children: [
+									// fixed-width monospace hash cell: every description starts
+									// on the same column, so the list reads as a table
+									react_jsx_runtime.jsx("span", {
+										style: {
+											color: "var(--dsw-alias-label-tertiary, #9ea7ad)",
+											fontFamily: "monospace",
+											display: "inline-block",
+											minWidth: "60px",
+											flex: "none"
+										},
+										children: commit.hash
+									}),
+									commit.subject + (commit.when === "" ? "" : "  \u00B7 " + shortWhen(commit.when))
+								]
+							}, commit.hash))
+					}, "branch-commits")
+				);
+			}
+			// NO pull-request row: the chip's own PR token (number, CI state, link)
+			// carries it — a second rendering two pixels away is pure duplication.
+			return react_jsx_runtime.jsx("div", { style: CARD_CONTAINER, children: rows });
 		}
 
 		const CARD_ROW = { display: "flex", gap: "8px", alignItems: "baseline" };
@@ -766,16 +842,14 @@ window.__ModuleLoader__.load({
 			if (topAction !== void 0) {
 				// git-comment convention: the invocation, two spaces, then "# "
 				// plus what it does
-				add("action:", "/gh " + topAction.args + "  # " + topAction.what);
+				add("action", "/gh " + topAction.args + "  # " + topAction.what);
 			}
-			add("branch", info.branch);
-			add("upstream", info.upstream === void 0 ? "none configured" : info.upstream);
-			if (info.ahead !== void 0 || info.behind !== void 0) {
-				add("sync", "\u2191" + (info.ahead || 0) + " \u2193" + (info.behind || 0));
-			}
+			// The branch lineage rows (branch, upstream, sync, pull request) moved
+			// to the branch NAME's hover — the card is the checkout's verdict, not
+			// the branch's CV. The branch name is also the chip's own text, so a
+			// card row for it was pure repetition.
 			add("files", formatFileBreakdown(info));
 			add("operation", info.operation === void 0 || info.operation === null ? void 0 : String(info.operation));
-			add("pull request", formatPrDetail(data.pr));
 			// WHICH checkout the badge describes, when it is a worktree. The chip shows
 			// the branch alone, so this row is the only place the tree is named.
 			add("worktree", worktreeDetail(data));
@@ -836,6 +910,11 @@ window.__ModuleLoader__.load({
 			// re-render that no fetch will schedule, so the × bumps a counter here.
 			const [, bumpNotice] = react.useState(0);
 			const seamNotice = seamHint !== null && !seamNoticeDismissed ? seamHint : null;
+			// the branch link's hover underline — the PR token's pattern: the
+			// affordance appears on hover/focus, never at rest. Its OWN state, not
+			// the PR token's linkHover: two links sharing one flag would
+			// underline both when either is hovered.
+			const [branchLinkHover, setBranchLinkHover] = react.useState(false);
 			const detail = useGitStatus(target, { pr: true, detail: true, enabled: hovered });
 			if (info === void 0 || info.git !== true) return null;
 
@@ -870,18 +949,42 @@ window.__ModuleLoader__.load({
 			// surfaces. Degrades to plain text without the Tooltip primitive or
 			// when the branch adds nothing beyond upstream.
 			const branchHover = (() => {
-				const branch = react_jsx_runtime.jsx("span", {
-					onPointerEnter: () => setHovered(true),
-					style: { cursor: "default" },
-					children: info.branch
-				});
-				if (Tooltip === void 0 || !Array.isArray(detail?.branchCommits) || detail.branchCommits.length === 0) {
+				// The branch name links to the compare view (base...branch) — the web
+				// page of exactly what the lineage tooltip lists. Vouched http(s)
+				// only (the node half rebuilt the URL from parsed parts); new tab,
+				// never navigating the conversation away.
+				const isLink = typeof detail?.compareUrl === "string" && detail.compareUrl.startsWith("https://");
+				const branch = isLink
+					? react_jsx_runtime.jsx("a", {
+						href: detail.compareUrl,
+						target: "_blank",
+						rel: "noopener noreferrer",
+						"aria-label": "Compare " + info.branch + " with main on GitHub",
+						onPointerEnter: () => { setHovered(true); setBranchLinkHover(true); },
+						onPointerLeave: () => setBranchLinkHover(false),
+						onFocus: () => { setHovered(true); setBranchLinkHover(true); },
+						onBlur: () => setBranchLinkHover(false),
+						style: {
+							color: "inherit",
+							textDecoration: branchLinkHover ? "underline" : "none",
+							cursor: "pointer"
+						},
+						children: info.branch
+					})
+					: react_jsx_runtime.jsx("span", {
+						onPointerEnter: () => setHovered(true),
+						style: { cursor: "default" },
+						children: info.branch
+					});
+				if (Tooltip === void 0 || detail === void 0 || detail === null) {
+					// mid-fetch the branch shows plain; the lineage tooltip is
+					// unconditional once the payload lands
 					return branch;
 				}
 				return react_jsx_runtime.jsx(Tooltip, {
 					side: "top",
 					maxWidth: 480,
-					label: () => react_jsx_runtime.jsx(BranchCommitsList, { info: detail }),
+					label: () => react_jsx_runtime.jsx(BranchLineage, { info: detail }),
 					children: branch
 				});
 			})();
@@ -896,13 +999,15 @@ window.__ModuleLoader__.load({
 					style: { cursor: "default" },
 					children: formatGitSuffix(info)
 				});
-				if (Tooltip === void 0 || !Array.isArray(detail?.untrackedNames) || detail.untrackedNames.length === 0) {
+				const hasNames = (Array.isArray(detail?.untrackedNames) && detail.untrackedNames.length > 0)
+					|| (Array.isArray(detail?.unstagedNames) && detail.unstagedNames.length > 0);
+				if (Tooltip === void 0 || !hasNames) {
 					return count;
 				}
 				return react_jsx_runtime.jsx(Tooltip, {
 					side: "top",
 					maxWidth: 480,
-					label: () => react_jsx_runtime.jsx(UntrackedList, { info: detail }),
+					label: () => react_jsx_runtime.jsx(CountNames, { info: detail }),
 					children: count
 				});
 			})();

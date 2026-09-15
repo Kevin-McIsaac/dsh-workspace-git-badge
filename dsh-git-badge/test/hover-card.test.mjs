@@ -45,11 +45,12 @@ const DETAIL = {
 	stashCount: 2,
 	untrackedNames: ["notes/todo.txt", "scratch.md"],
 	untrackedNamesTotal: 5,
+	unstagedNames: ["edited.txt"],
+	unstagedNamesTotal: 1,
 	branchCommits: [
 		{ hash: "abc1234", subject: "fix the thing", when: "2 hours ago" },
 		{ hash: "def5678", subject: "add another thing", when: "yesterday" }
-	],
-	branchCommitsTotal: 4
+	]
 };
 
 /**
@@ -148,11 +149,11 @@ test("the boot log says which hover-card path was taken", () => {
 
 //#region the card body
 
-test("the card spells out the base facts, including the file breakdown", () => {
+test("the card spells out the checkout's verdict, including the file breakdown", () => {
+	// branch/upstream/sync moved to the branch name's hover (the lineage surface)
 	const body = card(createClient({ tooltip: true, hover: true }), BASE);
-	assert.ok(body.includes("main"), "branch");
-	assert.ok(body.includes("origin/main"), "upstream");
-	assert.ok(body.includes("\u21911 \u21932"), "ahead/behind");
+	assert.ok(!body.includes("origin/main"), "upstream is lineage, not the card's");
+	assert.ok(!body.includes("\u21911 \u21932"), "sync too");
 	// the chip's single ✎n split into what it actually is
 	assert.ok(body.includes("2 staged"), `staged: ${body}`);
 	assert.ok(body.includes("1 unstaged"), `unstaged: ${body}`);
@@ -166,9 +167,18 @@ test("a clean tree says so rather than rendering an empty breakdown", () => {
 });
 
 test("an unreachable upstream count is labelled, not silently blank", () => {
-	const body = card(createClient({ tooltip: true, hover: true }), { branch: "main", dirty: false });
-	assert.ok(body.includes("none configured"), "a local-only repo must say so");
+	const rendered = client_labels(createClient({ tooltip: true, hover: true }), { branch: "main", dirty: false });
+	assert.ok(rendered.includes("none configured"), "a local-only repo must say so");
 });
+
+/** All hover labels of the chip (mark card + branch lineage + count names). */
+function client_labels(client, base, detail = base) {
+	const rendered = client.rawChip(base, detail);
+	return elements(expand(rendered))
+		.filter((el) => el.type === "Tooltip")
+		.map((el) => text(expand(el.props.label())))
+		.join(" | ");
+}
 
 test("the collapsed untracked fallback is disclosed in the card", () => {
 	// the node half reports which mode answered precisely so this can be said: an
@@ -200,11 +210,19 @@ test("the branch hover lists the commits this branch adds", () => {
 	const rendered = client.rawChip(BASE, DETAIL);
 	const tooltip = elements(expand(rendered)).filter((el) => el.type === "Tooltip");
 	const labels = tooltip.map((el) => text(expand(el.props.label())));
-	// the branch-commits label is commits-only: hash+subject rows and its own
-	// and-k-more (4 total - 2 shown), distinct from the card's commits row
-	const branchLabel = labels.find((l) => l.includes("commits") && l.includes("\u2026 and 2 more"));
-	assert.ok(branchLabel !== void 0, `expected a commits-only label: ${JSON.stringify(labels)}`);
-	assert.ok(!branchLabel.includes("pull request"), "no card content bleeds into it");
+	// the branch hover carries the lineage: upstream, sync in words, the commits
+	// this branch adds, and the pull request
+	// the card's action row ALSO says "upstream"/"commits" (the /gh sync
+	// what-comment), so identify the lineage label by its upstream VALUE
+	// no "commits" heading anymore — the lineage label is identified by its
+	// upstream value and its commit hashes
+	const branchLabel = labels.find((l) => l.includes("origin/main") && l.includes("abc1234"));
+	assert.ok(branchLabel !== void 0, `expected the lineage label: ${JSON.stringify(labels)}`);
+	assert.ok(branchLabel.includes("origin/main"), "upstream row");
+	assert.ok(branchLabel.includes("\u21911 \u21932"), "sync row");
+	assert.ok(branchLabel.includes("abc1234"), "the commits this branch adds (no heading — the lines are the label)");
+	assert.ok(!branchLabel.includes("pull request"), "no PR row: the chip's own token carries it");
+	assert.ok(!branchLabel.includes("2 staged"), "no card content bleeds into it");
 });
 
 test("the detail fields appear only once detail has been fetched", () => {
@@ -259,7 +277,7 @@ test("the card names the conversation's OWN checkout when the badge followed a w
 	const body = card(client, inferred);
 	assert.ok(body.includes("checkout"), `expected the checkout row: ${body}`);
 	assert.ok(body.includes("main \u00B7 \u270E3 \u00B7 \u21911 \u21932"), `expected the checkout's own state: ${body}`);
-	assert.ok(body.includes("chore/global-skills-tiering"), "while the badge's own branch is still the worktree's");
+	assert.ok(!body.includes("chore/global-skills-tiering"), "the branch name lives on the chip, not the card");
 });
 
 test("the card has no checkout row when the badge describes the conversation's own directory", () => {
@@ -335,12 +353,25 @@ test("the session row shows an ACTION, never a PR token or a branch", () => {
 	assert.ok(!rendered.includes("SECRET/BRANCH"), `the row must not name the branch: ${rendered}`);
 });
 
-test("the card describes the PR in words, including review and draft", () => {
-	const body = card(createClient({ tooltip: true, hover: true }), BASE);
-	assert.ok(body.includes("#142"), `PR number: ${body}`);
-	assert.ok(body.includes("checks failing"), `CI state: ${body}`);
-	assert.ok(body.includes("draft"), `draft: ${body}`);
-	assert.ok(body.includes("review required"), `review decision: ${body}`);
+test("the lineage never claims 'in sync' when there is no upstream", () => {
+	// a branch pushed without upstream tracking has NO ahead/behind counts at
+	// all — falling back to 0/0 made the lineage say "in sync with upstream"
+	// one row after "none configured", a direct self-contradiction
+	const noUpstream = { branch: "feat/x", dirty: false, ahead: void 0, behind: void 0 };
+	const client = createClient({ tooltip: true, hover: true });
+	const rendered = client.rawChip(noUpstream, { ...noUpstream });
+	const lineage = elements(expand(rendered))
+		.filter((el) => el.type === "Tooltip")
+		.map((el) => text(expand(el.props.label())))
+		.find((l) => l.includes("none configured"));
+	assert.ok(lineage !== void 0, "the lineage tooltip renders");
+	assert.ok(lineage.includes("none configured"), "upstream row states the fact");
+	assert.ok(!lineage.includes("in sync"), `must not claim sync without an upstream: ${lineage}`);
+});
+
+test("the PR is NOT in any hover: the chip token carries it", () => {
+	const rendered = client_labels(createClient({ tooltip: true, hover: true }), BASE);
+	assert.ok(!rendered.includes("#142"), `no PR row in the hovers: ${rendered}`);
 });
 
 //#endregion

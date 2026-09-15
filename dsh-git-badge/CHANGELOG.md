@@ -12,6 +12,17 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Added
 
+- **Unstaged names join the count's hover.** The ✎n tooltip stacks one column
+  with two sub-headers — `unstaged` (tracked, edited files; valid regardless of
+  the collapsed-untracked retry) above `untracked` — each capped at 20 with the
+  same last-two-segments shortening and "… and k more" arithmetic. The picker
+  question "what are these?" now answers for both halves of the count.
+
+- **The branch hover gains a merge-state row.** `main: N ahead, M behind`
+  against `origin/main` — in words, deliberately distinct from the upstream
+  sync arrows: "3 ahead, 0 behind" reads as "this is the PR's content";
+  "0 ahead, 5 behind" as "stale, rebase first". Absent entirely when in sync.
+
 - **A commits hover on the branch name.** Hovering the branch lists the
   COMMITS THIS BRANCH ADDS (`log <upstream>..HEAD`) — hash + subject + age,
   capped at 10 with the total from one `rev-list --count` so "… and k more" is
@@ -21,6 +32,14 @@ npm. 0.6.0 is the first release recorded here.
   covers that case).
 
 ### Changed
+
+- **The hover surfaces have one information architecture.** The branch name's
+  hover is the branch's LINEAGE and always renders: `upstream`, `sync` (in
+  words, "in sync with upstream" when clean), the commits this branch adds,
+  and the pull request when one exists. The status card loses its branch,
+  upstream, sync and pull-request rows — the branch name is the chip's own
+  text, and lineage facts belong beside the lineage surface — keeping action,
+  files, operation, worktree, checkout and stash.
 
 - **The status card no longer repeats what the other hovers own.** Its commits
   row and untracked-names row are gone — commit listings live on the branch
