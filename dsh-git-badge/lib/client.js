@@ -50,6 +50,11 @@ window.__ModuleLoader__.load({
 			primitives = null;
 		}
 		const Tooltip = primitives === null ? void 0 : primitives.Tooltip;
+		// The shell's pull-down primitive (what the input-area selectors use) and
+		// its candidate ranker. Same guarded require as Tooltip: a shell without
+		// them loses the pull-down affordances, never the badges.
+		const Menu = primitives === null ? void 0 : primitives.Menu;
+		const rankByName = primitives === null ? void 0 : primitives.rankByName;
 
 		/** Module-level git-status cache. Entries are invalidated by SSE events, never by age. */
 		const GIT_CACHE = new Map();
@@ -223,6 +228,53 @@ window.__ModuleLoader__.load({
 			if (conflict || (dirty && behind)) return "error";
 			if (dirty || ahead || behind) return "warn";
 			return "ok";
+		}
+
+		/**
+		 * The git action list both actionable surfaces render — the `!` trigger
+		 * menu in the input and the branch pull-down on the chip. State-filtered:
+		 * the server's `next` suggestion leads, then only actions the current
+		 * status justifies. Deduped by command (the next step already covers one
+		 * of these when it agrees) and capped, because a menu of twelve is a
+		 * reference manual, not an action menu.
+		 */
+		function buildActions(info) {
+			if (info === void 0 || info === null || info.git !== true) return [];
+			const actions = [];
+			const seen = new Set();
+			const add = (command, why) => {
+				if (typeof command !== "string" || command === "" || seen.has(command)) return;
+				seen.add(command);
+				actions.push({ name: command, label: command, description: why, command, why });
+			};
+			const next = info.next;
+			if (next !== void 0 && next !== null && typeof next.command === "string") {
+				add(next.command, next.why);
+			}
+			const ahead = info.ahead || 0;
+			const behind = info.behind || 0;
+			const staged = info.stagedFiles || 0;
+			const unstaged = info.unstagedFiles || 0;
+			const untracked = info.untrackedFiles || 0;
+			if (behind > 0) add("git pull --ff-only", behind + " behind " + (info.upstream ?? "upstream"));
+			if (ahead > 0) add("git push", ahead + " ahead of " + (info.upstream ?? "upstream"));
+			if (staged > 0) add("git commit", staged + " staged");
+			if (unstaged > 0) add("git add -p && git commit", unstaged + " unstaged");
+			if (unstaged === 0 && untracked > 0) add("git add -A && git commit", untracked + " untracked");
+			if ((info.stashCount || 0) > 0) add("git stash list", info.stashCount + " stashed");
+			const pr = info.pr;
+			if (pr !== void 0 && pr !== null && pr.number !== void 0) {
+				if (pr.state === "failing") add("gh pr checks " + pr.number + " --watch", "checks failing on #" + pr.number);
+				add("gh pr view " + pr.number, "open pull request #" + pr.number);
+			} else if (ahead === 0 && behind === 0 && info.upstream !== void 0 && staged + unstaged + untracked === 0) {
+				add("gh pr create", "branch is pushed and has no pull request");
+			}
+			return actions.slice(0, 6);
+		}
+
+		/** The input text a picked action becomes: the command, then why as a comment. */
+		function actionText(action) {
+			return "!" + action.command + " # " + action.why;
 		}
 
 		/**
@@ -801,8 +853,16 @@ window.__ModuleLoader__.load({
 			// re-render that no fetch will schedule, so the × bumps a counter here.
 			const [, bumpNotice] = react.useState(0);
 			const seamNotice = seamHint !== null && !seamNoticeDismissed ? seamHint : null;
+			// The branch pull-down (model-selection pattern): a chevron opens the
+			// shell Menu of state-filtered git actions; picking COPIES the command —
+			// the composer has no public insert API (see the trigger source in
+			// apply() for the insertion-capable surface), so this surface's contract
+			// is paste-and-send, the same one the hover card's chip has always had.
+			const [menuOpen, setMenuOpen] = react.useState(false);
+			const [copied, setCopied] = react.useState(false);
 			const detail = useGitStatus(target, { pr: true, detail: true, enabled: hovered });
 			if (info === void 0 || info.git !== true) return null;
+			const actions = buildActions({ ...info, ...(detail ?? {}) });
 			// the mark is an element now rather than a leading glyph in the string, so
 			// the SAME StatusMark the sidebar row draws carries the status here too;
 			// the container's 4px gap supplies the space the emoji's own did
@@ -835,6 +895,58 @@ window.__ModuleLoader__.load({
 				children: [
 					react_jsx_runtime.jsx(StatusMark, { key: "mark", info }),
 					react_jsx_runtime.jsx("span", { key: "text", children: text }),
+					Menu === void 0 || actions.length === 0
+						? null
+						: react_jsx_runtime.jsx(Menu, {
+							key: "actions",
+							open: menuOpen,
+							onClose: () => setMenuOpen(false),
+							items: actions.map((action) => ({ id: action.command, label: action.label, description: action.description })),
+							onSelect: (id) => {
+								setMenuOpen(false);
+								const action = actions.find((entry) => entry.command === id);
+								if (action === void 0) return;
+								try {
+									void navigator.clipboard.writeText(actionText(action)).then(() => {
+										setCopied(true);
+										setTimeout(() => setCopied(false), 1200);
+									}, () => void 0);
+								} catch {
+									void 0;
+								}
+							},
+							align: "start",
+							portal: true,
+							anchor: react_jsx_runtime.jsxs(
+								"button",
+								{
+									type: "button",
+									"aria-haspopup": "menu",
+									"aria-expanded": menuOpen,
+									"aria-label": "Git actions for " + info.branch,
+									title: copied ? "copied — paste in your terminal" : "git actions",
+									onClick: () => setMenuOpen((value) => !value),
+									style: {
+										cursor: "pointer",
+										color: "inherit",
+										background: "none",
+										border: "none",
+										fontSize: "10px",
+										lineHeight: "24px",
+										padding: "0 2px",
+										flex: "none"
+									},
+									children: [
+										copied
+											? "\u2713"
+											: (primitives !== null && primitives.IconChevronDownOutline14 !== void 0
+												? react_jsx_runtime.jsx(primitives.IconChevronDownOutline14, {})
+												: "\u25BE")
+									]
+								},
+								"actions-anchor"
+							)
+						}),
 					prToken === ""
 						? null
 						: prUrl === void 0
@@ -954,7 +1066,7 @@ window.__ModuleLoader__.load({
 		// `workspaces` is no longer required: both surfaces target an id and the
 		// node half resolves the workspace, so the client never needs a service
 		// lookup. Fewer declared services also means fewer ways to fail to load.
-		const inject = ["slots"];
+		const inject = ["slots", "inputTriggers"];
 
 		/**
 		 * Register the badge into the seams. The seam owner hands each entry the row
@@ -962,6 +1074,50 @@ window.__ModuleLoader__.load({
 		 * deliberately ignores the cwd it may also be given.
 		 */
 		function apply(ctx) {
+			// The `!` trigger source (surface A): typing ! in the composer opens the
+			// same candidate menu the slash-command system uses, filled with the
+			// state-filtered git actions for THIS conversation's workspace. Picking
+			// returns { text } and the shell inserts it at the trigger span via its
+			// own input pipeline — the only shell-blessed way a plugin writes into
+			// the composer, and insert-only by construction: the send stays the
+			// user's. Guarded: a host without the service loses the menu, never the
+			// badges (inputTriggers powers "/" in every host that has this input).
+			if (ctx.inputTriggers !== void 0 && typeof ctx.inputTriggers.registerSource === "function") {
+				// Candidates resolved for the last menu open, by session — onPick looks
+				// the action up here rather than trusting the picked row to carry our
+				// extra fields through the pipeline untouched.
+				const actionsBySession = new Map();
+				ctx.effect(() => ctx.inputTriggers.registerSource({
+					trigger: "!",
+					name: "git-actions",
+					candidates: async (session, req) => {
+						const sessionId = session?.sessionId;
+						if (sessionId === void 0) return [];
+						const query = targetQuery({ kind: "session", id: sessionId }, { pr: true });
+						if (query === void 0) return [];
+						// cache-first: the menu opens instantly with the badge's own
+						// knowledge; a cold session falls back to one status fetch.
+						let info = GIT_CACHE.get(query)?.data;
+						if (info === void 0 || info === null) {
+							try {
+								info = await fetch("/api/git-badge?" + query).then((r) => r.json());
+							} catch {
+								return [];
+							}
+						}
+						const actions = buildActions(info);
+						actionsBySession.set(sessionId, actions);
+						const rows = actions.map((action) => ({ name: action.command, description: action.why }));
+						return rankByName === void 0 ? rows : rankByName(rows, req.query);
+					},
+					onPick: (pick) => {
+						const actions = actionsBySession.get(pick.session?.sessionId) ?? [];
+						const action = actions.find((entry) => entry.command === pick.candidate?.name);
+						return action === void 0 ? void 0 : { text: actionText(action) };
+					}
+				}));
+			}
+
 			// inject() re-evaluates when a seam's declaration appears, so boot
 			// order relative to the workspace browser does not matter. On an
 			// unpatched install the seam is never declared, so this callback never
@@ -1043,7 +1199,7 @@ window.__ModuleLoader__.load({
 		// Additive; the host reads apply/inject and ignores the rest. The suite
 		// drives these to assert the REQUEST contract — which surface asks for the
 		// expensive extras — without a browser, a fetch or a network.
-		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, actionToken };
+		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, actionToken, buildActions, actionText };
 		return module.exports;
 	}
 });
