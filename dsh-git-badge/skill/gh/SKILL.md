@@ -80,11 +80,14 @@ unstaged / untracked / unmerged), plus any in-progress operation marker
   branch → say so and list the closest local names.
 
 - **`/gh order`** — reconfigure which action class the badge ranks first. The
-  order is one line of JSON at `~/.dsh/git-badge-next.json`:
-  `{ "order": ["operation", "unmerged", "sync", "publish", "merge", "commit",
-  "checks"] }` — any subset, any order; unlisted categories rank after in
-  default order. Read the file (it may not exist yet), apply the requested
-  change, show the resulting order, and never invent categories. Typical
+  order lives in the `git-badge` settings namespace, edited in the UI at
+  **Settings → Plugins → Git Badge** (an ordered list with up/down controls).
+  When the request comes through the agent instead, read the current value from
+  the settings document (`~/.dsh/settings.yaml`, the `git-badge:` section) and
+  change that `order` list — any subset, any order; unlisted categories rank
+  after in default order. Never invent categories. The older
+  `~/.dsh/git-badge-next.json` is only a fallback for hosts without the
+  settings stack; do not edit it when the namespace is present. Typical
   invocations: "/gh order commit first", "/gh order never suggest checks
   before push".
 

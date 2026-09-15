@@ -820,6 +820,18 @@ window.__ModuleLoader__.load({
 		const CARD_LABEL = { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", flex: "none", minWidth: "62px" };
 		const CARD_VALUE = { minWidth: 0, overflowWrap: "anywhere" };
 
+		const CARD_BUTTON = {
+			cursor: "pointer",
+			color: "inherit",
+			background: "none",
+			border: "1px solid var(--dsw-alias-border-secondary, #d0d7de)",
+			borderRadius: "4px",
+			fontSize: "11px",
+			lineHeight: "18px",
+			padding: "0 6px",
+			flex: "none"
+		};
+
 		/** One label/value row — the shape every hover body shares. */
 		function cardRow(label, value) {
 			return react_jsx_runtime.jsxs("div", {
@@ -1172,6 +1184,111 @@ window.__ModuleLoader__.load({
 		// `workspaces` is no longer required: both surfaces target an id and the
 		// node half resolves the workspace, so the client never needs a service
 		// lookup. Fewer declared services also means fewer ways to fail to load.
+		/** The built-in ranking order — what "Reset to default" restores. */
+		const DEFAULT_ORDER = ["operation", "unmerged", "sync", "publish", "merge", "commit", "checks"];
+
+		/**
+		 * Move one category within the ranking order — the card's only reorder
+		 * primitive, pure so the suite can drive it without a browser. Out-of-range
+		 * moves are no-ops (the buttons disable at the ends, this is the belt).
+		 */
+		function moveCategory(order, index, delta) {
+			const next = [...order];
+			const to = index + delta;
+			if (index < 0 || index >= next.length || to < 0 || to >= next.length) return next;
+			const [moved] = next.splice(index, 1);
+			next.splice(to, 0, moved);
+			return next;
+		}
+
+		/** Human labels for the ranking categories, in default order. */
+		const CATEGORY_LABELS = {
+			operation: ["operation", "resume a paused merge/rebase"],
+			unmerged: ["unmerged", "resolve conflict markers"],
+			sync: ["sync", "pull, or rebase + confirmed force-push"],
+			publish: ["publish", "push local commits"],
+			merge: ["merge", "a merge-ready pull request"],
+			commit: ["commit", "stage and commit working changes"],
+			checks: ["checks", "watch failing CI"]
+		};
+
+		/**
+		 * The settings card's body — Settings → Plugins → Git Badge. Reads the
+		 * bound settings scope through the store the registration injects and
+		 * writes back one field ("order") via the scope's mutate path. Styled like
+		 * this plugin's other surfaces rather than the host's card primitives,
+		 * which are not exported to plugins.
+		 */
+		function GitBadgeOrderCard(props) {
+			const state = props.useGitBadgeOrderCard((snapshot) => snapshot);
+			const t = props.t;
+			const rows = state.order.map((cat, index) => {
+				const [label, hint] = CATEGORY_LABELS[cat] ?? [cat, ""];
+				return react_jsx_runtime.jsxs("div", {
+					style: { display: "flex", alignItems: "center", gap: "8px", padding: "2px 0" },
+					children: [
+						react_jsx_runtime.jsx("span", {
+							style: { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", fontFamily: "monospace", minWidth: "16px", textAlign: "right" },
+							children: String(index + 1)
+						}),
+						react_jsx_runtime.jsx("span", { style: { minWidth: "84px" }, children: label }),
+						react_jsx_runtime.jsx("span", { style: { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", flex: "1", minWidth: 0 }, children: hint }),
+						react_jsx_runtime.jsx("button", {
+							type: "button",
+							"aria-label": t("moveUp") + " " + label,
+							disabled: state.saving || !state.writable || index === 0,
+							onClick: () => props.move(index, -1),
+							style: CARD_BUTTON,
+							children: "\u2191"
+						}),
+						react_jsx_runtime.jsx("button", {
+							type: "button",
+							"aria-label": t("moveDown") + " " + label,
+							disabled: state.saving || !state.writable || index === state.order.length - 1,
+							onClick: () => props.move(index, 1),
+							style: CARD_BUTTON,
+							children: "\u2193"
+						})
+					]
+				}, cat);
+			});
+			return react_jsx_runtime.jsxs("div", {
+				style: { display: "flex", flexDirection: "column", gap: "8px", fontSize: "12px", lineHeight: "18px" },
+				children: [
+					react_jsx_runtime.jsx("div", { children: t("intro") }),
+					react_jsx_runtime.jsx("div", { style: { display: "flex", flexDirection: "column" }, children: rows }),
+					react_jsx_runtime.jsxs("div", {
+						style: { display: "flex", gap: "8px", alignItems: "center" },
+						children: [
+							react_jsx_runtime.jsx("button", {
+								type: "button",
+								disabled: !state.dirty || state.saving || !state.writable,
+								onClick: props.save,
+								style: CARD_BUTTON,
+								children: state.saving ? t("saving") : t("save")
+							}),
+							react_jsx_runtime.jsx("button", {
+								type: "button",
+								disabled: !state.dirty || state.saving,
+								onClick: props.discard,
+								style: CARD_BUTTON,
+								children: t("discard")
+							}),
+							react_jsx_runtime.jsx("button", {
+								type: "button",
+								disabled: state.saving || !state.writable,
+								onClick: props.reset,
+								style: CARD_BUTTON,
+								children: t("reset")
+							}),
+							state.failed ? react_jsx_runtime.jsx("span", { style: { color: "var(--dsw-alias-label-tertiary, #9ea7ad)" }, children: t("failed") }) : null,
+							!state.writable ? react_jsx_runtime.jsx("span", { style: { color: "var(--dsw-alias-label-tertiary, #9ea7ad)" }, children: t("readOnly") }) : null
+						]
+					})
+				]
+			});
+		}
+
 		const inject = ["slots", "inputTriggers"];
 
 		/**
@@ -1267,6 +1384,123 @@ window.__ModuleLoader__.load({
 				});
 			}
 
+			// The settings card (Settings → Plugins → Git Badge): the order lives
+			// in this plugin's `git-badge` settings namespace, which the node half
+			// registers; this half renders the card that edits it through the bound
+			// scope — reads from the scope snapshot, writes one field via mutate.
+			// Guarded: a host without settingsScope loses the card, never the
+			// badges.
+			if (typeof ctx.inject === "function") {
+				try {
+					ctx.inject(["settingsScope", "slots", "locale"], (scopeCtx) => {
+						const NS = "dsh-git-badge";
+						scopeCtx.effect(() => scopeCtx.locale.register(NS, {
+							en: {
+								title: "Git Badge",
+								intro: "The badge suggests one next action; this is the order it considers the classes in.",
+								save: "Save",
+								discard: "Discard",
+								reset: "Reset to default",
+								saving: "Saving\u2026",
+								failed: "save failed \u2014 try again",
+								readOnly: "read-only on this host",
+								moveUp: "Move up",
+								moveDown: "Move down"
+							}
+						}), "dsh-git-badge: settings locale");
+						const scope = scopeCtx.settingsScope.bind({ namespace: "git-badge" });
+						// draft === null means "mirror the stored order"; any reorder
+						// stages a copy, and only a confirmed write clears it — a
+						// rejected write leaves the draft for a retry rather than
+						// pretending it saved.
+						let draft = null;
+						let saving = false;
+						let failed = false;
+						const subscribers = new Set();
+						let snapshot = null;
+						const storedOrder = () => {
+							const view = scope.getSnapshot();
+							return Array.isArray(view?.value?.order) ? view.value.order : DEFAULT_ORDER;
+						};
+						const build = () => {
+							const view = scope.getSnapshot();
+							const stored = storedOrder();
+							const order = draft ?? stored;
+							return {
+								available: view?.status === "ready",
+								writable: view?.writable === true,
+								order,
+								dirty: draft !== null && draft.join() !== stored.join(),
+								saving,
+								failed
+							};
+						};
+						const publish = () => {
+							snapshot = build();
+							for (const listener of subscribers) listener();
+						};
+						scopeCtx.effect(() => {
+							const off = scope.subscribe(publish);
+							return () => {
+								if (typeof off === "function") off();
+							};
+						}, "dsh-git-badge: settings scope");
+						publish();
+						const store = {
+							getSnapshot: () => snapshot ?? build(),
+							subscribe: (listener) => {
+								subscribers.add(listener);
+								return () => subscribers.delete(listener);
+							}
+						};
+						const save = async () => {
+							if (draft === null || saving) return;
+							const wanted = [...draft];
+							saving = true;
+							failed = false;
+							publish();
+							try {
+								await scope.mutate([{ op: "set", path: ["order"], value: wanted }]);
+							} catch (error) {
+								console.error("[dsh-git-badge] order save failed:", error);
+							}
+							saving = false;
+							if (storedOrder().join() === wanted.join()) draft = null;
+							else failed = true;
+							publish();
+						};
+						scopeCtx.slots.inject("settings.plugin.item", function* () {
+							yield scopeCtx.slots.register({
+								name: "settings.plugin.item",
+								key: "git-badge",
+								locale: NS,
+								inject: () => ({
+									hooks: { gitBadgeOrderCard: store },
+									move: (index, delta) => {
+										draft = moveCategory(draft ?? [...storedOrder()], index, delta);
+										failed = false;
+										publish();
+									},
+									save: () => void save(),
+									discard: () => {
+										draft = null;
+										failed = false;
+										publish();
+									},
+									reset: () => {
+										draft = [...DEFAULT_ORDER];
+										failed = false;
+										publish();
+									}
+								})
+							}, GitBadgeOrderCard);
+						});
+					});
+				} catch (error) {
+					console.error("[dsh-git-badge] settings card unavailable:", error);
+				}
+			}
+
 			// inject() re-evaluates when a seam's declaration appears, so boot
 			// order relative to the workspace browser does not matter. On an
 			// unpatched install the seam is never declared, so this callback never
@@ -1348,7 +1582,7 @@ window.__ModuleLoader__.load({
 		// Additive; the host reads apply/inject and ignores the rest. The suite
 		// drives these to assert the REQUEST contract — which surface asks for the
 		// expensive extras — without a browser, a fetch or a network.
-		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, actionToken, ghSkillActions };
+		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, actionToken, ghSkillActions, moveCategory };
 		return module.exports;
 	}
 });

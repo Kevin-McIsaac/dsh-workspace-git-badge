@@ -61,5 +61,8 @@
     "seam/store.js",
     "seam/stub-index.js",
     "skill/gh/SKILL.md"
-  ]
+  ],
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.2"
+  }
 }

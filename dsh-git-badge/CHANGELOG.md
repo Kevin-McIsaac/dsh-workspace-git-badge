@@ -10,6 +10,18 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Added
+
+- **A settings card for the ranking order: Settings → Plugins → Git Badge.**
+  The order now lives in this plugin's own `git-badge` settings namespace —
+  declared with a schema, validated and stored by the host, observed live — and
+  the card reorders the seven categories with up/down controls, Save/Discard,
+  and Reset to default. No file polling, no restart: a change applies to the
+  next status read. A pre-existing `~/.dsh/git-badge-next.json` seeds the
+  namespace as its base (and remains the fallback on hosts without the settings
+  stack), so an order configured before the card existed survives the upgrade.
+  `/gh order` still works for agent-driven changes.
+
 ## [0.15.0] - 2026-09-15
 
 ### Changed
