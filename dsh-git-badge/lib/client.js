@@ -662,9 +662,11 @@ window.__ModuleLoader__.load({
 			gap: "4px",
 			fontSize: "12px",
 			lineHeight: "18px",
-			// 340 * 1.33 = 452, then +15% on request: 520. The Tooltip's own
-			// maxWidth (480) must stay >= this or IT becomes the clamp.
-			maxWidth: "520px"
+			// Auto-width: the card fits its widest row instead of a guessed
+			// constant, capped at 600px. The Tooltip's maxWidth must stay >= the
+			// cap or IT becomes the clamp.
+			width: "max-content",
+			maxWidth: "600px"
 		};
 		const CARD_ROW = { display: "flex", gap: "8px", alignItems: "baseline" };
 		const CARD_LABEL = { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", flex: "none", minWidth: "62px" };
@@ -811,9 +813,8 @@ window.__ModuleLoader__.load({
 				if (Tooltip === void 0) return mark;
 				return react_jsx_runtime.jsx(Tooltip, {
 					side: "top",
-					// 552 = 480 + 15%: must stay above the body's 520 or the tooltip
-				// becomes the clamp
-				maxWidth: 552,
+					// matches the body cap: the tooltip must never be the clamp
+				maxWidth: 600,
 					// a function label keeps the card's element tree out of every render
 					// until the tooltip actually opens
 					label: () => react_jsx_runtime.jsx(HoverCard, { info, detail }),
