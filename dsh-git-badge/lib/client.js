@@ -820,6 +820,39 @@ window.__ModuleLoader__.load({
 		const CARD_LABEL = { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", flex: "none", minWidth: "62px" };
 		const CARD_VALUE = { minWidth: 0, overflowWrap: "anywhere" };
 
+		// The host's plugin-card chrome, reproduced inline: its CSS module is not
+		// exported to plugins, so these values mirror PluginCard.module.css so our
+		// card sits in the same list as its siblings.
+		const CARD_BASE = {
+			border: ".5px solid var(--dsw-alias-border-l4, #e4e8eb)",
+			borderRadius: "16px",
+			listStyle: "none",
+			transition: "border-color .16s, background .16s"
+		};
+		const CARD_CLOSED = { ...CARD_BASE, background: "var(--dsw-alias-bg-layer-3, #ffffff)" };
+		const CARD_OPEN = {
+			...CARD_BASE,
+			background: "var(--dsw-alias-bg-layer-2, #f7f8f9)",
+			borderColor: "var(--dsw-alias-label-dimmed, #b8bfc4)"
+		};
+		const CARD_HEADER = {
+			appearance: "none",
+			width: "100%",
+			font: "inherit",
+			color: "inherit",
+			textAlign: "left",
+			cursor: "pointer",
+			background: "none",
+			border: 0,
+			borderRadius: "12px",
+			display: "flex",
+			alignItems: "center",
+			gap: "12px",
+			padding: "14px 16px"
+		};
+		const CARD_NAME = { color: "var(--dsw-alias-label-primary, #1f2328)", fontSize: "15px", fontWeight: "600", lineHeight: "1.4" };
+		const CARD_DESCRIPTION = { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", fontSize: "13px", lineHeight: "1.5" };
+
 		const CARD_BUTTON = {
 			cursor: "pointer",
 			color: "inherit",
@@ -1222,6 +1255,21 @@ window.__ModuleLoader__.load({
 		function GitBadgeOrderCard(props) {
 			const state = props.useGitBadgeOrderCard((snapshot) => snapshot);
 			const t = props.t;
+			// Local expander state, mirroring the host's plugin cards: collapsed by
+			// default, and auto-collapsed again once a save settles clean (so the
+			// card confirms itself the way its siblings do).
+			const [open, setOpen] = react.useState(false);
+			const saveStarted = react.useRef(false);
+			react.useEffect(() => {
+				if (state.saving) {
+					saveStarted.current = true;
+					return;
+				}
+				if (!saveStarted.current) return;
+				saveStarted.current = false;
+				if (!state.dirty && !state.failed) setOpen(false);
+			}, [state.dirty, state.failed, state.saving]);
+			if (!state.available) return null;
 			const rows = state.order.map((cat, index) => {
 				const [label, hint] = CATEGORY_LABELS[cat] ?? [cat, ""];
 				return react_jsx_runtime.jsxs("div", {
@@ -1252,39 +1300,75 @@ window.__ModuleLoader__.load({
 					]
 				}, cat);
 			});
-			return react_jsx_runtime.jsxs("div", {
-				style: { display: "flex", flexDirection: "column", gap: "8px", fontSize: "12px", lineHeight: "18px" },
+			// The card chrome matches the host's own plugin cards (its CSS module is
+			// not exported to plugins, so the values are reproduced inline): an <li>
+			// with the bordered card, a header button that expands, and a body that
+			// carries the list and the footer actions.
+			return react_jsx_runtime.jsxs("li", {
+				style: open ? CARD_OPEN : CARD_CLOSED,
 				children: [
-					react_jsx_runtime.jsx("div", { children: t("intro") }),
-					react_jsx_runtime.jsx("div", { style: { display: "flex", flexDirection: "column" }, children: rows }),
-					react_jsx_runtime.jsxs("div", {
-						style: { display: "flex", gap: "8px", alignItems: "center" },
+					react_jsx_runtime.jsxs("button", {
+						type: "button",
+						"aria-expanded": open,
+						"aria-label": t(open ? "collapse" : "expand") + ": " + t("title"),
+						onClick: () => setOpen(!open),
+						style: CARD_HEADER,
 						children: [
-							react_jsx_runtime.jsx("button", {
-								type: "button",
-								disabled: !state.dirty || state.saving || !state.writable,
-								onClick: props.save,
-								style: CARD_BUTTON,
-								children: state.saving ? t("saving") : t("save")
+							react_jsx_runtime.jsxs("span", {
+								style: { display: "flex", flexDirection: "column", flex: "1", gap: "4px", minWidth: 0 },
+								children: [
+									react_jsx_runtime.jsx("span", { style: CARD_NAME, children: t("title") }),
+									react_jsx_runtime.jsx("span", { style: CARD_DESCRIPTION, children: t("description") })
+								]
 							}),
-							react_jsx_runtime.jsx("button", {
-								type: "button",
-								disabled: !state.dirty || state.saving,
-								onClick: props.discard,
-								style: CARD_BUTTON,
-								children: t("discard")
-							}),
-							react_jsx_runtime.jsx("button", {
-								type: "button",
-								disabled: state.saving || !state.writable,
-								onClick: props.reset,
-								style: CARD_BUTTON,
-								children: t("reset")
-							}),
-							state.failed ? react_jsx_runtime.jsx("span", { style: { color: "var(--dsw-alias-label-tertiary, #9ea7ad)" }, children: t("failed") }) : null,
-							!state.writable ? react_jsx_runtime.jsx("span", { style: { color: "var(--dsw-alias-label-tertiary, #9ea7ad)" }, children: t("readOnly") }) : null
+							react_jsx_runtime.jsx("span", {
+								"aria-hidden": true,
+								style: open
+									? { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", flex: "none", transform: "rotate(180deg)", transition: "transform .16s" }
+									: { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", flex: "none", transition: "transform .16s" },
+								children: (primitives !== null && primitives.IconChevronDownOutline14 !== void 0
+									? react_jsx_runtime.jsx(primitives.IconChevronDownOutline14, {})
+									: "\u25BE")
+							})
 						]
-					})
+					}),
+					open
+						? react_jsx_runtime.jsxs("div", {
+							style: { borderTop: ".5px solid var(--dsw-alias-border-l2, #e4e8eb)", margin: "0 16px", paddingBottom: "8px" },
+							children: [
+								react_jsx_runtime.jsx("div", { style: { padding: "10px 0 6px" }, children: t("intro") }),
+								react_jsx_runtime.jsx("div", { style: { display: "flex", flexDirection: "column" }, children: rows }),
+								react_jsx_runtime.jsxs("div", {
+									style: { display: "flex", gap: "8px", alignItems: "center", justifyContent: "flex-end", padding: "12px 0 4px" },
+									children: [
+										state.failed ? react_jsx_runtime.jsx("span", { style: { color: "var(--dsw-alias-label-error, #d13438)", flex: "1", fontSize: "12px" }, children: t("failed") }) : null,
+										state.writable ? null : react_jsx_runtime.jsx("span", { style: { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", flex: "1", fontSize: "12px" }, children: t("readOnly") }),
+										react_jsx_runtime.jsx("button", {
+											type: "button",
+											disabled: !state.dirty || state.saving,
+											onClick: props.discard,
+											style: CARD_BUTTON,
+											children: t("discard")
+										}),
+										react_jsx_runtime.jsx("button", {
+											type: "button",
+											disabled: !state.dirty || state.saving || !state.writable,
+											onClick: props.save,
+											style: CARD_BUTTON,
+											children: state.saving ? t("saving") : t("save")
+										}),
+										react_jsx_runtime.jsx("button", {
+											type: "button",
+											disabled: state.saving || !state.writable,
+											onClick: props.reset,
+											style: CARD_BUTTON,
+											children: t("reset")
+										})
+									]
+								})
+							]
+						})
+						: null
 				]
 			});
 		}
@@ -1397,6 +1481,9 @@ window.__ModuleLoader__.load({
 						scopeCtx.effect(() => scopeCtx.locale.register(NS, {
 							en: {
 								title: "Git Badge",
+								description: "Which action class the badge suggests first.",
+								expand: "Expand",
+								collapse: "Collapse",
 								intro: "The badge suggests one next action; this is the order it considers the classes in.",
 								save: "Save",
 								discard: "Discard",

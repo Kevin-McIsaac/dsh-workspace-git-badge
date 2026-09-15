@@ -10,6 +10,15 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Changed
+
+- **The ranking card sits in an expander, like the host's other plugin cards.**
+  Collapsed by default with the title and a one-line description; the list,
+  reorder controls, and Save/Discard/Reset live in the body, which auto-collapses
+  once a save settles clean. The card chrome reproduces the host's plugin-card
+  values inline (its CSS module is not exported to plugins), so it reads as one
+  of the set rather than loose content between it.
+
 ### Added
 
 - **A settings card for the ranking order: Settings → Plugins → Git Badge.**
