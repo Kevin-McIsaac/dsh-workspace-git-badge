@@ -968,13 +968,7 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 			info.stagedNames = capped(parsed.stagedNames);
 			info.stagedNamesTotal = parsed.stagedNames.length;
 		}
-		// The branch's recent commits — WHAT THIS BRANCH HAS, full stop: the last
-		// 10 on HEAD, newest first, no base-relative filtering (against upstream
-		// the list empties on every push; against main it empties on every
-		// merge — both defeat the question). Hover-gated with the rest of
-		// detail=1; a failed or empty read is omitted like every other "nothing
-		// to say".
-		// The counts-vs-main row: ahead/behind against origin/main (then
+		// The signed commit list and the counts-vs-main row: ahead/behind against origin/main (then
 		// origin/master) is the merge-state line — "3 ahead, 0 behind" reads as
 		// "this is the PR's content"; "0 ahead, 5 behind" as "stale, rebase
 		// first". One rev-list --left-right, hover-gated like everything here,
@@ -1019,11 +1013,36 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 				info.mainBehind = mBehind;
 			}
 		}
-		if (logOut2.stdout !== null && logOut2.stdout.trim() !== "") {
-			info.branchCommits = logOut2.stdout.trim().split("\n").map((line) => {
-				const [hash, subject, when] = line.split("\t");
-				return { hash, subject: subject ?? "", when: when ?? "" };
-			}).filter((c) => c.hash !== void 0);
+		if (baseRef !== null) {
+			// The signed commit list: mixed newest-first from base...HEAD, each
+			// entry signed "+" (only on this branch - the PR's content) or "−"
+			// (only on main - what a rebase/merge brings in), git's own left-right
+			// verdict mapped onto the diff convention. Capped at 10 with the total
+			// from the same base so "... and k more" counts both sides. Without a
+			// default branch the list degrades to the plain last 10 on HEAD.
+			const signedOut = await runGit(toplevel, ["log", "--left-right", "-10", "--format=%m%x09%h%x09%s%x09%cr", baseRef + "...HEAD"]);
+			if (signedOut.stdout !== null && signedOut.stdout.trim() !== "") {
+				info.branchCommits = signedOut.stdout.trim().split("\n").map((line) => {
+					const [marker, hash, subject, when] = line.split("\t");
+					return {
+						sign: marker === ">" ? "+" : marker === "<" ? "−" : void 0,
+						hash,
+						subject: subject ?? "",
+						when: when ?? ""
+					};
+				}).filter((c) => c.hash !== void 0);
+				const totalOut = await runGit(toplevel, ["rev-list", "--count", baseRef + "...HEAD"]);
+				const total = Number.parseInt((totalOut.stdout ?? "").trim(), 10);
+				if (Number.isFinite(total)) info.branchCommitsTotal = total;
+			}
+		} else {
+			const plainOut = await runGit(toplevel, ["log", "-10", "--format=%h%x09%s%x09%cr", "HEAD"]);
+			if (plainOut.stdout !== null && plainOut.stdout.trim() !== "") {
+				info.branchCommits = plainOut.stdout.trim().split("\n").map((line) => {
+					const [hash, subject, when] = line.split("\t");
+					return { hash, subject: subject ?? "", when: when ?? "" };
+				}).filter((c) => c.hash !== void 0);
+			}
 		}
 		if (stashOut.stdout !== null) {
 			const count = stashOut.stdout.split("\n").filter((l) => l.trim() !== "").length;

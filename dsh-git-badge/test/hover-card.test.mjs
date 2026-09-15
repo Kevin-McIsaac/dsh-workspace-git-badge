@@ -48,8 +48,8 @@ const DETAIL = {
 	unstagedNames: ["edited.txt"],
 	unstagedNamesTotal: 1,
 	branchCommits: [
-		{ hash: "abc1234", subject: "fix the thing", when: "2 hours ago" },
-		{ hash: "def5678", subject: "add another thing", when: "yesterday" }
+		{ sign: "+", hash: "abc1234", subject: "fix the thing", when: "2 hours ago" },
+		{ sign: "\u2212", hash: "def5678", subject: "add another thing", when: "yesterday" }
 	]
 };
 

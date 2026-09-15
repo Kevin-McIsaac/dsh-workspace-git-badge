@@ -800,10 +800,10 @@ window.__ModuleLoader__.load({
 											color: "var(--dsw-alias-label-tertiary, #9ea7ad)",
 											fontFamily: "monospace",
 											display: "inline-block",
-											minWidth: "60px",
+											minWidth: "68px",
 											flex: "none"
 										},
-										children: commit.hash
+										children: (commit.sign === "+" ? "+" : commit.sign === "\u2212" ? "\u2212" : "") + commit.hash + ":"
 									}),
 									commit.subject + (commit.when === "" ? "" : "  \u00B7 " + shortWhen(commit.when))
 								]

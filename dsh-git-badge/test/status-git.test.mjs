@@ -443,22 +443,40 @@ test("the detail payload carries ahead/behind vs main", async (t) => {
 	assert.equal(diverged.mainBehind, 1);
 });
 
-test("the detail payload carries the branch's last commits, full stop", async (t) => {
+test("the detail payload carries the signed ahead/behind commit list", async (t) => {
 	const repo = await makeRepo(t);
 	await repo.commit("base");
-	await repo.commit("second on branch");
+	const bare = join(repo.root, "origin-bare.git");
+	await runGit(repo.root, ["clone", "--bare", repo.root, bare]);
+	await runGit(repo.root, ["remote", "add", "origin", bare]);
+	await runGit(repo.root, ["push", "-u", "origin", "main"]);
+	await runGit(repo.root, ["checkout", "-b", "feat/x"]);
+	await repo.commit("branch work");
+	// main moves on without the branch: one behind commit
+	const other = await makeTempDir(t, "dsh-git-badge-mainmove-");
+	await runGit(other, ["clone", "--quiet", bare, "clone"]);
+	await runGit(join(other, "clone"), ["config", "user.email", "t@e.com"]);
+	await runGit(join(other, "clone"), ["config", "user.name", "T"]);
+	await writeFile(join(other, "clone", "main-move.txt"), "main moves\n");
+	await runGit(join(other, "clone"), ["add", "main-move.txt"]);
+	await runGit(join(other, "clone"), ["commit", "-m", "main moves on"]);
+	await runGit(join(other, "clone"), ["push", "origin", "main"]);
+	await runGit(repo.root, ["fetch", "origin"]);
 	const detail = await gitStatus(repo.root, true);
 	assert.equal(detail.git, true);
-	assert.deepEqual(
-		detail.branchCommits.map((c) => c.subject),
-		["second on branch", "base"],
-		"newest first, no base-relative filtering",
-	);
-	assert.ok(detail.branchCommits.every((c) => c.hash && c.subject && typeof c.when === "string"));
-	assert.equal(detail.branchCommitsTotal, void 0, "no and-k-more: the list is simply the last 10");
-	// the BASE request stays lean: no commit list without detail=1
+	assert.equal(detail.branchCommitsTotal, 2, "1 ahead + 1 behind");
+	const branchCommit = detail.branchCommits.find((c) => c.subject === "branch work");
+	assert.equal(branchCommit.sign, "+", "ahead commits are +");
+	const mainCommit = detail.branchCommits.find((c) => c.subject === "main moves on");
+	assert.equal(mainCommit.sign, "\u2212", "behind commits are \u2212");
+	// without a default branch: plain last 10, unsigned
+	const noBase = await makeRepo(t);
+	await noBase.commit("solo");
+	const plain = await gitStatus(noBase.root, true);
+	assert.equal(plain.branchCommits.length, 1);
+	assert.equal(plain.branchCommits[0].sign, void 0);
 	const base = await gitStatus(repo.root);
-	assert.equal(base.branchCommits, void 0);
+	assert.equal(base.branchCommits, void 0, "hover-gated");
 });
 
 test("the detail payload carries capped, shortened untracked names", async (t) => {
