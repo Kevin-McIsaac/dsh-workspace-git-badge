@@ -340,7 +340,7 @@ test("the restart-pending marker follows the write → serve → clear lifecycle
 // the gh skill installer — the /gh commands-menu entry point ships as a skill
 // ---------------------------------------------------------------------------
 
-test("installSkill copies the packaged skill into the skills catalog", { skip: "hangs in full-file context; verified standalone — unskip after the concurrency clash is understood" }, async (t) => {
+test("installSkill copies the packaged skill into the skills catalog", async (t) => {
 	const home = await makeTempDir(t, "dsh-git-badge-skills-");
 	process.env.DSH_HOME = home;
 	t.after(() => { delete process.env.DSH_HOME; });
@@ -353,8 +353,15 @@ test("installSkill copies the packaged skill into the skills catalog", { skip: "
 	assert.equal(installSkill(), "current", "reinstall is a no-op by content");
 });
 
-test("installSkill never throws on an unwritable catalog", { skip: "same full-file hang as its sibling; verified standalone" }, async (t) => {
-	process.env.DSH_HOME = "/proc/dsh-git-badge-unwritable";
+test("installSkill never throws on an unwritable catalog", async (t) => {
+	// ENOTDIR, not /proc: a path that cannot be created fails IMMEDIATELY and
+	// exercises the same contract. The original fixture pointed DSH_HOME at
+	// /proc, where mkdirSync BLOCKS in this sandbox instead of raising — the
+	// promise never settled and took the whole file's run down with it (the
+	// reason both installer tests were skipped).
+	const home = await makeTempDir(t, "dsh-git-badge-blocked-");
+	await writeFile(join(home, "skills"), "a file where the catalog directory would go\n");
+	process.env.DSH_HOME = home;
 	t.after(() => { delete process.env.DSH_HOME; });
 	const { installSkill } = await import(`${SEAM_SHIPPED}/skill.js`);
 	const outcome = installSkill();
