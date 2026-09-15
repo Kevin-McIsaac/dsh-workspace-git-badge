@@ -163,11 +163,11 @@ test("the hover line says what the action word cannot", () => {
 				branch: "chore/global-skills-tiering",
 				isWorktree: true,
 				worktreeName: "global-skills-tiering",
-				worktreeInferred: true,
+				worktreeFollowed: true,
 				pr: { number: 391, state: "passing" }
 			})
 		),
-		"checkout: global-skills-tiering on chore/global-skills-tiering \u00B7 its branch has the open pull request \u00B7 pull request #391 \u00B7 checks passing"
+		"checkout: global-skills-tiering on chore/global-skills-tiering \u00B7 pull request #391 \u00B7 checks passing"
 	);
 	// a worktree the session is genuinely in is named without the explanation
 	assert.equal(
@@ -204,24 +204,23 @@ test("the chip still carries the branch, operation token and counts", () => {
 	assert.equal(line, "feat/hotfix ⚔rebase ↑0 ↓2 ✎3");
 });
 
-test("an INFERRED worktree is named in the CARD, never on the chip", () => {
+test("a FOLLOWED worktree is named in the CARD, never on the chip", () => {
 	const client = createClient();
 	// The case this exists for: the session's own directory is the main checkout and
-	// the node half moved the badge onto the tree holding the open PR. The chip
-	// shows the tree's branch; which tree it is, and why it was followed, is the
-	// card's business — that is the only way to keep the chip short and honest.
-	const inferred = {
+	// the session registered a linked worktree. The chip shows the tree's branch;
+	// which tree it is belongs to the card — that keeps the chip short and honest.
+	const followed = {
 		branch: "chore/global-skills-tiering",
 		isWorktree: true,
 		worktreeName: "global-skills-tiering",
-		worktreeInferred: true,
+		worktreeFollowed: true,
 		dirty: false
 	};
-	assert.equal(text(client.chip(inferred)), "chore/global-skills-tiering");
+	assert.equal(text(client.chip(followed)), "chore/global-skills-tiering");
 	assert.equal(
-		client.internals.worktreeDetail(inferred),
-		"global-skills-tiering (inferred from its open pull request)",
-		"the card's row names the tree AND why"
+		client.internals.worktreeDetail(followed),
+		"global-skills-tiering",
+		"the card's row names the tree"
 	);
 	assert.equal(client.internals.worktreeDetail({ branch: "feat/x", isWorktree: true, worktreeName: "hotfix-tree" }), "hotfix-tree");
 	assert.equal(client.internals.worktreeDetail({ branch: "main", isWorktree: false }), void 0, "a main checkout has nothing to name");
@@ -240,10 +239,10 @@ test("an INFERRED checkout says so in the mark's accessible name", () => {
 	// the same rule the token follows: nothing depends on seeing the trailing name,
 	// so a screen reader is told where the shape's fact came from
 	const client = createClient();
-	const inferred = mark(client.chip({ ...WORKTREE, worktreeInferred: true, dirty: false }));
+	const followed = mark(client.chip({ ...WORKTREE, worktreeFollowed: true, dirty: false }));
 	assert.equal(
-		inferred.props["aria-label"],
-		"git worktree: clean and in sync (inferred from an open pull request in this repository)"
+		followed.props["aria-label"],
+		"git worktree: clean and in sync (registered for this session)"
 	);
 });
 

@@ -8,10 +8,12 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { apply, config, nextStep } from "../lib/index.js";
+import { makeRepo } from "../test-support/repo.mjs";
 
 /** A schemastery-shaped stub: enough for the namespace schema to resolve. */
 function stubSchema() {
@@ -135,4 +137,31 @@ test("moveCategory swaps neighbours, is immutable, and no-ops at the ends", asyn
 	assert.deepEqual(moveCategory(order, order.length - 1, 1), order, "bottom cannot move down");
 	assert.deepEqual(moveCategory(order, 99, 1), order, "out of range is a no-op");
 	assert.deepEqual(order, ["operation", "unmerged", "sync", "publish", "merge", "commit", "checks"], "the input is never mutated");
+});
+
+// ---------------------------------------------------------------------------
+// the registration CLI (the writer the skills call)
+// ---------------------------------------------------------------------------
+
+test("the checkout CLI registers a real worktree and refuses anything else", async (t) => {
+	const { execFile } = await import("node:child_process");
+	const { promisify } = await import("node:util");
+	const run = promisify(execFile);
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	const tree = await repo.worktreeAdd({ name: "linked", branch: "feat/linked" });
+	const home = mkdtempSync(join(tmpdir(), "dsh-git-badge-cli-"));
+	const env = { ...process.env, DSH_HOME: home, DSH_SESSION_ID: "session-cli" };
+	const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "seam", "checkout.js");
+	const ok = await run(process.execPath, [cli, tree], { env });
+	assert.match(ok.stdout, /this session's checkout is now linked \(feat\/linked\)/);
+	const written = JSON.parse(readFileSync(join(home, "git-badge-seam", "session-checkouts.json"), "utf8"));
+	assert.equal(written.sessions["session-cli"].path, tree);
+	// a path that is not a worktree is refused, and nothing is written
+	await assert.rejects(run(process.execPath, [cli, join(repo.root, "nope")], { env }));
+	// --clear removes the entry
+	const cleared = await run(process.execPath, [cli, "--clear"], { env });
+	assert.match(cleared.stdout, /cleared/);
+	const after = JSON.parse(readFileSync(join(home, "git-badge-seam", "session-checkouts.json"), "utf8"));
+	assert.deepEqual(after.sessions, {});
 });

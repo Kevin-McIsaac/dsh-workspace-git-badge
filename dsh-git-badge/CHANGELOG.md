@@ -21,6 +21,28 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Added
 
+- **A session now tells the badge which checkout it is working in.** dsh cannot
+  supply that fact — a session's `cwd` is immutable creation metadata and always
+  the main checkout — so the agent registers it explicitly:
+  `npx dsh-git-badge-checkout <path>` (shipped bin), run by the `git-worktree`
+  skill after `git worktree add` and by `/gh checkout` when a switch lands in or
+  out of a linked worktree. The node half prefers the registration, and
+  validates it: git's own worktree list must know the path, the entry expires
+  after 24h, and the name/branch come from git, never from the file. The
+  registration is self-clearing — removing it (or letting it expire) retires the
+  extra watcher and the badge returns to the session's own directory.
+
+### Changed
+
+- **PR inference is gone.** The badge no longer guesses a worktree from the
+  branch with an open pull request. The guess was invisible to the session that
+  made it and silently wrong whenever two trees were in play; a `worktreeInferred`
+  marker, the repository-wide `gh pr list` read that powered it, and the
+  inference wording in the hover all go with it. A session follows its
+  registration or stays on its own checkout — nothing else.
+
+### Added
+
 - **A settings card for the ranking order: Settings → Plugins → Git Badge.**
   The order now lives in this plugin's own `git-badge` settings namespace —
   declared with a schema, validated and stored by the host, observed live — and

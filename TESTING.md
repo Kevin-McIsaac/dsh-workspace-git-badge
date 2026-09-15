@@ -276,7 +276,7 @@ render the same component without a `workspaceId`, so the seam helper returns
   before concluding the token is broken.
 - **Worktree selection changed** → the suite covers the parser, the selection rule,
   the open-PR read's caching and every failure shape, the watcher a follow needs,
-  the route's swap/no-swap split, and the inferred rendering rules. The live proof
+  the route's registration split, and the followed rendering rules. The live proof
   has a precondition that is easy to trip over: it needs a repository that HAS a
   linked worktree **whose branch has an open PR**. Without one — the common state
   after a PR merges and its worktree is removed — the badge correctly stays on the

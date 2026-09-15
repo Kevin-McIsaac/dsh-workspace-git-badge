@@ -234,47 +234,43 @@ test("the detail fields appear only once detail has been fetched", () => {
 
 //#endregion
 
-//#region the inferred worktree
+//#region the followed worktree
 
 test("the card names WHICH worktree the badge describes", () => {
 	// The chip shows the branch alone, so this row is the only place a tree is
-	// identified — and an inferred follow also says why, since "which tree" and
-	// "why this tree" are different questions.
+	// identified.
 	const client = createClient({ tooltip: true });
-	const inferred = card(client, {
+	const followed = card(client, {
 		...BASE,
 		branch: "chore/global-skills-tiering",
 		isWorktree: true,
 		worktreeName: "global-skills-tiering",
-		worktreeInferred: true
+		worktreeFollowed: true
 	});
-	assert.ok(inferred.includes("worktree"), `expected the worktree row: ${inferred}`);
-	assert.ok(
-		inferred.includes("global-skills-tiering (inferred from its open pull request)"),
-		`expected the tree's name and the reason: ${inferred}`
-	);
-	// a worktree the session is genuinely in is named without the explanation
+	assert.ok(followed.includes("worktree"), `expected the worktree row: ${followed}`);
+	assert.ok(followed.includes("global-skills-tiering"), `expected the tree's name: ${followed}`);
+	// a worktree the session is genuinely in is named the same way
 	const own = card(client, { ...BASE, branch: "feat/x", isWorktree: true, worktreeName: "hotfix-tree" });
 	assert.ok(own.includes("hotfix-tree"), `expected the tree's name: ${own}`);
-	assert.ok(!own.includes("inferred"), `no explanation when nothing was inferred: ${own}`);
+	assert.ok(!own.includes("registered"), `no registration wording for a plain worktree: ${own}`);
 	// and a main checkout has no tree to name
 	assert.ok(!card(client, BASE).includes("worktree"));
 });
 
 test("the card names the conversation's OWN checkout when the badge followed a worktree", () => {
-	// Once the chip's branch and counts describe an inferred worktree, the
+	// Once the chip's branch and counts describe a followed worktree, the
 	// checkout's own state is nowhere else on screen — that is the whole reason
 	// this row exists. It is detail-gated like every other expensive field.
 	const client = createClient({ tooltip: true });
-	const inferred = {
+	const followed = {
 		...BASE,
 		branch: "chore/global-skills-tiering",
 		isWorktree: true,
 		worktreeName: "global-skills-tiering",
-		worktreeInferred: true,
+		worktreeFollowed: true,
 		checkout: { branch: "main", dirty: true, changedFiles: 2, untrackedFiles: 1, ahead: 1, behind: 2 }
 	};
-	const body = card(client, inferred);
+	const body = card(client, followed);
 	assert.ok(body.includes("checkout"), `expected the checkout row: ${body}`);
 	assert.ok(body.includes("main \u00B7 \u270E3 \u00B7 \u21911 \u21932"), `expected the checkout's own state: ${body}`);
 	assert.ok(!body.includes("chore/global-skills-tiering"), "the branch name lives on the chip, not the card");
@@ -286,11 +282,11 @@ test("the card has no checkout row when the badge describes the conversation's o
 	assert.ok(!body.includes("checkout"), `the row would be pure repetition: ${body}`);
 });
 
-test("an inferred checkout with no checkout payload yet shows no empty row", () => {
-	// the base request carries worktreeInferred but NOT checkout: the row must wait
+test("a followed checkout with no checkout payload yet shows no empty row", () => {
+	// the base request carries worktreeFollowed but NOT checkout: the row must wait
 	// for the detail response rather than render a blank
 	const client = createClient({ tooltip: true });
-	const body = card(client, { ...BASE, isWorktree: true, worktreeName: "linked-tree", worktreeInferred: true });
+	const body = card(client, { ...BASE, isWorktree: true, worktreeName: "linked-tree", worktreeFollowed: true });
 	assert.ok(!body.includes("checkout"), `expected no row before detail lands: ${body}`);
 });
 

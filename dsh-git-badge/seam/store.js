@@ -1,4 +1,13 @@
 /**
+ * Two out-of-band stores live here, both keyed files under dataDir():
+ *
+ *   restart-pending.json    install/applied a host patch → the UI offers a restart
+ *   session-checkouts.json  which checkout a SESSION is working in — the one
+ *                           fact dsh cannot supply (a session's cwd is immutable
+ *                           creation metadata and always the main checkout, so a
+ *                           session working in a linked worktree is invisible
+ *                           without an explicit registration)
+ *
  * The restart-pending marker — the bridge from install-time (node side) to the
  * running UI.
  *
@@ -67,5 +76,61 @@ export function clearRestartMarker() {
 		rmSync(markerPath(), { force: true });
 	} catch {
 		// Absent is the goal; any error leaves the marker to be cleared later.
+	}
+}
+/** How long a session-checkout registration stays trustworthy. */
+export const SESSION_CHECKOUT_TTL_MS = 24 * 60 * 60 * 1000;
+
+function sessionCheckoutsPath() {
+	return join(dataDir(), "session-checkouts.json");
+}
+
+/** Every registration, `{ sessionId: { path, at } }`. Never throws. */
+export function readSessionCheckouts() {
+	try {
+		if (!existsSync(sessionCheckoutsPath())) return {};
+		const raw = JSON.parse(readFileSync(sessionCheckoutsPath(), "utf8"));
+		return raw !== null && typeof raw === "object" && typeof raw.sessions === "object" && raw.sessions !== null
+			? raw.sessions
+			: {};
+	} catch {
+		return {};
+	}
+}
+
+/**
+ * Register the checkout a session is working in. Written by the agent (the
+ * git-worktree and /gh checkout paths), read by the node half.
+ */
+export function writeSessionCheckout(sessionId, path) {
+	try {
+		mkdirSync(dataDir(), { recursive: true });
+		const sessions = readSessionCheckouts();
+		sessions[sessionId] = { path, at: new Date().toISOString() };
+		writeFileSync(
+			sessionCheckoutsPath(),
+			JSON.stringify({ schema: "dsh-git-badge/session-checkout/v1", sessions }),
+			"utf8",
+		);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** Forget one session's registration (worktree removed, or the session left). */
+export function clearSessionCheckout(sessionId) {
+	try {
+		const sessions = readSessionCheckouts();
+		if (!(sessionId in sessions)) return true;
+		delete sessions[sessionId];
+		writeFileSync(
+			sessionCheckoutsPath(),
+			JSON.stringify({ schema: "dsh-git-badge/session-checkout/v1", sessions }),
+			"utf8",
+		);
+		return true;
+	} catch {
+		return false;
 	}
 }

@@ -79,6 +79,14 @@ unstaged / untracked / unmerged), plus any in-progress operation marker
   what is dirty and confirm the switch when work would carry over. Unknown
   branch → say so and list the closest local names.
 
+  If the switch lands you in — or out of — a linked worktree, register where you
+  are so the session badge follows the right checkout:
+  `npx dsh-git-badge-checkout "$(git rev-parse --show-toplevel)"` (best effort;
+  ignore failure). Clearing back to the main checkout is the same command run
+  against the main worktree — the badge treats the main checkout as the default.
+  A session's cwd is fixed at creation, so this registration is the ONLY signal
+  the badge has.
+
 - **`/gh order`** — reconfigure which action class the badge ranks first. The
   order lives in the `git-badge` settings namespace, edited in the UI at
   **Settings → Plugins → Git Badge** (an ordered list with up/down controls).

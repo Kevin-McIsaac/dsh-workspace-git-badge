@@ -78,6 +78,35 @@ runs the whole suite (parser, real temp repositories, resolution, SSE, the
 watcher, every `gh` degradation path and the rendered surfaces) with no DSH, no
 network and no restart.
 
+## Worktrees
+
+**Why use them.** A linked `git worktree` gives each piece of work its own
+checkout — its own branch, index and working directory, which no other session or
+background job can disturb. For an agent this is the strongest isolation
+available locally: it can stage, commit, rebase and even break its tree without
+touching the checkout you are reading, and several streams of work can proceed in
+the same repository at once without fighting over one index.
+
+**The challenge.** A DSH session records the directory it was created in, and that
+value is immutable — it stays the main checkout even after the agent moves into
+`.wt/<name>`. The badge resolves every session through that directory, so a
+conversation doing all of its work in a linked worktree would keep reporting
+`main`: the wrong branch, the wrong counts, the wrong pull request. Nothing in the
+host can answer "which worktree is this session using?", and an earlier build
+tried to infer it from the branch with an open pull request — a guess that was
+invisible to the session it was made for and quietly wrong as soon as two trees
+were in play, so it was removed rather than kept as a fallback.
+
+**The solution.** The session tells the badge, once, at the moment the checkout
+changes. The `git-worktree` skill runs `npx dsh-git-badge-checkout <path>` right
+after `git worktree add` and clears it when the tree is removed; `/gh checkout`
+does the same when a switch lands in or out of a tree. The registration is keyed
+by session, validated against git's own worktree list, and expires after 24
+hours, so a stale entry can only fail to resolve — never point the badge at the
+wrong directory. **Create worktrees with the worktree skill** for this to work: a
+tree made by hand is never registered, and the badge will keep describing the
+session's own checkout until you run that command yourself.
+
 ## Requirements
 
 - Node.js ≥ 20, `git` on PATH
