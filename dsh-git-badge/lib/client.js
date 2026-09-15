@@ -894,7 +894,7 @@ window.__ModuleLoader__.load({
 				onPointerEnter: () => setHovered(true),
 				children: [
 					react_jsx_runtime.jsx(StatusMark, { key: "mark", info }),
-					react_jsx_runtime.jsx("span", { key: "text", children: text }),
+
 					Menu === void 0 || actions.length === 0
 						? null
 						: react_jsx_runtime.jsx(Menu, {
@@ -902,9 +902,12 @@ window.__ModuleLoader__.load({
 							open: menuOpen,
 							onClose: () => setMenuOpen(false),
 							items: actions.map((action) => ({ id: action.command, label: action.label, description: action.description })),
-							onSelect: (id) => {
+							onSelect: (picked) => {
 								setMenuOpen(false);
+								// the shell may hand back the id or the whole item — take either
+								const id = typeof picked === "string" ? picked : picked?.id;
 								const action = actions.find((entry) => entry.command === id);
+								console.info("[dsh-git-badge] pull-down pick:", id, "->", action === void 0 ? "NOT FOUND" : actionText(action));
 								if (action === void 0) return;
 								try {
 									void navigator.clipboard.writeText(actionText(action)).then(() => {
@@ -947,6 +950,7 @@ window.__ModuleLoader__.load({
 								"actions-anchor"
 							)
 						}),
+					react_jsx_runtime.jsx("span", { key: "text", children: text }),
 					prToken === ""
 						? null
 						: prUrl === void 0
@@ -1087,6 +1091,7 @@ window.__ModuleLoader__.load({
 				// the action up here rather than trusting the picked row to carry our
 				// extra fields through the pipeline untouched.
 				const actionsBySession = new Map();
+				const actionsByName = new Map();
 				ctx.effect(() => ctx.inputTriggers.registerSource({
 					trigger: "!",
 					name: "git-actions",
@@ -1107,12 +1112,19 @@ window.__ModuleLoader__.load({
 						}
 						const actions = buildActions(info);
 						actionsBySession.set(sessionId, actions);
+						// names are the deduped commands, so a flat registry is unambiguous
+						for (const action of actions) actionsByName.set(action.command, action);
 						const rows = actions.map((action) => ({ name: action.command, description: action.why }));
 						return rankByName === void 0 ? rows : rankByName(rows, req.query);
 					},
 					onPick: (pick) => {
-						const actions = actionsBySession.get(pick.session?.sessionId) ?? [];
-						const action = actions.find((entry) => entry.command === pick.candidate?.name);
+						// the pipeline may deliver the row object or just its name — take
+						// either, and fall back to the flat registry if the session key
+						// does not match how candidates stored it
+						const name = typeof pick.candidate === "string" ? pick.candidate : pick.candidate?.name;
+						const action = actionsByName.get(name)
+							?? (actionsBySession.get(pick.session?.sessionId) ?? []).find((entry) => entry.command === name);
+						console.info("[dsh-git-badge] ! pick:", name, "->", action === void 0 ? "NOT FOUND" : actionText(action));
 						return action === void 0 ? void 0 : { text: actionText(action) };
 					}
 				}));
