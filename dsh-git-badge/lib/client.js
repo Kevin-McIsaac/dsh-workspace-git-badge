@@ -230,52 +230,6 @@ window.__ModuleLoader__.load({
 			return "ok";
 		}
 
-		/**
-		 * The git action list both actionable surfaces render — the `!` trigger
-		 * menu in the input and the branch pull-down on the chip. State-filtered:
-		 * the server's `next` suggestion leads, then only actions the current
-		 * status justifies. Deduped by command (the next step already covers one
-		 * of these when it agrees) and capped, because a menu of twelve is a
-		 * reference manual, not an action menu.
-		 */
-		function buildActions(info) {
-			if (info === void 0 || info === null || info.git !== true) return [];
-			const actions = [];
-			const seen = new Set();
-			const add = (command, why) => {
-				if (typeof command !== "string" || command === "" || seen.has(command)) return;
-				seen.add(command);
-				actions.push({ name: command, label: command, description: why, command, why });
-			};
-			const next = info.next;
-			if (next !== void 0 && next !== null && typeof next.command === "string") {
-				add(next.command, next.why);
-			}
-			const ahead = info.ahead || 0;
-			const behind = info.behind || 0;
-			const staged = info.stagedFiles || 0;
-			const unstaged = info.unstagedFiles || 0;
-			const untracked = info.untrackedFiles || 0;
-			if (behind > 0) add("git pull --ff-only", behind + " behind " + (info.upstream ?? "upstream"));
-			if (ahead > 0) add("git push", ahead + " ahead of " + (info.upstream ?? "upstream"));
-			if (staged > 0) add("git commit", staged + " staged");
-			if (unstaged > 0) add("git add -p && git commit", unstaged + " unstaged");
-			if (unstaged === 0 && untracked > 0) add("git add -A && git commit", untracked + " untracked");
-			if ((info.stashCount || 0) > 0) add("git stash list", info.stashCount + " stashed");
-			const pr = info.pr;
-			if (pr !== void 0 && pr !== null && pr.number !== void 0) {
-				if (pr.state === "failing") add("gh pr checks " + pr.number + " --watch", "checks failing on #" + pr.number);
-				add("gh pr view " + pr.number, "open pull request #" + pr.number);
-			} else if (ahead === 0 && behind === 0 && info.upstream !== void 0 && staged + unstaged + untracked === 0) {
-				add("gh pr create", "branch is pushed and has no pull request");
-			}
-			return actions.slice(0, 6);
-		}
-
-		/** The input text a picked action becomes: the command, then why as a comment. */
-		function actionText(action) {
-			return "!" + action.command + " # " + action.why;
-		}
 
 		/**
 		 * The /gh picker's sub-actions — the skill invocations the checkout
@@ -710,65 +664,6 @@ window.__ModuleLoader__.load({
 		const CARD_LABEL = { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", flex: "none", minWidth: "62px" };
 		const CARD_VALUE = { minWidth: 0, overflowWrap: "anywhere" };
 
-		/**
-		 * The "next" row's body: why, then the command as a click-to-copy chip.
-		 * Clipboard-only by design — no server call, no path exposure; the command
-		 * lands in the user's clipboard to run in their own terminal. `navigator.
-		 * clipboard` needs a user gesture (a click is one) and a secure context
-		 * (localhost is one); a denied write degrades to a no-op and the command
-		 * is still readable as text.
-		 */
-		function NextStepRow({ next }) {
-			const [copied, setCopied] = react.useState(false);
-			const copy = () => {
-				if (typeof next.command !== "string") return;
-				try {
-					void navigator.clipboard.writeText(next.command).then(
-						() => {
-							setCopied(true);
-							setTimeout(() => setCopied(false), 1500);
-						},
-						() => void 0,
-					);
-				} catch {
-					void 0;
-				}
-			};
-			return react_jsx_runtime.jsxs(
-				"span",
-				{
-					style: { ...CARD_VALUE, display: "inline-flex", alignItems: "center", gap: "6px", flexWrap: "wrap" },
-					children: [
-						react_jsx_runtime.jsx("span", { children: next.why }),
-						typeof next.command === "string"
-							? react_jsx_runtime.jsx(
-									"button",
-									{
-										"aria-label": "Copy command: " + next.command,
-										title: "Copy command: " + next.command,
-										onClick: copy,
-										style: {
-											cursor: "pointer",
-											color: "inherit",
-											background: "none",
-											border: "1px solid var(--dsw-alias-border-secondary, #d0d7de)",
-											borderRadius: "4px",
-											fontSize: "11px",
-											lineHeight: "16px",
-											padding: "0 5px",
-											flex: "none",
-											fontFamily: "monospace"
-										},
-										children: copied ? "copied" : next.command
-									},
-									"cmd"
-								)
-							: null
-					]
-				},
-				"next-body"
-			);
-		}
 
 		/**
 		 * Hover card body for the input chip — INPUT CHIP ONLY. Pure presentation
@@ -793,17 +688,14 @@ window.__ModuleLoader__.load({
 					}, label)
 				);
 			};
-			// The "next" row — the node half's single highest-priority suggestion,
-			// { command, why } or absent (clean + synced + nothing failing). Clicking
-			// copies the command; it is the one actionable affordance the card
-			// carries, and it costs no server surface: the command runs in the
-			// user's own terminal, never here. Per-open state: the copied ack
-			// resets the next time the card opens, which is the honest lifetime for it.
-			const next = data.next;
-			if (next !== void 0 && next !== null && typeof next.why === "string") {
-				rows.push(
-					react_jsx_runtime.jsxs(NextStepRow, { next }, "next")
-				);
+			// The "action" row — the top line, in the card's ordinary row layout:
+			// the gh skill invocation the checkout justifies, derived from the same
+			// state the /gh picker uses (first sub-action wins). Plain text, no
+			// affordance: the actionable surface is the (+) menu's /gh picker, and
+			// this row is the read-only pointer to it.
+			const topAction = ghSkillActions(data)[0];
+			if (topAction !== void 0) {
+				add("action:", "/gh " + topAction.args);
 			}
 			add("branch", info.branch);
 			add("upstream", info.upstream === void 0 ? "none configured" : info.upstream);
@@ -894,16 +786,8 @@ window.__ModuleLoader__.load({
 			// re-render that no fetch will schedule, so the × bumps a counter here.
 			const [, bumpNotice] = react.useState(0);
 			const seamNotice = seamHint !== null && !seamNoticeDismissed ? seamHint : null;
-			// The branch pull-down (model-selection pattern): a chevron opens the
-			// shell Menu of state-filtered git actions; picking COPIES the command —
-			// the composer has no public insert API (see the trigger source in
-			// apply() for the insertion-capable surface), so this surface's contract
-			// is paste-and-send, the same one the hover card's chip has always had.
-			const [menuOpen, setMenuOpen] = react.useState(false);
-			const [copied, setCopied] = react.useState(false);
 			const detail = useGitStatus(target, { pr: true, detail: true, enabled: hovered });
 			if (info === void 0 || info.git !== true) return null;
-			const actions = buildActions({ ...info, ...(detail ?? {}) });
 
 			// The status mark wrapped in the chip's hover card — the card's ONLY
 			// anchor. Pointer rest here (and only here) enables the detail=1 fetch,
@@ -962,69 +846,7 @@ window.__ModuleLoader__.load({
 					// stays on the whole chip — it is about the badge, not the mark.
 					hoverableMark,
 
-					Menu === void 0 || actions.length === 0
-						? null
-						: react_jsx_runtime.jsx(Menu, {
-							key: "actions",
-							open: menuOpen,
-							onClose: () => setMenuOpen(false),
-							items: actions.map((action) => ({ id: action.command, label: action.label, description: action.description })),
-							onSelect: (picked) => {
-								setMenuOpen(false);
-								// the shell may hand back the id or the whole item — take either
-								const id = typeof picked === "string" ? picked : picked?.id;
-								const action = actions.find((entry) => entry.command === id);
-								console.info("[dsh-git-badge] pull-down pick:", id, "->", action === void 0 ? "NOT FOUND" : actionText(action));
-								if (action === void 0) return;
-								try {
-									void navigator.clipboard.writeText(actionText(action)).then(() => {
-										setCopied(true);
-										setTimeout(() => setCopied(false), 1200);
-									}, () => void 0);
-								} catch {
-									void 0;
-								}
-							},
-							align: "start",
-							portal: true,
-							anchor: react_jsx_runtime.jsxs(
-								"button",
-								{
-									type: "button",
-									"aria-haspopup": "menu",
-									"aria-expanded": menuOpen,
-									"aria-label": "Git actions for " + info.branch,
-									title: copied ? "copied — paste in your terminal" : "git actions",
-									onClick: () => setMenuOpen((value) => !value),
-									// the metrics of the row's own selectors (the access/model
-									// pull-downs): inline-flex, centered on the 24px line, no
-									// border or padding, icon flex-none so the chevron reads as an
-									// affordance, not a second label
-									style: {
-										cursor: "pointer",
-										color: "inherit",
-										background: "none",
-										border: "none",
-										display: "inline-flex",
-										alignItems: "center",
-										justifyContent: "center",
-										fontSize: "12px",
-										lineHeight: "24px",
-										padding: "0",
-										flex: "none"
-									},
-									children: [
-										copied
-											? "\u2713"
-											: (primitives !== null && primitives.IconChevronDownOutline14 !== void 0
-												? react_jsx_runtime.jsx(primitives.IconChevronDownOutline14, {})
-												: "\u25BE")
-									]
-								},
-								"actions-anchor"
-							)
-						}),
-					react_jsx_runtime.jsx("span", { key: "text", children: text }),
+						react_jsx_runtime.jsx("span", { key: "text", children: text }),
 					prToken === ""
 						? null
 						: prUrl === void 0
@@ -1313,7 +1135,7 @@ window.__ModuleLoader__.load({
 		// Additive; the host reads apply/inject and ignores the rest. The suite
 		// drives these to assert the REQUEST contract — which surface asks for the
 		// expensive extras — without a browser, a fetch or a network.
-		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, actionToken, buildActions, actionText, ghSkillActions };
+		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, actionToken, ghSkillActions };
 		return module.exports;
 	}
 });
