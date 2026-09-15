@@ -10,6 +10,8 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-09-15
+
 ### Changed
 
 - **Internal polish, no behaviour change:** the `detail=1` hover reads run in
