@@ -12,6 +12,14 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Added
 
+- **A names-only hover on the ✎n count.** The count gets its own tooltip —
+  just the untracked list (one name per line, "… and k more"), no action row —
+  while the full card stays on the status mark. It shares the mark's lazy
+  detail fetch (resting on either triggers it once) and degrades to a plain
+  count without the Tooltip primitive or when nothing is untracked.
+
+### Added
+
 - **Untracked file names in the hover card.** The `✎n` count becomes
   answerable — "what did I create here?" — with a `untracked:` row listing the
   names, hover-gated with the rest of `detail=1` (computed when the card opens,

@@ -665,6 +665,36 @@ window.__ModuleLoader__.load({
 			width: "max-content",
 			maxWidth: "600px"
 		};
+		/**
+		 * The ✎n count's own hover body — the untracked list and NOTHING else:
+		 * the full card stays on the status mark, and this tooltip answers the
+		 * one question the count poses ("what are these?"). Reads the same lazy
+		 * detail payload the mark's card uses; when nothing is untracked there
+		 * is no tooltip at all (the count itself is absent when the tree is
+		 * clean, so an empty list is rare — a mid-fetch hover shows it plain
+		 * until the response lands).
+		 */
+		function UntrackedList({ info }) {
+			const names = info?.untrackedNames;
+			if (!Array.isArray(names) || names.length === 0) {
+				return react_jsx_runtime.jsx("span", { style: CARD_CONTAINER, children: "no untracked files" });
+			}
+			return react_jsx_runtime.jsxs("div", { style: CARD_CONTAINER, children: [
+				react_jsx_runtime.jsxs("div", { style: CARD_ROW, children: [
+					react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: "untracked" }),
+					react_jsx_runtime.jsx("span", {
+						style: { ...CARD_VALUE, display: "flex", flexDirection: "column", gap: "2px" },
+						children: [
+							...names.map((name) => react_jsx_runtime.jsx("span", { children: name }, name)),
+							(typeof info.untrackedNamesTotal === "number" && info.untrackedNamesTotal > names.length
+								? "\u2026 and " + (info.untrackedNamesTotal - names.length) + " more"
+								: null)
+						]
+					})
+				] }, "untracked")
+			] });
+		}
+
 		const CARD_ROW = { display: "flex", gap: "8px", alignItems: "baseline" };
 		const CARD_LABEL = { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", flex: "none", minWidth: "62px" };
 		const CARD_VALUE = { minWidth: 0, overflowWrap: "anywhere" };
@@ -847,7 +877,27 @@ window.__ModuleLoader__.load({
 			// the mark is an element now rather than a leading glyph in the string, so
 			// the SAME StatusMark the sidebar row draws carries the status here too;
 			// the container's 4px gap supplies the space the emoji's own did
-			const text = info.branch + formatOperationToken(info) + formatGitSuffix(info);
+			const text = info.branch + formatOperationToken(info);
+			// The ✎n count is its OWN hover surface: a names-only tooltip (see
+			// UntrackedList). It shares the mark's lazy detail fetch — resting on
+			// either triggers it once — and degrades to a plain count on a shell
+			// without the Tooltip primitive.
+			const countHover = (() => {
+				const count = react_jsx_runtime.jsx("span", {
+					onPointerEnter: () => setHovered(true),
+					style: { cursor: "default" },
+					children: formatGitSuffix(info)
+				});
+				if (Tooltip === void 0 || !Array.isArray(detail?.untrackedNames) || detail.untrackedNames.length === 0) {
+					return count;
+				}
+				return react_jsx_runtime.jsx(Tooltip, {
+					side: "top",
+					maxWidth: 480,
+					label: () => react_jsx_runtime.jsx(UntrackedList, { info: detail }),
+					children: count
+				});
+			})();
 			const prToken = formatPrToken(info);
 			const prUrl = prLinkUrl(info);
 			const chip = react_jsx_runtime.jsxs("span", {
@@ -881,6 +931,7 @@ window.__ModuleLoader__.load({
 					hoverableMark,
 
 						react_jsx_runtime.jsx("span", { key: "text", children: text }),
+					countHover,
 					prToken === ""
 						? null
 						: prUrl === void 0
