@@ -369,6 +369,35 @@ test("the lineage never claims 'in sync' when there is no upstream", () => {
 	assert.ok(!lineage.includes("in sync"), `must not claim sync without an upstream: ${lineage}`);
 });
 
+test("the lineage phrases the merge blocker", () => {
+	// BLOCKED must say why — a dead-end word names the next action instead.
+	// Draft outranks: fixing checks on a draft is wasted work until it is
+	// marked ready.
+	const lineage = client_labels(createClient({ tooltip: true, hover: true }), {
+		...BASE,
+		pr: { number: 142, state: "failing", draft: true, review: "REVIEW_REQUIRED", open: true },
+		draft: true
+	});
+	const mergeRow = lineage.split(" | ").find((l) => l.includes("merge"));
+	assert.ok(mergeRow !== void 0, `expected a merge row: ${lineage}`);
+	assert.ok(mergeRow.includes("blocked: draft"), `draft outranks: ${mergeRow}`);
+
+	const reviewBlocked = client_labels(createClient({ tooltip: true, hover: true }), {
+		...BASE,
+		pr: { number: 142, state: "passing", mergeState: "BLOCKED", review: "REVIEW_REQUIRED", open: true }
+	});
+	const mergeRow2 = reviewBlocked.split(" | ").find((l) => l.includes("merge"));
+	assert.ok(mergeRow2 !== void 0 && mergeRow2.includes("blocked: review required"), `review required: ${mergeRow2}`);
+
+	// CLEAN stays silent — the action row already offers /gh merge
+	const clean = client_labels(createClient({ tooltip: true, hover: true }), {
+		...BASE,
+		pr: { number: 142, state: "passing", mergeState: "CLEAN", review: "APPROVED", open: true }
+	});
+	const cleanRow = clean.split(" | ").find((l) => l.includes("merge"));
+	assert.ok(cleanRow === void 0, `no merge row when ready: ${clean}`);
+});
+
 test("the PR is NOT in any hover: the chip token carries it", () => {
 	const rendered = client_labels(createClient({ tooltip: true, hover: true }), BASE);
 	assert.ok(!rendered.includes("#142"), `no PR row in the hovers: ${rendered}`);
