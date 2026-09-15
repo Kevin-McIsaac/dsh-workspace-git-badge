@@ -10,6 +10,8 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-09-15
+
 ### Changed
 
 - **The chip's hover card top line is now an `action:` row** — the gh skill
