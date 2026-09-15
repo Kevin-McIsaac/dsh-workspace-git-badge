@@ -532,6 +532,7 @@ function parseStatusV2(out) {
 	let unmerged = 0;
 	let untracked = 0;
 	const untrackedNames = [];
+	const unstagedNames = [];
 	for (const line of out.split("\n")) {
 		if (line.startsWith("# branch.head ")) branch = line.slice(14).trim();
 		else if (line.startsWith("# branch.upstream ")) upstream = line.slice(18).trim();
@@ -545,7 +546,16 @@ function parseStatusV2(out) {
 		} else if (line.startsWith("1 ") || line.startsWith("2 ")) {
 			// XY columns: X = index (staged), Y = worktree (unstaged)
 			if (line[2] !== ".") staged += 1;
-			if (line[3] !== ".") unstaged += 1;
+			if (line[3] !== ".") {
+				unstaged += 1;
+				// the path is the LAST field in both records (space-separated, and
+				// the path itself may contain spaces) — collected untruncated and
+				// capped by the caller, exactly like the untracked names
+				const path = line.startsWith("2 ")
+					? line.split("\t").pop().trim()
+					: line.split(" ").slice(8).join(" ").trim();
+				if (path !== "") unstagedNames.push(path);
+			}
 		} else if (line.startsWith("u ")) unmerged += 1;
 		else if (line.startsWith("? ")) {
 			untracked += 1;
@@ -556,7 +566,7 @@ function parseStatusV2(out) {
 			if (name !== "") untrackedNames.push(name);
 		}
 	}
-	return { branch, upstream, ahead, behind, staged, unstaged, unmerged, untracked, untrackedNames };
+	return { branch, upstream, ahead, behind, staged, unstaged, unmerged, untracked, untrackedNames, unstagedNames };
 }
 
 /**
@@ -910,7 +920,7 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 		// never absolute — AGENTS.md rule 7 is relaxed by an inch, not a mile),
 		// truncated to the last two path segments, capped at 20 with the total
 		// carried separately so the client can say "… and k more" honestly.
-		if (parsed.untrackedNames.length > 0 && untrackedMode === "all") {
+		if (untrackedMode === "all" && parsed.untrackedNames.length > 0) {
 			const shorthen = (name) => {
 				const parts = name.split("/");
 				return parts.length <= 2 ? name : parts.slice(-2).join("/");
@@ -918,25 +928,80 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 			info.untrackedNames = parsed.untrackedNames.slice(0, 20).map(shorthen);
 			info.untrackedNamesTotal = parsed.untrackedNames.length;
 		}
-		// The COMMITS THIS BRANCH ADDS (`log <upstream>..HEAD`) — the branch
-		// name's own hover answers "what is on this line of work that isn't on
-		// upstream". Hover-gated with the rest of detail=1; capped at 10 with the
-		// total from one `rev-list --count` so "… and k more" is arithmetic.
-		// No upstream → the field is absent (the publish suggestion covers that
-		// case); a failed read is omitted like every other "nothing to say".
-		if (parsed.upstream !== void 0) {
-			const countOut = await runGit(toplevel, ["rev-list", "--count", parsed.upstream + "..HEAD"]);
-			const total = Number.parseInt((countOut.stdout ?? "").trim(), 10);
-			if (Number.isFinite(total) && total > 0) {
-				const logOut2 = await runGit(toplevel, ["log", `-10`, "--format=%h%x09%s%x09%cr", parsed.upstream + "..HEAD"]);
-				if (logOut2.stdout !== null && logOut2.stdout.trim() !== "") {
-					info.branchCommits = logOut2.stdout.trim().split("\n").map((line) => {
-						const [hash, subject, when] = line.split("\t");
-						return { hash, subject: subject ?? "", when: when ?? "" };
-					}).filter((c) => c.hash !== void 0);
-					info.branchCommitsTotal = total;
+		// unstaged names are TRACKED files: the collapsed untracked retry never
+		// affects them, so they ride regardless of untrackedMode
+		if (parsed.unstagedNames.length > 0) {
+			const shorthen = (name) => {
+				const parts = name.split("/");
+				return parts.length <= 2 ? name : parts.slice(-2).join("/");
+			};
+			info.unstagedNames = parsed.unstagedNames.slice(0, 20).map(shorthen);
+			info.unstagedNamesTotal = parsed.unstagedNames.length;
+		}
+		// The branch's recent commits — WHAT THIS BRANCH HAS, full stop: the last
+		// 10 on HEAD, newest first, no base-relative filtering (against upstream
+		// the list empties on every push; against main it empties on every
+		// merge — both defeat the question). Hover-gated with the rest of
+		// detail=1; a failed or empty read is omitted like every other "nothing
+		// to say".
+		// The counts-vs-main row: ahead/behind against origin/main (then
+		// origin/master) is the merge-state line — "3 ahead, 0 behind" reads as
+		// "this is the PR's content"; "0 ahead, 5 behind" as "stale, rebase
+		// first". One rev-list --left-right, hover-gated like everything here,
+		// absent entirely when both are zero (in sync needs no row).
+		// The repo's WEB URL — the branch hover links the branch name to the
+		// compare view (`<repo>/compare/<base>...<branch>`), and that URL must be
+		// vouched for like pr.url is: http(s) only, rebuilt from the parsed parts
+		// so no payload value can reach an anchor as a scheme. Derived from
+		// `remote get-url origin` with ssh syntax converted; absent when there is
+		// no origin or the URL is not recognisably a hosted repo.
+		const remoteUrl = await runGit(toplevel, ["remote", "get-url", "origin"]);
+		if (remoteUrl.stdout !== null && remoteUrl.stdout.trim() !== "") {
+			const raw = remoteUrl.stdout.trim().replace(/\.git$/u, "");
+			const https = raw.match(/^https:\/\/([^/]+)\/(.+?)\/?$/u);
+			const ssh = raw.match(/^[^@]+@([^:]+):(.+)$/u);
+			const web = https !== null ? https[1] + "/" + https[2] : ssh !== null ? ssh[1] + "/" + ssh[2] : null;
+			if (web !== null) {
+				try {
+					const url = new URL("https://" + web);
+					if (url.protocol === "https:" && url.pathname.length > 1) {
+						info.repoUrl = url.origin + url.pathname.replace(/\/$/u, "");
+					}
+				} catch {
+					// not a URL we can vouch for — the field stays absent
 				}
 			}
+		}
+		const baseRef = await (async () => {
+			for (const candidate of ["origin/main", "origin/master"]) {
+				const probe = await runGit(toplevel, ["rev-parse", "--verify", "--quiet", candidate]);
+				if (probe.stdout !== null && probe.stdout.trim() !== "") return candidate;
+			}
+			return null;
+		})();
+		if (baseRef !== null && info.repoUrl !== void 0) {
+			const baseName = baseRef.replace(/^origin\//u, "");
+			try {
+				const compare = new URL(info.repoUrl + "/compare/" + encodeURIComponent(baseName) + "..." + encodeURIComponent(info.branch));
+				if (compare.protocol === "https:") info.compareUrl = compare.href;
+			} catch {
+				// absent rather than wrong
+			}
+		}
+		if (baseRef !== null) {
+			const lrOut = await runGit(toplevel, ["rev-list", "--count", "--left-right", baseRef + "...HEAD"]);
+			const [mBehind, mAhead] = (lrOut.stdout ?? "").trim().split("\t").map((v) => Number.parseInt(v, 10));
+			if (Number.isFinite(mBehind) && Number.isFinite(mAhead) && (mBehind > 0 || mAhead > 0)) {
+				info.mainAhead = mAhead;
+				info.mainBehind = mBehind;
+			}
+		}
+		const logOut2 = await runGit(toplevel, ["log", "-10", "--format=%h%x09%s%x09%cr", "HEAD"]);
+		if (logOut2.stdout !== null && logOut2.stdout.trim() !== "") {
+			info.branchCommits = logOut2.stdout.trim().split("\n").map((line) => {
+				const [hash, subject, when] = line.split("\t");
+				return { hash, subject: subject ?? "", when: when ?? "" };
+			}).filter((c) => c.hash !== void 0);
 		}
 		// stash count, only surfaced when nonzero
 		const stashOut = await runGit(toplevel, ["stash", "list"]);

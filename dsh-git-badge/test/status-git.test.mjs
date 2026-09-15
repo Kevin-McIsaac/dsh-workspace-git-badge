@@ -388,34 +388,77 @@ test("a clean repository response carries no next field", async (t) => {
 	assert.equal(info.next, void 0);
 });
 
-test("the detail payload carries the commits this branch adds", async (t) => {
+test("the detail payload vouches a https compare URL", async (t) => {
 	const repo = await makeRepo(t);
 	await repo.commit("base");
-	// upstream tracking, then two local commits: upstream..HEAD = 2
-	await repo.git(["config", "user.name", "Test User"]);
+	await repo.git(["remote", "add", "origin", "https://github.com/me/repo.git"]);
+	// no network: create the remote-tracking ref directly (base probe reads it)
+	await runGit(repo.root, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+	await repo.commit("on branch work");
+	const detail = await gitStatus(repo.root, true);
+	assert.equal(detail.repoUrl, "https://github.com/me/repo");
+	assert.equal(detail.compareUrl, "https://github.com/me/repo/compare/main...main");
+	// ssh syntax converts; a .git suffix is stripped
+	await repo.git(["remote", "set-url", "origin", "git@github.com:me/repo2.git"]);
+	const ssh = await gitStatus(repo.root, true);
+	assert.equal(ssh.repoUrl, "https://github.com/me/repo2");
+	// no origin → absent
+	await runGit(repo.root, ["remote", "remove", "origin"]);
+	const none = await gitStatus(repo.root, true);
+	assert.equal(none.repoUrl, void 0);
+	assert.equal(none.compareUrl, void 0);
+});
+
+test("the detail payload carries ahead/behind vs main", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("base");
 	const bare = join(repo.root, "origin-bare.git");
 	await runGit(repo.root, ["clone", "--bare", repo.root, bare]);
 	await runGit(repo.root, ["remote", "add", "origin", bare]);
 	await runGit(repo.root, ["push", "-u", "origin", "main"]);
-	await repo.commit("first on branch");
+	// in sync with origin/main → no row at all
+	const synced = await gitStatus(repo.root, true);
+	assert.equal(synced.mainAhead, void 0);
+	assert.equal(synced.mainBehind, void 0);
+	// branch work: two commits main does not have
+	await runGit(repo.root, ["checkout", "-b", "feat/x"]);
+	await repo.commit("branch work");
+	await repo.commit("more branch work");
+	await runGit(repo.root, ["fetch", "origin"]);
+	const detail = await gitStatus(repo.root, true);
+	assert.equal(detail.mainAhead, 2, "two commits main does not have");
+	assert.equal(detail.mainBehind, 0);
+	// main moves on without the branch → behind appears as well
+	const other = await makeTempDir(t, "dsh-git-badge-mainmove-");
+	await runGit(other, ["clone", "--quiet", bare, "clone"]);
+	await runGit(join(other, "clone"), ["config", "user.email", "t@e.com"]);
+	await runGit(join(other, "clone"), ["config", "user.name", "T"]);
+	await writeFile(join(other, "clone", "main-move.txt"), "main moves\n");
+	await runGit(join(other, "clone"), ["add", "main-move.txt"]);
+	await runGit(join(other, "clone"), ["commit", "-m", "main moves on"]);
+	await runGit(join(other, "clone"), ["push", "origin", "main"]);
+	await runGit(repo.root, ["fetch", "origin"]);
+	const diverged = await gitStatus(repo.root, true);
+	assert.equal(diverged.mainAhead, 2);
+	assert.equal(diverged.mainBehind, 1);
+});
+
+test("the detail payload carries the branch's last commits, full stop", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("base");
 	await repo.commit("second on branch");
 	const detail = await gitStatus(repo.root, true);
 	assert.equal(detail.git, true);
-	assert.equal(detail.branchCommitsTotal, 2);
-	assert.equal(detail.branchCommits.length, 2);
 	assert.deepEqual(
 		detail.branchCommits.map((c) => c.subject),
-		["second on branch", "first on branch"],
-		"newest first, upstream..HEAD only",
+		["second on branch", "base"],
+		"newest first, no base-relative filtering",
 	);
 	assert.ok(detail.branchCommits.every((c) => c.hash && c.subject && typeof c.when === "string"));
+	assert.equal(detail.branchCommitsTotal, void 0, "no and-k-more: the list is simply the last 10");
 	// the BASE request stays lean: no commit list without detail=1
 	const base = await gitStatus(repo.root);
 	assert.equal(base.branchCommits, void 0);
-	// up to date with upstream → no field at all (no tooltip rather than empty)
-	await runGit(repo.root, ["push"]);
-	const synced = await gitStatus(repo.root, true);
-	assert.equal(synced.branchCommits, void 0);
 });
 
 test("the detail payload carries capped, shortened untracked names", async (t) => {
