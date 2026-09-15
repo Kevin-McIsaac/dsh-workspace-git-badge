@@ -47,17 +47,19 @@
     "node": ">=20"
   },
   "files": [
-    "lib/index.js",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "cordis.patch.yml",
     "lib/client.js",
-    "seam/apply.js",
+    "lib/index.js",
+    "package.json",
     "seam/anchors.js",
+    "seam/apply.js",
     "seam/postinstall.js",
+    "seam/skill.js",
     "seam/store.js",
     "seam/stub-index.js",
-    "cordis.patch.yml",
-    "package.json",
-    "README.md",
-    "CHANGELOG.md",
-    "LICENSE"
+    "skill/gh/SKILL.md"
   ]
 }

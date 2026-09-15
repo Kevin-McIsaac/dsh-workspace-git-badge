@@ -52,9 +52,9 @@ const DETAIL = {
  * detail-only fields, and a test that let it would prove nothing about laziness.
  */
 function card(client, base, detail = base) {
-	const rendered = client.chip(base, detail);
-	assert.equal(rendered.type, "Tooltip", "expected the chip to be wrapped in the Tooltip primitive");
-	return text(expand(rendered.props.label()));
+	const tooltip = elements(expand(client.rawChip(base, detail))).find((el) => el.type === "Tooltip");
+	assert.ok(tooltip !== void 0, "expected the status mark to be wrapped in the Tooltip primitive");
+	return text(expand(tooltip.props.label()));
 }
 
 //#region the request contract (laziness)
@@ -81,10 +81,14 @@ test("a sidebar row asks for neither extra", () => {
 	assert.equal(targetQuery({ kind: "workspace", id: "ws-1" }, {}), "workspace=ws-1");
 });
 
-test("the chip wires a pointer-enter, which is what unlocks the card's fields", () => {
+test("the status mark wires a pointer-enter, which is what unlocks the card's fields", () => {
+	// the card lives on the MARK now (the circle is the "what does this colour
+	// mean" element), so the lazy fetch is gated by resting on the mark, not the
+	// badge
 	const client = createClient();
-	const raw = client.rawChip({ branch: "main" });
-	assert.equal(typeof raw.props.onPointerEnter, "function", "without this the lazy fetch could never start");
+	const markEl = elements(expand(client.rawChip({ branch: "main" })))
+		.find((el) => typeof el.props?.onPointerEnter === "function");
+	assert.ok(markEl !== void 0, "without this the lazy fetch could never start");
 });
 
 test("the client tags an id safely, so a crafted id cannot forge a second parameter", () => {
@@ -107,15 +111,19 @@ test("the chip renders WITHOUT the Tooltip primitive, just uncarded", () => {
 	assert.ok(text(expand(raw)).includes("main"), "and the branch");
 });
 
-test("with the primitive present the chip is wrapped, and the card is built lazily", () => {
+test("with the primitive present the MARK is wrapped, and the card is built lazily", () => {
 	const client = createClient({ tooltip: true });
 	const raw = client.rawChip({ ...DETAIL });
-	assert.equal(typeof raw.type, "function", "the chip is handed to the Tooltip component");
+	// the card's anchor is the status mark, NOT the badge: the badge carries the
+	// branch pull-down, and a card opening sideways from the branch text would
+	// fight the very menu the row now offers
+	const tooltip = elements(expand(raw)).find((el) => el.type === "Tooltip");
+	assert.ok(tooltip !== void 0, "the mark is handed to the Tooltip component");
 	// the label is a FUNCTION, so the card's tree is only built when it opens
-	const rendered = client.chip({ ...DETAIL });
-	assert.equal(rendered.type, "Tooltip");
-	assert.equal(typeof rendered.props.label, "function");
-	assert.equal(rendered.props.side, "top", "the card opens above the input row");
+	assert.equal(typeof tooltip.props.label, "function");
+	assert.equal(tooltip.props.side, "top", "the card opens above the input row");
+	// and the badge itself is not the anchor: the chip root is a plain span
+	assert.equal(raw.type, "span");
 });
 
 test("the boot log says which hover-card path was taken", () => {

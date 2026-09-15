@@ -50,6 +50,11 @@ window.__ModuleLoader__.load({
 			primitives = null;
 		}
 		const Tooltip = primitives === null ? void 0 : primitives.Tooltip;
+		// The shell's pull-down primitive (what the input-area selectors use) and
+		// its candidate ranker. Same guarded require as Tooltip: a shell without
+		// them loses the pull-down affordances, never the badges.
+		const Menu = primitives === null ? void 0 : primitives.Menu;
+		const rankByName = primitives === null ? void 0 : primitives.rankByName;
 
 		/** Module-level git-status cache. Entries are invalidated by SSE events, never by age. */
 		const GIT_CACHE = new Map();
@@ -223,6 +228,94 @@ window.__ModuleLoader__.load({
 			if (conflict || (dirty && behind)) return "error";
 			if (dirty || ahead || behind) return "warn";
 			return "ok";
+		}
+
+		/**
+		 * The git action list both actionable surfaces render — the `!` trigger
+		 * menu in the input and the branch pull-down on the chip. State-filtered:
+		 * the server's `next` suggestion leads, then only actions the current
+		 * status justifies. Deduped by command (the next step already covers one
+		 * of these when it agrees) and capped, because a menu of twelve is a
+		 * reference manual, not an action menu.
+		 */
+		function buildActions(info) {
+			if (info === void 0 || info === null || info.git !== true) return [];
+			const actions = [];
+			const seen = new Set();
+			const add = (command, why) => {
+				if (typeof command !== "string" || command === "" || seen.has(command)) return;
+				seen.add(command);
+				actions.push({ name: command, label: command, description: why, command, why });
+			};
+			const next = info.next;
+			if (next !== void 0 && next !== null && typeof next.command === "string") {
+				add(next.command, next.why);
+			}
+			const ahead = info.ahead || 0;
+			const behind = info.behind || 0;
+			const staged = info.stagedFiles || 0;
+			const unstaged = info.unstagedFiles || 0;
+			const untracked = info.untrackedFiles || 0;
+			if (behind > 0) add("git pull --ff-only", behind + " behind " + (info.upstream ?? "upstream"));
+			if (ahead > 0) add("git push", ahead + " ahead of " + (info.upstream ?? "upstream"));
+			if (staged > 0) add("git commit", staged + " staged");
+			if (unstaged > 0) add("git add -p && git commit", unstaged + " unstaged");
+			if (unstaged === 0 && untracked > 0) add("git add -A && git commit", untracked + " untracked");
+			if ((info.stashCount || 0) > 0) add("git stash list", info.stashCount + " stashed");
+			const pr = info.pr;
+			if (pr !== void 0 && pr !== null && pr.number !== void 0) {
+				if (pr.state === "failing") add("gh pr checks " + pr.number + " --watch", "checks failing on #" + pr.number);
+				add("gh pr view " + pr.number, "open pull request #" + pr.number);
+			} else if (ahead === 0 && behind === 0 && info.upstream !== void 0 && staged + unstaged + untracked === 0) {
+				add("gh pr create", "branch is pushed and has no pull request");
+			}
+			return actions.slice(0, 6);
+		}
+
+		/** The input text a picked action becomes: the command, then why as a comment. */
+		function actionText(action) {
+			return "!" + action.command + " # " + action.why;
+		}
+
+		/**
+		 * The /gh picker's sub-actions — the skill invocations the checkout
+		 * justifies, most urgent first. Same ranking the server's nextStep uses,
+		 * but spoken in skill arguments; the generic "next" entry is skipped when
+		 * a specific rule already names the same situation (its why would be
+		 * identical, and two rows for one fact is noise).
+		 */
+		function ghSkillActions(info) {
+			if (info === void 0 || info === null || info.git !== true) return [];
+			const subs = [];
+			const seen = new Set();
+			const add = (args, why) => {
+				if (seen.has(args)) return;
+				seen.add(args);
+				subs.push({ args, why });
+			};
+			const ahead = info.ahead || 0;
+			const behind = info.behind || 0;
+			const staged = info.stagedFiles || 0;
+			const unstaged = info.unstagedFiles || 0;
+			const untracked = info.untrackedFiles || 0;
+			if (behind > 0) add("pull", behind + " behind " + (info.upstream ?? "upstream"));
+			if (ahead > 0) add("push", ahead + " ahead of " + (info.upstream ?? "upstream"));
+			if (staged > 0) add("commit", staged + " staged");
+			if (unstaged > 0) add("commit", unstaged + " unstaged");
+			if (unstaged === 0 && untracked > 0) add("commit", untracked + " untracked");
+			const pr = info.pr;
+			if (pr !== void 0 && pr !== null && pr.number !== void 0) {
+				if (pr.state === "failing") add("checks " + pr.number, "checks failing on #" + pr.number);
+				add("pr view " + pr.number, "open pull request #" + pr.number);
+			} else if (ahead === 0 && behind === 0 && info.upstream !== void 0 && staged + unstaged + untracked === 0) {
+				add("pr", "branch is pushed and has no pull request");
+			}
+			const next = info.next;
+			if (next !== void 0 && next !== null && typeof next.command === "string"
+				&& !subs.some((entry) => entry.why === next.why)) {
+				add("next", next.why);
+			}
+			return subs.slice(0, 6);
 		}
 
 		/**
@@ -801,8 +894,38 @@ window.__ModuleLoader__.load({
 			// re-render that no fetch will schedule, so the × bumps a counter here.
 			const [, bumpNotice] = react.useState(0);
 			const seamNotice = seamHint !== null && !seamNoticeDismissed ? seamHint : null;
+			// The branch pull-down (model-selection pattern): a chevron opens the
+			// shell Menu of state-filtered git actions; picking COPIES the command —
+			// the composer has no public insert API (see the trigger source in
+			// apply() for the insertion-capable surface), so this surface's contract
+			// is paste-and-send, the same one the hover card's chip has always had.
+			const [menuOpen, setMenuOpen] = react.useState(false);
+			const [copied, setCopied] = react.useState(false);
 			const detail = useGitStatus(target, { pr: true, detail: true, enabled: hovered });
 			if (info === void 0 || info.git !== true) return null;
+			const actions = buildActions({ ...info, ...(detail ?? {}) });
+
+			// The status mark wrapped in the chip's hover card — the card's ONLY
+			// anchor. Pointer rest here (and only here) enables the detail=1 fetch,
+			// so the extras are paid for exactly when the card that can render them
+			// is about to open. Defined inside the component: it closes over the
+			// hovered state that gates the detail fetch.
+			const hoverableMark = (() => {
+				const mark = react_jsx_runtime.jsx("span", {
+					onPointerEnter: () => setHovered(true),
+					style: { display: "inline-flex", alignItems: "center", flex: "none", cursor: "default" },
+					children: react_jsx_runtime.jsx(StatusMark, { info })
+				});
+				if (Tooltip === void 0) return mark;
+				return react_jsx_runtime.jsx(Tooltip, {
+					side: "top",
+					maxWidth: 360,
+					// a function label keeps the card's element tree out of every render
+					// until the tooltip actually opens
+					label: () => react_jsx_runtime.jsx(HoverCard, { info, detail }),
+					children: mark
+				});
+			})();
 			// the mark is an element now rather than a leading glyph in the string, so
 			// the SAME StatusMark the sidebar row draws carries the status here too;
 			// the container's 4px gap supplies the space the emoji's own did
@@ -829,11 +952,78 @@ window.__ModuleLoader__.load({
 				// null until the delayed check in apply() proves the seam never
 				// appeared.
 				title: seamHint === null ? undefined : seamHint,
-				// the card is fetched for a pointer that RESTS here, not one that
-				// merely crosses the chip
-				onPointerEnter: () => setHovered(true),
 				children: [
-					react_jsx_runtime.jsx(StatusMark, { key: "mark", info }),
+					// The hover card belongs to the STATUS SYMBOL, not the badge: the
+					// circle is the "what does this colour mean" element, and a card
+					// opening sideways from a hover on the branch text got in the way of
+					// the very pull-down this row now carries. The detail fetch
+					// (enabled: hovered) follows the same pointer, so nothing pays for
+					// extras the card no longer shows. The seam-absent native title
+					// stays on the whole chip — it is about the badge, not the mark.
+					hoverableMark,
+
+					Menu === void 0 || actions.length === 0
+						? null
+						: react_jsx_runtime.jsx(Menu, {
+							key: "actions",
+							open: menuOpen,
+							onClose: () => setMenuOpen(false),
+							items: actions.map((action) => ({ id: action.command, label: action.label, description: action.description })),
+							onSelect: (picked) => {
+								setMenuOpen(false);
+								// the shell may hand back the id or the whole item — take either
+								const id = typeof picked === "string" ? picked : picked?.id;
+								const action = actions.find((entry) => entry.command === id);
+								console.info("[dsh-git-badge] pull-down pick:", id, "->", action === void 0 ? "NOT FOUND" : actionText(action));
+								if (action === void 0) return;
+								try {
+									void navigator.clipboard.writeText(actionText(action)).then(() => {
+										setCopied(true);
+										setTimeout(() => setCopied(false), 1200);
+									}, () => void 0);
+								} catch {
+									void 0;
+								}
+							},
+							align: "start",
+							portal: true,
+							anchor: react_jsx_runtime.jsxs(
+								"button",
+								{
+									type: "button",
+									"aria-haspopup": "menu",
+									"aria-expanded": menuOpen,
+									"aria-label": "Git actions for " + info.branch,
+									title: copied ? "copied — paste in your terminal" : "git actions",
+									onClick: () => setMenuOpen((value) => !value),
+									// the metrics of the row's own selectors (the access/model
+									// pull-downs): inline-flex, centered on the 24px line, no
+									// border or padding, icon flex-none so the chevron reads as an
+									// affordance, not a second label
+									style: {
+										cursor: "pointer",
+										color: "inherit",
+										background: "none",
+										border: "none",
+										display: "inline-flex",
+										alignItems: "center",
+										justifyContent: "center",
+										fontSize: "12px",
+										lineHeight: "24px",
+										padding: "0",
+										flex: "none"
+									},
+									children: [
+										copied
+											? "\u2713"
+											: (primitives !== null && primitives.IconChevronDownOutline14 !== void 0
+												? react_jsx_runtime.jsx(primitives.IconChevronDownOutline14, {})
+												: "\u25BE")
+									]
+								},
+								"actions-anchor"
+							)
+						}),
 					react_jsx_runtime.jsx("span", { key: "text", children: text }),
 					prToken === ""
 						? null
@@ -936,25 +1126,18 @@ window.__ModuleLoader__.load({
 							),
 				]
 			});
-			// No Tooltip primitive (a shell that does not seed it): render the chip
-			// itself rather than losing the badge. The card is an enhancement, the
+			// No Tooltip primitive (a shell that does not seed it): the mark renders
+			// bare and the badge still works — the card is an enhancement, the
 			// badge is the feature.
-			if (Tooltip === void 0) return chip;
-			return react_jsx_runtime.jsx(Tooltip, {
-				side: "top",
-				maxWidth: 360,
-				// a function label keeps the card's element tree out of every render
-				// until the tooltip actually opens
-				label: () => react_jsx_runtime.jsx(HoverCard, { info, detail }),
-				children: chip
-			});
+			return chip;
 		}
+
 		//#endregion
 
 		// `workspaces` is no longer required: both surfaces target an id and the
 		// node half resolves the workspace, so the client never needs a service
 		// lookup. Fewer declared services also means fewer ways to fail to load.
-		const inject = ["slots"];
+		const inject = ["slots", "inputTriggers"];
 
 		/**
 		 * Register the badge into the seams. The seam owner hands each entry the row
@@ -962,6 +1145,93 @@ window.__ModuleLoader__.load({
 		 * deliberately ignores the cwd it may also be given.
 		 */
 		function apply(ctx) {
+			// The /gh command contribution (the (+) commands menu): the state-aware
+			// entry point to the gh skill. available() gates on the cached git
+			// status; options() lists only the sub-actions the checkout justifies;
+			// onSelect SENDS the skill invocation ("/gh push") as a conversation
+			// message — the agent executes the skill under its own approval flow,
+			// and the shell consumes the /gh token afterwards. This is the one
+			// blessed route from a menu pick to a git action; it is a SEND, which
+			// is why the destructive-step confirmation lives in the skill text.
+			// Guarded: a host without commandUi loses the menu entry, never the
+			// badges.
+			if (typeof ctx.inject === "function") {
+				ctx.inject(["commandUi", "sessions"], (scope) => {
+					try {
+					scope.effect(() => scope.commandUi.register({
+						name: "gh",
+						// the contract calls description() as a FUNCTION at menu-build
+						// time (candidates: contribution.description()) — a string throws
+						// TypeError on every candidates pass and kills the whole menu,
+						// (+) button included
+						description: () => "git/gh actions for this checkout — push, pull, pr, commit, checks",
+						available: (session) => {
+							// called during the host's menu build — a throw here kills the
+							// whole menu, so it degrades to "hidden" instead
+							try {
+								const query = targetQuery({ kind: "session", id: session?.sessionId }, { pr: true });
+								return query !== void 0 && GIT_CACHE.get(query)?.data?.git === true;
+							} catch (error) {
+								console.error("[dsh-git-badge] /gh available failed:", error);
+								return false;
+							}
+						},
+						ui: {
+							options: async (session, signal) => {
+								try {
+									const sessionId = session?.sessionId;
+									if (sessionId === void 0) return [];
+									const query = targetQuery({ kind: "session", id: sessionId }, { pr: true });
+									if (query === void 0) return [];
+									// cache-first: the badge's own knowledge opens the picker
+									// instantly; a cold session pays one status fetch.
+									let info = GIT_CACHE.get(query)?.data;
+									if (info === void 0 || info === null) {
+										info = await fetch("/api/git-badge?" + query).then((r) => r.json());
+									}
+									const actions = ghSkillActions(info);
+									return actions.map((action) => ({ label: "/gh " + action.args, detail: action.why, args: action.args }));
+								} catch (error) {
+									console.error("[dsh-git-badge] /gh options failed:", error);
+									return [];
+								}
+							},
+							onSelect: async (option, session) => {
+								// Send the invocation: the message lands in the transcript
+								// and the agent executes the gh skill — the approval flow
+								// for anything destructive is the agent's, per the skill
+								// text. The prompt path is the conversation's own: the
+								// sessions service binds a sessionId to { session } and
+								// binding.session.prompt(content, "queue") is exactly what
+								// the composer's send() calls.
+								const sessionId = session?.sessionId;
+								const sessions = typeof scope.sessions === "function" ? scope.sessions() : scope.sessions;
+								const binding = sessions?.binding?.(sessionId);
+								const target = binding?.session;
+								if (target?.prompt === void 0) {
+									console.error("[dsh-git-badge] /gh: no prompt path (binding missing or session-less)", {
+										sessionId,
+										hasSessions: sessions !== void 0,
+										hasBinding: binding !== void 0
+									});
+									return;
+								}
+								const result = await target.prompt([{ type: "text", text: "/gh " + option.args }], "queue");
+								if (result !== void 0 && result !== null && result.ok === false) {
+									console.error("[dsh-git-badge] /gh submit refused:", result.error);
+								}
+							}
+						}
+					}), "dsh-git-badge: /gh contribution");
+					} catch (error) {
+						// a failed registration must degrade to "no /gh entry", never to
+						// a broken commands menu — the (+) button and the / menu are the
+						// host's, and this callback runs inside their boot
+						console.error("[dsh-git-badge] /gh contribution failed:", error);
+					}
+				});
+			}
+
 			// inject() re-evaluates when a seam's declaration appears, so boot
 			// order relative to the workspace browser does not matter. On an
 			// unpatched install the seam is never declared, so this callback never
@@ -1043,7 +1313,7 @@ window.__ModuleLoader__.load({
 		// Additive; the host reads apply/inject and ignores the rest. The suite
 		// drives these to assert the REQUEST contract — which surface asks for the
 		// expensive extras — without a browser, a fetch or a network.
-		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, actionToken };
+		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, actionToken, buildActions, actionText, ghSkillActions };
 		return module.exports;
 	}
 });
