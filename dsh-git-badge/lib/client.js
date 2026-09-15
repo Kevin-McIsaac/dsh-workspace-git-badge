@@ -710,6 +710,32 @@ window.__ModuleLoader__.load({
 				add("sync", "\u2191" + (info.ahead || 0) + " \u2193" + (info.behind || 0));
 			}
 			add("files", formatFileBreakdown(info));
+			// The untracked NAMES, hover-gated with the rest of detail=1 — the one
+			// part of ✎n the counts cannot answer. Relative, last-two-segments,
+			// capped by the node half at 20 with the total carried separately, so
+			// "… and k more" is arithmetic, not a guess. A collapsed-count payload
+			// omits the field entirely (directories, not files — saying them would
+			// under-report).
+			const names = data.untrackedNames;
+			if (Array.isArray(names) && names.length > 0) {
+				rows.push(
+					react_jsx_runtime.jsxs("div", {
+						style: CARD_ROW,
+						children: [
+							react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: "untracked" }),
+							react_jsx_runtime.jsx("span", {
+								style: { ...CARD_VALUE, display: "flex", flexDirection: "column", gap: "2px" },
+								children: [
+									...names.map((name) => react_jsx_runtime.jsx("span", { children: name }, name)),
+									(typeof data.untrackedNamesTotal === "number" && data.untrackedNamesTotal > names.length
+										? "\u2026 and " + (data.untrackedNamesTotal - names.length) + " more"
+										: null)
+								]
+							})
+						]
+					}, "untracked-names")
+				);
+			}
 			add("operation", info.operation === void 0 || info.operation === null ? void 0 : String(info.operation));
 			add("pull request", formatPrDetail(data.pr));
 			// WHICH checkout the badge describes, when it is a worktree. The chip shows

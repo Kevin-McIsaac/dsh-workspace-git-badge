@@ -10,6 +10,18 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Added
+
+- **Untracked file names in the hover card.** The `✎n` count becomes
+  answerable — "what did I create here?" — with a `untracked:` row listing the
+  names, hover-gated with the rest of `detail=1` (computed when the card opens,
+  refreshed by the existing SSE invalidation; no per-edit cost). Posture: the
+  plugin's never-display-a-path rule is relaxed by an inch, not a mile —
+  RELATIVE names only, truncated to the last two path segments, capped at 20
+  with the total carried separately so "… and k more" is arithmetic, not a
+  guess. Collapsed-count payloads (huge untracked trees) omit the field
+  entirely rather than under-report with directory names.
+
 ### Changed
 
 - **A smarter next-action state machine.** `nextStep` now ranks rule

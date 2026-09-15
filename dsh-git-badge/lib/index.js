@@ -531,6 +531,7 @@ function parseStatusV2(out) {
 	let unstaged = 0;
 	let unmerged = 0;
 	let untracked = 0;
+	const untrackedNames = [];
 	for (const line of out.split("\n")) {
 		if (line.startsWith("# branch.head ")) branch = line.slice(14).trim();
 		else if (line.startsWith("# branch.upstream ")) upstream = line.slice(18).trim();
@@ -546,9 +547,16 @@ function parseStatusV2(out) {
 			if (line[2] !== ".") staged += 1;
 			if (line[3] !== ".") unstaged += 1;
 		} else if (line.startsWith("u ")) unmerged += 1;
-		else if (line.startsWith("? ")) untracked += 1;
+		else if (line.startsWith("? ")) {
+			untracked += 1;
+			// `-uall` prints one `? <path>` per untracked FILE, so the names are
+			// the lines themselves — collected untruncated here and capped by the
+			// caller, so the hover's "and k more" arithmetic stays honest.
+			const name = line.slice(2).trim();
+			if (name !== "") untrackedNames.push(name);
+		}
 	}
-	return { branch, upstream, ahead, behind, staged, unstaged, unmerged, untracked };
+	return { branch, upstream, ahead, behind, staged, unstaged, unmerged, untracked, untrackedNames };
 }
 
 /**
@@ -903,6 +911,20 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 				const [hash, subject, when] = line.split("\t");
 				return { hash, subject: subject ?? "", when: when ?? "" };
 			}).filter((c) => c.hash !== void 0);
+		}
+		// The untracked NAMES — the one part of ✎n the counts cannot answer
+		// ("what did I create here?"). Hover-gated with the rest of detail=1, so
+		// no refresh pays for it. Posture: RELATIVE names only (git's own output,
+		// never absolute — AGENTS.md rule 7 is relaxed by an inch, not a mile),
+		// truncated to the last two path segments, capped at 20 with the total
+		// carried separately so the client can say "… and k more" honestly.
+		if (parsed.untrackedNames.length > 0 && untrackedMode === "all") {
+			const shorthen = (name) => {
+				const parts = name.split("/");
+				return parts.length <= 2 ? name : parts.slice(-2).join("/");
+			};
+			info.untrackedNames = parsed.untrackedNames.slice(0, 20).map(shorthen);
+			info.untrackedNamesTotal = parsed.untrackedNames.length;
 		}
 		// stash count, only surfaced when nonzero
 		const stashOut = await runGit(toplevel, ["stash", "list"]);

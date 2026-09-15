@@ -42,7 +42,9 @@ const DETAIL = {
 		{ hash: "abc1234", subject: "fix the thing", when: "2 hours ago" },
 		{ hash: "def5678", subject: "add another thing", when: "yesterday" }
 	],
-	stashCount: 2
+	stashCount: 2,
+	untrackedNames: ["notes/todo.txt", "scratch.md"],
+	untrackedNamesTotal: 5
 };
 
 /**
@@ -173,6 +175,16 @@ test("the collapsed untracked fallback is disclosed in the card", () => {
 		untrackedMode: "collapsed"
 	});
 	assert.ok(body.includes("(collapsed)"), `expected the caveat: ${body}`);
+});
+
+test("the card lists untracked names, hover-gated, with an honest and-k-more", () => {
+	const without = card(createClient({ tooltip: true, hover: false }), BASE, DETAIL);
+	assert.ok(!without.includes("notes/todo.txt"), "no names before the detail request");
+	const body = card(createClient({ tooltip: true, hover: true }), BASE, DETAIL);
+	assert.ok(body.includes("untracked"), `the row label: ${body}`);
+	assert.ok(body.includes("notes/todo.txt"), `the shortened name: ${body}`);
+	assert.ok(body.includes("scratch.md"), "each name on its own line");
+	assert.ok(body.includes("\u2026 and 3 more"), `5 total - 2 shown = 3 more: ${body}`);
 });
 
 test("the detail fields appear only once detail has been fetched", () => {

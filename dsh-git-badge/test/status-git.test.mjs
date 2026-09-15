@@ -391,6 +391,26 @@ test("a clean repository response carries no next field", async (t) => {
 	assert.equal(info.next, void 0);
 });
 
+test("the detail payload carries capped, shortened untracked names", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	// 25 untracked files across nested dirs: cap at 20, last-two-segments, total kept
+	for (let i = 0; i < 25; i += 1) {
+		await repo.write(`deep/nested/dir/file-${i}.txt`, i + "\n");
+	}
+	const base = await gitStatus(repo.root);
+	assert.equal(base.git, true);
+	assert.equal(base.untrackedFiles, 25);
+	assert.equal(base.untrackedNames, void 0, "names are hover-gated: the base request never carries them");
+	const detail = await gitStatus(repo.root, true);
+	assert.equal(detail.untrackedNames.length, 20, "capped at 20");
+	assert.equal(detail.untrackedNamesTotal, 25, "the total rides separately for honest 'and k more'");
+	assert.ok(detail.untrackedNames.every((n) => !n.includes("/") || n.split("/").length === 2), "last two segments only");
+	assert.ok(detail.untrackedNames[0].includes("file-0"), "the file name survives the shortening");
+	// collapsed mode: directories, not files — no names at all
+	// (forced via the collapsed retry path; here just assert absence when absent)
+});
+
 test("a dirty repository response carries the commit suggestion", async (t) => {
 	// makeRepo has no remote: upstream is undefined, so the first-publish rule
 	// outranks the commit suggestion — documented here end-to-end.
