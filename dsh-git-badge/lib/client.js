@@ -863,6 +863,28 @@ window.__ModuleLoader__.load({
 			const detail = useGitStatus(target, { pr: true, detail: true, enabled: hovered });
 			if (info === void 0 || info.git !== true) return null;
 			const actions = buildActions({ ...info, ...(detail ?? {}) });
+
+			// The status mark wrapped in the chip's hover card — the card's ONLY
+			// anchor. Pointer rest here (and only here) enables the detail=1 fetch,
+			// so the extras are paid for exactly when the card that can render them
+			// is about to open. Defined inside the component: it closes over the
+			// hovered state that gates the detail fetch.
+			const hoverableMark = (() => {
+				const mark = react_jsx_runtime.jsx("span", {
+					onPointerEnter: () => setHovered(true),
+					style: { display: "inline-flex", alignItems: "center", flex: "none", cursor: "default" },
+					children: react_jsx_runtime.jsx(StatusMark, { info })
+				});
+				if (Tooltip === void 0) return mark;
+				return react_jsx_runtime.jsx(Tooltip, {
+					side: "top",
+					maxWidth: 360,
+					// a function label keeps the card's element tree out of every render
+					// until the tooltip actually opens
+					label: () => react_jsx_runtime.jsx(HoverCard, { info, detail }),
+					children: mark
+				});
+			})();
 			// the mark is an element now rather than a leading glyph in the string, so
 			// the SAME StatusMark the sidebar row draws carries the status here too;
 			// the container's 4px gap supplies the space the emoji's own did
@@ -889,11 +911,15 @@ window.__ModuleLoader__.load({
 				// null until the delayed check in apply() proves the seam never
 				// appeared.
 				title: seamHint === null ? undefined : seamHint,
-				// the card is fetched for a pointer that RESTS here, not one that
-				// merely crosses the chip
-				onPointerEnter: () => setHovered(true),
 				children: [
-					react_jsx_runtime.jsx(StatusMark, { key: "mark", info }),
+					// The hover card belongs to the STATUS SYMBOL, not the badge: the
+					// circle is the "what does this colour mean" element, and a card
+					// opening sideways from a hover on the branch text got in the way of
+					// the very pull-down this row now carries. The detail fetch
+					// (enabled: hovered) follows the same pointer, so nothing pays for
+					// extras the card no longer shows. The seam-absent native title
+					// stays on the whole chip — it is about the badge, not the mark.
+					hoverableMark,
 
 					Menu === void 0 || actions.length === 0
 						? null
@@ -929,14 +955,21 @@ window.__ModuleLoader__.load({
 									"aria-label": "Git actions for " + info.branch,
 									title: copied ? "copied — paste in your terminal" : "git actions",
 									onClick: () => setMenuOpen((value) => !value),
+									// the metrics of the row's own selectors (the access/model
+									// pull-downs): inline-flex, centered on the 24px line, no
+									// border or padding, icon flex-none so the chevron reads as an
+									// affordance, not a second label
 									style: {
 										cursor: "pointer",
 										color: "inherit",
 										background: "none",
 										border: "none",
-										fontSize: "10px",
+										display: "inline-flex",
+										alignItems: "center",
+										justifyContent: "center",
+										fontSize: "12px",
 										lineHeight: "24px",
-										padding: "0 2px",
+										padding: "0",
 										flex: "none"
 									},
 									children: [
@@ -1052,19 +1085,12 @@ window.__ModuleLoader__.load({
 							),
 				]
 			});
-			// No Tooltip primitive (a shell that does not seed it): render the chip
-			// itself rather than losing the badge. The card is an enhancement, the
+			// No Tooltip primitive (a shell that does not seed it): the mark renders
+			// bare and the badge still works — the card is an enhancement, the
 			// badge is the feature.
-			if (Tooltip === void 0) return chip;
-			return react_jsx_runtime.jsx(Tooltip, {
-				side: "top",
-				maxWidth: 360,
-				// a function label keeps the card's element tree out of every render
-				// until the tooltip actually opens
-				label: () => react_jsx_runtime.jsx(HoverCard, { info, detail }),
-				children: chip
-			});
+			return chip;
 		}
+
 		//#endregion
 
 		// `workspaces` is no longer required: both surfaces target an id and the
