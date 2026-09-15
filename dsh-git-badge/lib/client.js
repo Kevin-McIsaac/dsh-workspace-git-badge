@@ -618,6 +618,66 @@ window.__ModuleLoader__.load({
 		const CARD_VALUE = { minWidth: 0, overflowWrap: "anywhere" };
 
 		/**
+		 * The "next" row's body: why, then the command as a click-to-copy chip.
+		 * Clipboard-only by design — no server call, no path exposure; the command
+		 * lands in the user's clipboard to run in their own terminal. `navigator.
+		 * clipboard` needs a user gesture (a click is one) and a secure context
+		 * (localhost is one); a denied write degrades to a no-op and the command
+		 * is still readable as text.
+		 */
+		function NextStepRow({ next }) {
+			const [copied, setCopied] = react.useState(false);
+			const copy = () => {
+				if (typeof next.command !== "string") return;
+				try {
+					void navigator.clipboard.writeText(next.command).then(
+						() => {
+							setCopied(true);
+							setTimeout(() => setCopied(false), 1500);
+						},
+						() => void 0,
+					);
+				} catch {
+					void 0;
+				}
+			};
+			return react_jsx_runtime.jsxs(
+				"span",
+				{
+					style: { ...CARD_VALUE, display: "inline-flex", alignItems: "center", gap: "6px", flexWrap: "wrap" },
+					children: [
+						react_jsx_runtime.jsx("span", { children: next.why }),
+						typeof next.command === "string"
+							? react_jsx_runtime.jsx(
+									"button",
+									{
+										"aria-label": "Copy command: " + next.command,
+										title: "Copy command: " + next.command,
+										onClick: copy,
+										style: {
+											cursor: "pointer",
+											color: "inherit",
+											background: "none",
+											border: "1px solid var(--dsw-alias-border-secondary, #d0d7de)",
+											borderRadius: "4px",
+											fontSize: "11px",
+											lineHeight: "16px",
+											padding: "0 5px",
+											flex: "none",
+											fontFamily: "monospace"
+										},
+										children: copied ? "copied" : next.command
+									},
+									"cmd"
+								)
+							: null
+					]
+				},
+				"next-body"
+			);
+		}
+
+		/**
 		 * Hover card body for the input chip — INPUT CHIP ONLY. Pure presentation
 		 * over fields the status response already carries, plus the `detail=1`
 		 * additions (recent commits, stash) when they have arrived. Everything is
@@ -640,6 +700,18 @@ window.__ModuleLoader__.load({
 					}, label)
 				);
 			};
+			// The "next" row — the node half's single highest-priority suggestion,
+			// { command, why } or absent (clean + synced + nothing failing). Clicking
+			// copies the command; it is the one actionable affordance the card
+			// carries, and it costs no server surface: the command runs in the
+			// user's own terminal, never here. Per-open state: the copied ack
+			// resets the next time the card opens, which is the honest lifetime for it.
+			const next = data.next;
+			if (next !== void 0 && next !== null && typeof next.why === "string") {
+				rows.push(
+					react_jsx_runtime.jsxs(NextStepRow, { next }, "next")
+				);
+			}
 			add("branch", info.branch);
 			add("upstream", info.upstream === void 0 ? "none configured" : info.upstream);
 			if (info.ahead !== void 0 || info.behind !== void 0) {
