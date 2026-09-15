@@ -662,7 +662,9 @@ window.__ModuleLoader__.load({
 			gap: "4px",
 			fontSize: "12px",
 			lineHeight: "18px",
-			maxWidth: "340px"
+			// 340 * 1.33: the card was capped here all along — the Tooltip's own
+			// maxWidth widened with it or this clamp would still win
+			maxWidth: "452px"
 		};
 		const CARD_ROW = { display: "flex", gap: "8px", alignItems: "baseline" };
 		const CARD_LABEL = { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", flex: "none", minWidth: "62px" };
