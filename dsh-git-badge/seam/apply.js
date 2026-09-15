@@ -55,6 +55,7 @@ import {
 	seamPresent,
 } from "./anchors.js";
 
+import { installSkill } from "./skill.js";
 import { dataDir, writeRestartMarker } from "./store.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -164,6 +165,11 @@ function writeText(path, text) {
 }
 
 const VERDICT_EXIT_1 = new Set(["drift", "unreadable", "missing", "ours-corrupt"]);
+
+// keep the /gh skill in step with the package on every patcher run
+if (["apply", "revert", "status"].includes(process.argv[2])) {
+	console.log(`[dsh-git-badge] gh skill: ${installSkill()}`);
+}
 
 const verb = process.argv[2];
 if (!verb || !["apply", "revert", "status"].includes(verb)) {

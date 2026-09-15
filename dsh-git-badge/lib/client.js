@@ -278,6 +278,47 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * The /gh picker's sub-actions — the skill invocations the checkout
+		 * justifies, most urgent first. Same ranking the server's nextStep uses,
+		 * but spoken in skill arguments; the generic "next" entry is skipped when
+		 * a specific rule already names the same situation (its why would be
+		 * identical, and two rows for one fact is noise).
+		 */
+		function ghSkillActions(info) {
+			if (info === void 0 || info === null || info.git !== true) return [];
+			const subs = [];
+			const seen = new Set();
+			const add = (args, why) => {
+				if (seen.has(args)) return;
+				seen.add(args);
+				subs.push({ args, why });
+			};
+			const ahead = info.ahead || 0;
+			const behind = info.behind || 0;
+			const staged = info.stagedFiles || 0;
+			const unstaged = info.unstagedFiles || 0;
+			const untracked = info.untrackedFiles || 0;
+			if (behind > 0) add("pull", behind + " behind " + (info.upstream ?? "upstream"));
+			if (ahead > 0) add("push", ahead + " ahead of " + (info.upstream ?? "upstream"));
+			if (staged > 0) add("commit", staged + " staged");
+			if (unstaged > 0) add("commit", unstaged + " unstaged");
+			if (unstaged === 0 && untracked > 0) add("commit", untracked + " untracked");
+			const pr = info.pr;
+			if (pr !== void 0 && pr !== null && pr.number !== void 0) {
+				if (pr.state === "failing") add("checks " + pr.number, "checks failing on #" + pr.number);
+				add("pr view " + pr.number, "open pull request #" + pr.number);
+			} else if (ahead === 0 && behind === 0 && info.upstream !== void 0 && staged + unstaged + untracked === 0) {
+				add("pr", "branch is pushed and has no pull request");
+			}
+			const next = info.next;
+			if (next !== void 0 && next !== null && typeof next.command === "string"
+				&& !subs.some((entry) => entry.why === next.why)) {
+				add("next", next.why);
+			}
+			return subs.slice(0, 6);
+		}
+
+		/**
 		 * Mark fill per status, from the app's own semantic tokens so BOTH surfaces
 		 * follow light/dark and custom themes — which a hardcoded emoji cannot do.
 		 * The literals are only fallbacks for use outside DSH.
@@ -1104,70 +1145,60 @@ window.__ModuleLoader__.load({
 		 * deliberately ignores the cwd it may also be given.
 		 */
 		function apply(ctx) {
-			// The `!` trigger source (surface A): typing ! in the composer opens the
-			// same candidate menu the slash-command system uses, filled with the
-			// state-filtered git actions for THIS conversation's workspace. Picking
-			// returns { text } and the shell inserts it at the trigger span via its
-			// own input pipeline — the only shell-blessed way a plugin writes into
-			// the composer, and insert-only by construction: the send stays the
-			// user's. Guarded: a host without the service loses the menu, never the
-			// badges (inputTriggers powers "/" in every host that has this input).
-			if (ctx.inputTriggers !== void 0 && typeof ctx.inputTriggers.registerSource === "function") {
-				// Candidates resolved for the last menu open, by session — onPick looks
-				// the action up here rather than trusting the picked row to carry our
-				// extra fields through the pipeline untouched.
-				const actionsBySession = new Map();
-				const actionsByName = new Map();
-				ctx.effect(() => ctx.inputTriggers.registerSource({
-					trigger: "!",
-					name: "git-actions",
-					candidates: async (session, req) => {
-						// A thrown candidate is an EMPTY MENU with no trace — the one
-						// failure mode this surface must never have silently. Every exit
-						// is logged with its reason.
-						try {
-							const sessionId = session?.sessionId;
-							if (sessionId === void 0) {
-								console.info("[dsh-git-badge] ! candidates: no session on the projection");
-								return [];
+			// The /gh command contribution (the (+) commands menu): the state-aware
+			// entry point to the gh skill. available() gates on the cached git
+			// status; options() lists only the sub-actions the checkout justifies;
+			// onSelect SENDS the skill invocation ("/gh push") as a conversation
+			// message — the agent executes the skill under its own approval flow,
+			// and the shell consumes the /gh token afterwards. This is the one
+			// blessed route from a menu pick to a git action; it is a SEND, which
+			// is why the destructive-step confirmation lives in the skill text.
+			// Guarded: a host without commandUi loses the menu entry, never the
+			// badges.
+			if (typeof ctx.inject === "function") {
+				ctx.inject(["commandUi", "sessions"], (scope) => {
+					scope.effect(() => scope.commandUi.register({
+						name: "gh",
+						description: "git/gh actions for this checkout — push, pull, pr, commit, checks",
+						available: (session) => {
+							const query = targetQuery({ kind: "session", id: session?.sessionId }, { pr: true });
+							return query !== void 0 && GIT_CACHE.get(query)?.data?.git === true;
+						},
+						ui: {
+							options: async (session, signal) => {
+								const sessionId = session?.sessionId;
+								if (sessionId === void 0) return [];
+								const query = targetQuery({ kind: "session", id: sessionId }, { pr: true });
+								if (query === void 0) return [];
+								// cache-first: the badge's own knowledge opens the picker
+								// instantly; a cold session pays one status fetch.
+								let info = GIT_CACHE.get(query)?.data;
+								if (info === void 0 || info === null) {
+									info = await fetch("/api/git-badge?" + query).then((r) => r.json());
+								}
+								const actions = ghSkillActions(info);
+								return actions.map((action) => ({ label: "/gh " + action.args, detail: action.why, args: action.args }));
+							},
+							onSelect: async (option, session) => {
+								// Send the invocation: the message lands in the transcript
+								// and the agent executes the gh skill — the approval flow
+								// for anything destructive is the agent's, per the skill
+								// text.
+								const sessionId = session?.sessionId;
+								const manager = typeof scope.sessions === "function" ? scope.sessions() : scope.sessions;
+								const target = manager?.get?.(sessionId);
+								if (target?.prompt === void 0) {
+									console.error("[dsh-git-badge] /gh: no prompt path on the session");
+									return;
+								}
+								const result = await target.prompt([{ type: "text", text: "/gh " + option.args }], "queue");
+								if (result !== void 0 && result !== null && result.ok === false) {
+									console.error("[dsh-git-badge] /gh submit refused:", result.error);
+								}
 							}
-							const query = targetQuery({ kind: "session", id: sessionId }, { pr: true });
-							if (query === void 0) {
-								console.info("[dsh-git-badge] ! candidates: unqueryable session");
-								return [];
-							}
-							// cache-first: the menu opens instantly with the badge's own
-							// knowledge; a cold session falls back to one status fetch.
-							let info = GIT_CACHE.get(query)?.data;
-							if (info === void 0 || info === null) {
-								info = await fetch("/api/git-badge?" + query).then((r) => r.json());
-							}
-							const actions = buildActions(info);
-							console.info("[dsh-git-badge] ! candidates:", actions.length, "actions for", query, "query:", JSON.stringify(req?.query ?? ""));
-							if (actions.length === 0) return [];
-							actionsBySession.set(sessionId, actions);
-							// names are the deduped commands, so a flat registry is unambiguous
-							for (const action of actions) actionsByName.set(action.command, action);
-							const rows = actions.map((action) => ({ name: action.command, description: action.why }));
-							const ranked = rankByName === void 0 ? rows : rankByName(rows, req?.query ?? "");
-							// a ranker that drops everything must not blank the menu
-							return ranked.length > 0 ? ranked : rows;
-						} catch (error) {
-							console.error("[dsh-git-badge] ! candidates failed:", error);
-							return [];
 						}
-					},
-					onPick: (pick) => {
-						// the pipeline may deliver the row object or just its name — take
-						// either, and fall back to the flat registry if the session key
-						// does not match how candidates stored it
-						const name = typeof pick.candidate === "string" ? pick.candidate : pick.candidate?.name;
-						const action = actionsByName.get(name)
-							?? (actionsBySession.get(pick.session?.sessionId) ?? []).find((entry) => entry.command === name);
-						console.info("[dsh-git-badge] ! pick:", name, "->", action === void 0 ? "NOT FOUND" : actionText(action));
-						return action === void 0 ? void 0 : { text: actionText(action) };
-					}
-				}));
+					}), "dsh-git-badge: /gh contribution");
+				});
 			}
 
 			// inject() re-evaluates when a seam's declaration appears, so boot
@@ -1251,7 +1282,7 @@ window.__ModuleLoader__.load({
 		// Additive; the host reads apply/inject and ignores the rest. The suite
 		// drives these to assert the REQUEST contract — which surface asks for the
 		// expensive extras — without a browser, a fetch or a network.
-		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, actionToken, buildActions, actionText };
+		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, actionToken, buildActions, actionText, ghSkillActions };
 		return module.exports;
 	}
 });

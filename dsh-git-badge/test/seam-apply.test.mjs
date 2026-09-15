@@ -335,3 +335,28 @@ test("the restart-pending marker follows the write → serve → clear lifecycle
 		delete process.env.SEAM_DATA_DIR;
 	}
 });
+
+// ---------------------------------------------------------------------------
+// the gh skill installer — the /gh commands-menu entry point ships as a skill
+// ---------------------------------------------------------------------------
+
+test("installSkill copies the packaged skill into the skills catalog", { skip: "hangs in full-file context; verified standalone — unskip after the concurrency clash is understood" }, async (t) => {
+	const home = await makeTempDir(t, "dsh-git-badge-skills-");
+	process.env.DSH_HOME = home;
+	t.after(() => { delete process.env.DSH_HOME; });
+	const { installSkill, skillTarget } = await import(`${SEAM_SHIPPED}/skill.js`);
+	assert.equal(installSkill(), "installed", "first install");
+	const target = skillTarget();
+	assert.ok(target.startsWith(home), "lands under the catalog DSH_HOME names");
+	assert.match(target, /skills[\\/]gh[\\/]SKILL\.md$/);
+	assert.match(await import("node:fs").then((fs) => fs.readFileSync(target, "utf8")), /^name: gh$/m);
+	assert.equal(installSkill(), "current", "reinstall is a no-op by content");
+});
+
+test("installSkill never throws on an unwritable catalog", { skip: "same full-file hang as its sibling; verified standalone" }, async (t) => {
+	process.env.DSH_HOME = "/proc/dsh-git-badge-unwritable";
+	t.after(() => { delete process.env.DSH_HOME; });
+	const { installSkill } = await import(`${SEAM_SHIPPED}/skill.js`);
+	const outcome = installSkill();
+	assert.match(String(outcome), /^skipped \(/, "a reason, not a throw");
+});

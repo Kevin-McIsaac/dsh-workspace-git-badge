@@ -26,6 +26,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { applyPatch, firstFailure, isOurs, seamPresent } from "./anchors.js";
+import { installSkill } from "./skill.js";
 import { dataDir, writeRestartMarker } from "./store.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -41,6 +42,9 @@ function dshClientPath() {
 }
 
 function main() {
+	// The skill does not depend on the DSH install — install it before any
+	// client-shaped early return, so a market install always gets /gh.
+	console.log(`[dsh-git-badge] gh skill: ${installSkill()} — /gh in the input's commands menu.`);
 	const client = dshClientPath();
 	if (client === null || !existsSync(client)) {
 		console.log(`[dsh-git-badge] DSH install not found; skipping seam setup. ${HINT}`);
