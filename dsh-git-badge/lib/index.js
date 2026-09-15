@@ -82,6 +82,8 @@ const name = "dsh-git-badge";
  * single documented seam.
  */
 const config = {
+	/** Test seam: resolves the schema lib the settings namespace is built from. */
+	settingsSchemaLoader: async () => (await import("@deepseek-ai/schemastery")).default,
 	/** budget for every git invocation; an expired call is killed */
 	gitTimeoutMs: 3000,
 	/** network fetch budget; worst-case route latency, paid once per TTL */
@@ -741,17 +743,55 @@ const OPERATION_NEXT = {
  */
 const DEFAULT_NEXT_ORDER = ["operation", "unmerged", "sync", "publish", "merge", "commit", "checks"];
 
-/** The ranking override file — read per call (one tiny stat+read per status). */
-function nextOrder() {
+/** Normalise any order list: known categories first, then the rest in default order. */
+function normalizeOrder(order) {
+	if (!Array.isArray(order)) return DEFAULT_NEXT_ORDER;
+	const known = order.filter((cat) => DEFAULT_NEXT_ORDER.includes(cat));
+	return [...known, ...DEFAULT_NEXT_ORDER.filter((cat) => !known.includes(cat))];
+}
+
+/** The settings namespace this plugin owns — its order lives there, live. */
+const SETTINGS_NS = "git-badge";
+
+/**
+ * The namespace schema, built from the host-provided schema lib — imported
+ * LAZILY because this plugin's module graph must load without it (the test
+ * suite runs from a bare checkout, and a host without the settings stack should
+ * lose only the settings card, never the badge).
+ */
+function orderSettingsSchema(Schema) {
+	return Schema.object({
+		order: Schema.array(Schema.union(DEFAULT_NEXT_ORDER)).default(DEFAULT_NEXT_ORDER)
+	});
+}
+
+/**
+ * The pre-settings override file. Still honoured as the namespace's BASE (a
+ * composition default, so a user who configured the JSON keeps their order
+ * after the upgrade) and as a fallback when the settings service is absent.
+ */
+function legacyOrderFile() {
 	try {
 		const home = process.env.DSH_HOME || join(process.env.HOME || "", ".dsh");
 		const raw = JSON.parse(readFileSync(join(home, "git-badge-next.json"), "utf8"));
-		if (!Array.isArray(raw?.order)) return DEFAULT_NEXT_ORDER;
-		const known = raw.order.filter((cat) => DEFAULT_NEXT_ORDER.includes(cat));
-		return [...known, ...DEFAULT_NEXT_ORDER.filter((cat) => !known.includes(cat))];
+		return normalizeOrder(raw?.order);
 	} catch {
 		return DEFAULT_NEXT_ORDER;
 	}
+}
+
+/**
+ * The live order — one in-memory value, updated by the settings scope. It is
+ * authoritative only once the namespace actually registered; until then (and on
+ * a host without the settings stack, or in a unit test that never calls apply)
+ * the legacy file is read per call, which is the pre-settings behaviour.
+ */
+let currentOrder = DEFAULT_NEXT_ORDER;
+let settingsOrderActive = false;
+
+/** The ranking order every status read uses. */
+function nextOrder() {
+	return settingsOrderActive ? currentOrder : legacyOrderFile();
 }
 
 /**
@@ -1492,6 +1532,40 @@ async function effectiveTarget(target, bySession, wantPr, notify) {
 
 /** Host plugin body — register the status route and the SSE change feed. */
 function apply(ctx) {
+	// The ranking order lives in this plugin's own settings namespace: declared
+	// with a schema so the host validates it, stored in the user's settings
+	// document, and observed live — a change applies to the next status read
+	// with no file poll and no restart. The pre-settings JSON file, when it
+	// exists, seeds the namespace as its composition BASE so an order configured
+	// before this existed survives the upgrade; it is also the fallback when the
+	// settings service is absent (a host composed without dsh-settings).
+	currentOrder = legacyOrderFile();
+	if (typeof ctx.inject === "function") {
+		try {
+			ctx.inject(["settings"], async (settingsCtx) => {
+				let Schema;
+				try {
+					Schema = await config.settingsSchemaLoader();
+				} catch (error) {
+					console.error("[dsh-git-badge] schema lib unavailable; keeping the legacy order file:", error);
+					return;
+				}
+				const scope = settingsCtx.settings.register(SETTINGS_NS, orderSettingsSchema(Schema), {
+					base: { order: legacyOrderFile() }
+				});
+				currentOrder = normalizeOrder(scope.get()?.order);
+				settingsOrderActive = true;
+				settingsCtx.effect(() => scope.watch((next) => {
+					currentOrder = normalizeOrder(next?.order);
+				}), "dsh-git-badge: order settings");
+				settingsCtx.effect(() => () => {
+					settingsOrderActive = false;
+				}, "dsh-git-badge: order settings teardown");
+			});
+		} catch (error) {
+			console.error("[dsh-git-badge] settings namespace unavailable, using the legacy order file:", error);
+		}
+	}
 	// A fresh boot composed the files on disk into the new bundles — any
 	// restart-pending marker was written by an install/apply against the PREVIOUS
 	// boot and its change is now live. Clearing here is what makes the marker
