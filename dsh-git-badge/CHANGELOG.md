@@ -10,14 +10,7 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
-### Changed
-
-- **The ranking card sits in an expander, like the host's other plugin cards.**
-  Collapsed by default with the title and a one-line description; the list,
-  reorder controls, and Save/Discard/Reset live in the body, which auto-collapses
-  once a save settles clean. The card chrome reproduces the host's plugin-card
-  values inline (its CSS module is not exported to plugins), so it reads as one
-  of the set rather than loose content between it.
+## [0.16.0] - 2026-09-16
 
 ### Added
 
@@ -32,17 +25,6 @@ npm. 0.6.0 is the first release recorded here.
   registration is self-clearing — removing it (or letting it expire) retires the
   extra watcher and the badge returns to the session's own directory.
 
-### Changed
-
-- **PR inference is gone.** The badge no longer guesses a worktree from the
-  branch with an open pull request. The guess was invisible to the session that
-  made it and silently wrong whenever two trees were in play; a `worktreeInferred`
-  marker, the repository-wide `gh pr list` read that powered it, and the
-  inference wording in the hover all go with it. A session follows its
-  registration or stays on its own checkout — nothing else.
-
-### Added
-
 - **A settings card for the ranking order: Settings → Plugins → Git Badge.**
   The order now lives in this plugin's own `git-badge` settings namespace —
   declared with a schema, validated and stored by the host, observed live — and
@@ -52,6 +34,22 @@ npm. 0.6.0 is the first release recorded here.
   namespace as its base (and remains the fallback on hosts without the settings
   stack), so an order configured before the card existed survives the upgrade.
   `/gh order` still works for agent-driven changes.
+
+### Changed
+
+- **The ranking card sits in an expander, like the host's other plugin cards.**
+  Collapsed by default with the title and a one-line description; the list,
+  reorder controls, and Save/Discard/Reset live in the body, which auto-collapses
+  once a save settles clean. The card chrome reproduces the host's plugin-card
+  values inline (its CSS module is not exported to plugins), so it reads as one
+  of the set rather than loose content between it.
+
+- **PR inference is gone.** The badge no longer guesses a worktree from the
+  branch with an open pull request. The guess was invisible to the session that
+  made it and silently wrong whenever two trees were in play; a `worktreeInferred`
+  marker, the repository-wide `gh pr list` read that powered it, and the
+  inference wording in the hover all go with it. A session follows its
+  registration or stays on its own checkout — nothing else.
 
 ## [0.15.0] - 2026-09-15
 
