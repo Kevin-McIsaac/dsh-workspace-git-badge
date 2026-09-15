@@ -1157,27 +1157,40 @@ window.__ModuleLoader__.load({
 			// badges.
 			if (typeof ctx.inject === "function") {
 				ctx.inject(["commandUi", "sessions"], (scope) => {
+					try {
 					scope.effect(() => scope.commandUi.register({
 						name: "gh",
 						description: "git/gh actions for this checkout — push, pull, pr, commit, checks",
 						available: (session) => {
-							const query = targetQuery({ kind: "session", id: session?.sessionId }, { pr: true });
-							return query !== void 0 && GIT_CACHE.get(query)?.data?.git === true;
+							// called during the host's menu build — a throw here kills the
+							// whole menu, so it degrades to "hidden" instead
+							try {
+								const query = targetQuery({ kind: "session", id: session?.sessionId }, { pr: true });
+								return query !== void 0 && GIT_CACHE.get(query)?.data?.git === true;
+							} catch (error) {
+								console.error("[dsh-git-badge] /gh available failed:", error);
+								return false;
+							}
 						},
 						ui: {
 							options: async (session, signal) => {
-								const sessionId = session?.sessionId;
-								if (sessionId === void 0) return [];
-								const query = targetQuery({ kind: "session", id: sessionId }, { pr: true });
-								if (query === void 0) return [];
-								// cache-first: the badge's own knowledge opens the picker
-								// instantly; a cold session pays one status fetch.
-								let info = GIT_CACHE.get(query)?.data;
-								if (info === void 0 || info === null) {
-									info = await fetch("/api/git-badge?" + query).then((r) => r.json());
+								try {
+									const sessionId = session?.sessionId;
+									if (sessionId === void 0) return [];
+									const query = targetQuery({ kind: "session", id: sessionId }, { pr: true });
+									if (query === void 0) return [];
+									// cache-first: the badge's own knowledge opens the picker
+									// instantly; a cold session pays one status fetch.
+									let info = GIT_CACHE.get(query)?.data;
+									if (info === void 0 || info === null) {
+										info = await fetch("/api/git-badge?" + query).then((r) => r.json());
+									}
+									const actions = ghSkillActions(info);
+									return actions.map((action) => ({ label: "/gh " + action.args, detail: action.why, args: action.args }));
+								} catch (error) {
+									console.error("[dsh-git-badge] /gh options failed:", error);
+									return [];
 								}
-								const actions = ghSkillActions(info);
-								return actions.map((action) => ({ label: "/gh " + action.args, detail: action.why, args: action.args }));
 							},
 							onSelect: async (option, session) => {
 								// Send the invocation: the message lands in the transcript
@@ -1198,6 +1211,12 @@ window.__ModuleLoader__.load({
 							}
 						}
 					}), "dsh-git-badge: /gh contribution");
+					} catch (error) {
+						// a failed registration must degrade to "no /gh entry", never to
+						// a broken commands menu — the (+) button and the / menu are the
+						// host's, and this callback runs inside their boot
+						console.error("[dsh-git-badge] /gh contribution failed:", error);
+					}
 				});
 			}
 
