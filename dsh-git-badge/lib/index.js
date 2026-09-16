@@ -99,15 +99,6 @@ const config = {
 	defaultBranchTtlMs: 60000,
 	/** fs-event burst collapse window */
 	debounceMs: 200,
-	/**
-	 * Coalescing window for identical status reads. 0 (the default) collapses only
-	 * CONCURRENT identical reads — which is exactly what a burst of sidebar
-	 * session rows mounting together produces — and leaves sequential reads
-	 * honest, so a caller that mutates a repository and asks again always sees the
-	 * new state. Raise it to also absorb serial bursts, at the cost of serving a
-	 * change up to that many milliseconds late.
-	 */
-	statusCacheMs: 0,
 	/** backoff before re-attempting a failed watcher (or a missing .git) */
 	watchRetryMs: 60000,
 	/**
@@ -1161,33 +1152,19 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 
 /** In-flight status reads, so N callers asking at once share one `git status`. */
 const statusInFlight = new Map();
-/** Completed reads inside `config.statusCacheMs`; unused at the 0 default. */
-const statusCache = new Map();
 
 /**
  * Status for dir, with identical CONCURRENT reads collapsed into one. That is the
  * shape a burst of sidebar session rows produces when they mount together: N rows
  * of one workspace resolve to the same directory, and without this they would run
- * N `git status` walks of the same tree at the same instant.
- *
- * The optional `statusCacheMs` window extends the collapse to serial bursts. It
- * defaults to 0 on purpose: a cache that outlives the call would let a caller
- * that mutates a repository and asks again read a stale answer, and correctness
- * of a *status* badge outranks saving a walk.
+ * N `git status` walks of the same tree at the same instant. Deliberately NO
+ * completed-read cache: one that outlived the call would let a caller that
+ * mutates a repository and asks again read a stale answer, and correctness of a
+ * *status* badge outranks saving a walk.
  */
 function gitStatus(dir, wantDetail, wantPr) {
 	const key = dir + "\u0000" + (wantDetail === true) + "\u0000" + (wantPr === true);
-	if (config.statusCacheMs > 0) {
-		const hit = statusCache.get(key);
-		if (hit !== void 0 && Date.now() - hit.at < config.statusCacheMs) return Promise.resolve(hit.value);
-	}
-	const pending = singleFlight(statusInFlight, key, {}, () =>
-		gitStatusUncached(dir, wantDetail, wantPr).then((value) => {
-			if (config.statusCacheMs > 0) statusCache.set(key, { at: Date.now(), value });
-			return value;
-		})
-	);
-	return pending;
+	return singleFlight(statusInFlight, key, {}, () => gitStatusUncached(dir, wantDetail, wantPr));
 }
 
 //#region git-state watcher
