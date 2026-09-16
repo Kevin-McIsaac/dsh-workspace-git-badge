@@ -214,9 +214,38 @@ test("a clean tree says so rather than rendering an empty breakdown", () => {
 	assert.ok(body.includes("clean"), `expected an explicit clean: ${body}`);
 });
 
-test("a repo with no pull request says so on the merge row", () => {
-	const rendered = client_labels(createClient({ tooltip: true, hover: true }), { branch: "main", dirty: false });
+test("a branch with no pull request says so on the merge row", () => {
+	const rendered = client_labels(createClient({ tooltip: true, hover: true }), { branch: "feat/x", dirty: false });
 	assert.ok(rendered.includes("no pull request"), `the merge row states the fact: ${rendered}`);
+});
+
+test("the default branch is named as the base, never as a branch with no PR", () => {
+	// `main` is where pull requests merge INTO, and none is ever opened FROM it,
+	// so "no pull request" there nags for something that cannot exist. The node
+	// half already flags the default branch for exactly this suppression; the
+	// always-render row (0.17.0) only ever made sense on a feature branch.
+	const rendered = client_labels(createClient({ tooltip: true, hover: true }), {
+		branch: "main",
+		upstream: "origin/main",
+		defaultBranch: true,
+		dirty: false
+	});
+	assert.ok(rendered.includes("base branch"), `the base-branch statement: ${rendered}`);
+	assert.ok(!rendered.includes("no pull request"), `not a missing-PR nag: ${rendered}`);
+});
+
+test("the default branch does not state base-relative counts against itself", () => {
+	// "2 ahead, 1 behind main" WHILE ON main is self-referential, and that
+	// divergence is already the chip's own arrow token.
+	const rendered = client_labels(createClient({ tooltip: true, hover: true }), {
+		branch: "main",
+		upstream: "origin/main",
+		defaultBranch: true,
+		dirty: false,
+		mainAhead: 2,
+		mainBehind: 1
+	});
+	assert.ok(!rendered.includes("behind main"), `no self-referential counts: ${rendered}`);
 });
 
 /** All hover labels of the chip (mark card + branch lineage + count names). */

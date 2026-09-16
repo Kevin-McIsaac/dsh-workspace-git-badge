@@ -10,6 +10,20 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The default branch's branch hover no longer says `no pull request`.** The
+  always-render merge row (0.17.0) only ever made sense on a feature branch:
+  `main` is the base pull requests merge INTO, and none is ever opened FROM it,
+  so `no pull request` there read as a nag for something that cannot exist. When
+  the node half flags the branch as the default one (`defaultBranch: true`, the
+  same flag the action rules use to suppress "open a pull request" on `main`),
+  the row now reads `base branch · pull requests merge into this`. Its
+  base-relative counts are suppressed there too — `N ahead, M behind main` while
+  ON `main` is self-referential, and that divergence is already the chip's own
+  `↑a ↓b` token. Feature branches are unchanged: still `no pull request`, still
+  the counts when they are known.
+
 ## [0.17.1] - 2026-09-17
 
 ### Fixed
