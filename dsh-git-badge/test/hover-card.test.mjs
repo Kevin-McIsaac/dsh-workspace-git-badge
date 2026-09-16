@@ -151,6 +151,37 @@ test("with the primitive present the MARK is wrapped, and the card is built lazi
 	assert.equal(raw.type, "span");
 });
 
+test("every hover surface is wrapped before its data lands, so the first hover opens", () => {
+	// Regression: the Tooltip primitive is uncontrolled (it has no `open` prop)
+	// and opens on the CHILD's mouseenter. A wrapper mounted only after the lazy
+	// detail arrives therefore cannot open for the pointer that fetched it — the
+	// pointer has to leave and return, which was reported as "the first hover does
+	// nothing, the second works". So all four wrappers must exist with NO detail
+	// payload (hover: false), and each label must degrade to the base response
+	// rather than claim an empty list.
+	const client = createClient({ tooltip: true });
+	const base = { ...BASE };
+	const wrappers = elements(expand(client.rawChip(base))).filter((el) => el.type === "Tooltip");
+	assert.equal(wrappers.length, 4, "mark + branch + count + PR token are all wrapped");
+	const labels = wrappers.map((el) => text(expand(el.props.label()))).join(" | ");
+	assert.ok(labels.includes("2 staged"), `the count names the breakdown: ${labels}`);
+	assert.ok(!labels.includes("no changed files"), "not a false empty-list claim before the names arrive");
+	assert.ok(labels.includes("#142"), `the token names the PR while its commits load: ${labels}`);
+	assert.ok(!labels.includes("no commits beyond the base branch"), "not a false empty-PR claim before the commits arrive");
+
+	// and the branch's wrapper child keeps its element type once detail lands: a
+	// span -> anchor swap would remount the node under the resting pointer
+	const branchWrapper = (c, detail) => elements(expand(c.rawChip(base, detail)))
+		.filter((el) => el.type === "Tooltip")
+		.find((el) => text(expand(el.props.children)).includes(base.branch));
+	assert.equal(branchWrapper(client).props.children.type, "span", "the branch wrapper's child, before detail");
+	// hover: true is what serves the lazy detail slot — the harness models laziness
+	const online = createClient({ tooltip: true, hover: true });
+	const stated = branchWrapper(online, { ...base, compareUrl: "https://github.com/owner/repo/compare/main...main" });
+	assert.equal(stated.props.children.type, "span", "and still a span after the compare URL arrives");
+	assert.ok(elements(stated.props.children).some((el) => el.type === "a"), "while the anchor itself is nested INSIDE that stable span");
+});
+
 test("the boot log says which hover-card path was taken", () => {
 	// the primitive comes from the SHELL, so a missing seed must be REPORTED rather
 	// than looking like a missing feature — the try/catch keeps the badge working,
