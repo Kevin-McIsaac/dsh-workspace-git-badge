@@ -13,13 +13,12 @@
  *     npx dsh-git-badge apply        # then restart the dsh web process
  *
  * HOW PATCHING WORKS — anchors, not hashes. The patch is defined once in
- * anchors.js as [name, old, new] triples. `apply` locates each `old` block in
- * the INSTALLED client.js (each must occur exactly once) and replaces it in
- * place. A DSH update that changes anything else in the file no longer matters;
- * only a change that moves one of the anchors does, and the failure names the
- * anchor that moved instead of reporting an opaque hash mismatch.
+ * anchors.js as [name, old, new] triples; the mechanics (locating the install,
+ * inspecting its state, writing the patch and its backup) live once in
+ * patch.js, shared with the postinstall hook. This file is the CLI: it decides
+ * what to print and which exit codes to take, per the states inspect() names.
  *
- * Safety:
+ * Safety (enforced in patch.js + anchors.js, surfaced here):
  *   - anchor assertion: every anchor must match exactly once; anything else is
  *     drift and NOTHING is written
  *   - own-artifact detection: every artifact carries the dsh-git-badge:seam-patch
@@ -31,145 +30,30 @@
  *     installed build is the one the anchors were verified against, but apply
  *     proceeds on any build whose anchors resolve
  *
- * Environment:
+ * Environment (read by patch.js):
  *   DSH_INSTALL    the DSH package root. Default: `<global npm root>/@deepseek-ai/dsh`.
  *   SEAM_DATA_DIR  where revert backups are written. Default:
  *                  `$DSH_HOME/git-badge-seam` (else `~/.dsh/git-badge-seam`) —
  *                  a stable, user-level store shared by every way this tool
- *                  can run. See the note at the definition below.
+ *                  can run. See seam/store.js for the restart marker.
  *
  * Usage: apply.js apply | apply.js revert | apply.js status
  */
-import { execSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import {
-	MARKER,
-	applyPatch,
-	appliedSignature,
-	firstFailure,
-	isCurrentRev,
-	isOurs,
-	seamPresent,
-} from "./anchors.js";
-
+import { copyFileSync, existsSync, readFileSync } from "node:fs";
+import { MARKER } from "./anchors.js";
+import { backupState, doPatch, doRestore, installPaths, inspect, KNOWN_GOOD_HASH, sha256 } from "./patch.js";
 import { installSkill } from "./skill.js";
-import { dataDir, writeRestartMarker } from "./store.js";
+import { writeRestartMarker } from "./store.js";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-/**
- * The stable backup store — shared with the postinstall hook and any future
- * invocation path, so an apply→revert round trip works across npx cache
- * entries. SEAM_DATA_DIR overrides (the test suite does, to stay hermetic).
- * See seam/store.js for the full rationale and the restart marker.
- */
-const DATA_DIR = dataDir();
-
-// sha256 of the upstream build the anchors were last verified against. ADVISORY:
-// status prints it for orientation; apply does NOT require it.
-const KNOWN_GOOD_HASH = "383b9ef779366c13d818500b6488896328b189f156addbaa480c835e902edd5f";
-
-/** Locate the installed DSH package root; null when it cannot be found. */
-function dshRoot() {
-	if (process.env.DSH_INSTALL) return process.env.DSH_INSTALL;
-	try {
-		return join(execSync("npm root -g", { encoding: "utf8" }).trim(), "@deepseek-ai", "dsh");
-	} catch {
-		return null;
-	}
-}
-
-const DSH = dshRoot();
-if (!DSH) {
+const paths = installPaths();
+if (paths === null) {
 	console.error("ERROR: cannot locate the DSH package. Set DSH_INSTALL to its root");
 	console.error("(e.g. the directory containing node_modules/@deepseek-ai/dsh).");
 	process.exit(1);
 }
-const PKG = join(DSH, "node_modules", "@deepseek-ai", "dsh-client-ui-workspace");
-const CLIENT = join(PKG, "lib", "client.js");
-const INDEX = join(PKG, "lib", "index.js");
-const STUB_INDEX = join(HERE, "stub-index.js"); // no-op host half; copied over index.js on apply
-const BACKUP_CLIENT = join(DATA_DIR, "backup-client.js");
-const BACKUP_INDEX = join(DATA_DIR, "backup-index.js");
-
-const sha256 = (text) => createHash("sha256").update(text, "utf8").digest("hex");
-
-/** Inspect the installed client.js. Returns the same key:value report apply.sh printed. */
-function inspect() {
-	const report = {};
-	let text;
-	try {
-		text = readClient();
-	} catch (error) {
-		if (error.code === "ENOENT") {
-			report.state = "missing";
-			return report;
-		}
-		report.state = "unreadable";
-		report.error = String(error.message ?? error);
-		return report;
-	}
-	report.hash = sha256(text);
-	report.known_good_match = report.hash === KNOWN_GOOD_HASH ? "yes" : "no";
-	report.backup = existsSync(BACKUP_CLIENT) ? "yes" : "no";
-	report.marker = isOurs(text) ? "yes" : "no";
-	report.rev_current = isCurrentRev(text) ? "yes" : "no";
-	report.seam_strings = seamPresent(text) ? "yes" : "no";
-
-	const fail = firstFailure(text);
-	if (fail === null) report.anchors = "all-resolve";
-	else {
-		report.anchors = "drift";
-		report.anchor_fail = `${fail.name}:${fail.count}`;
-	}
-
-	if (isOurs(text)) {
-		// A PATCHED file no longer contains the `old` anchor forms — that is the
-		// point — so it is verified by its applied signature instead.
-		report.applied_signature = appliedSignature(text) ? "yes" : "no";
-		if (!isCurrentRev(text)) report.state = "ours-stale";
-		else if (appliedSignature(text)) report.state = "ours-current";
-		else report.state = "ours-corrupt";
-	} else if (seamPresent(text)) report.state = "upstream-landed";
-	else if (fail === null) report.state = "patchable";
-	else report.state = "drift";
-	return report;
-}
-
-function readClient() {
-	return readText(CLIENT);
-}
-
-function readText(path) {
-	return readFileSync(path, "utf8");
-}
-
-/** Backup the bytes AS FOUND, patch client.js in place, install the no-op host half. */
-function doPatch() {
-	mkdirSync(DATA_DIR, { recursive: true });
-	copyFileSync(CLIENT, BACKUP_CLIENT);
-	copyFileSync(INDEX, BACKUP_INDEX);
-	const patched = applyPatch(readClient());
-	writeText(CLIENT, patched);
-	copyFileSync(STUB_INDEX, INDEX);
-	console.log("patched lib/client.js in place (anchors applied); host half stubbed.");
-	// dshmarket cannot see this host-file change; the plugin surfaces the
-	// restart itself (marker → status response → chip button).
-	writeRestartMarker("apply");
-}
-
-function writeText(path, text) {
-	writeFileSync(path, text, "utf8");
-}
+const CLIENT = paths.client;
 
 const VERDICT_EXIT_1 = new Set(["drift", "unreadable", "missing", "ours-corrupt"]);
-
-// keep the /gh skill in step with the package on every patcher run
-if (["apply", "revert", "status"].includes(process.argv[2])) {
-	console.log(`[dsh-git-badge] gh skill: ${installSkill()}`);
-}
 
 const verb = process.argv[2];
 if (!verb || !["apply", "revert", "status"].includes(verb)) {
@@ -177,8 +61,11 @@ if (!verb || !["apply", "revert", "status"].includes(verb)) {
 	process.exit(1);
 }
 
+// keep the /gh skill in step with the package on every patcher run
+console.log(`[dsh-git-badge] gh skill: ${installSkill()}`);
+
 if (verb === "status") {
-	const r = inspect();
+	const r = inspect(paths);
 	console.log(`installed:  ${CLIENT}`);
 	console.log(`hash:       ${r.hash ?? r.error ?? "-"}`);
 	if (r.known_good_match === "yes") console.log("pinned:     KNOWN-GOOD MATCH — the build the anchors were verified against");
@@ -217,7 +104,7 @@ if (verb === "status") {
 }
 
 if (verb === "apply") {
-	const r = inspect();
+	const r = inspect(paths);
 	for (const [k, v] of Object.entries(r)) {
 		if (k !== "state") console.log(`  ${k}=${v}`);
 	}
@@ -227,7 +114,8 @@ if (verb === "apply") {
 			console.log("verdict:    PATCHED (rev current) — nothing to do.");
 			break;
 		case "patchable":
-			doPatch();
+			doPatch(paths, "apply");
+			console.log("patched lib/client.js in place (anchors applied); host half stubbed.");
 			console.log("verdict:    PATCHED.");
 			break;
 		case "ours-stale": {
@@ -235,29 +123,22 @@ if (verb === "apply") {
 			// found them pre-patch). Validate THAT before touching the installed
 			// file: restoring a backup whose anchors no longer resolve would
 			// overwrite the installed build with an unpatchable older one.
-			if (!existsSync(BACKUP_CLIENT)) {
+			if (!existsSync(paths.backupClient)) {
 				console.error("REFUSING: installed file is an older artifact of ours but no backup");
 				console.error("exists, so the original bytes are unknown. Reinstall the package or");
 				console.error("restore the backup by hand, then re-run apply.");
 				process.exit(1);
 			}
-			const backupText = readText(BACKUP_CLIENT);
-			const bstate = isOurs(backupText)
-				? "ours"
-				: seamPresent(backupText)
-					? "upstream-landed"
-					: firstFailure(backupText) === null
-						? "patchable"
-						: "drift";
+			const bstate = backupState(paths);
 			if (bstate !== "patchable") {
 				console.error(`REFUSING: the backup (bytes as found before patching) is '${bstate}',`);
 				console.error("not patchable — the anchors no longer match the backed-up upstream.");
 				console.error("Nothing was changed. Reinstall the DSH package, then re-run apply.");
 				process.exit(1);
 			}
-			writeText(CLIENT, backupText);
-			copyFileSync(BACKUP_INDEX, INDEX);
-			doPatch();
+			doRestore(paths);
+			doPatch(paths, "apply");
+			console.log("patched lib/client.js in place (anchors applied); host half stubbed.");
 			console.log("verdict:    UPGRADED — older artifact replaced with the current patch.");
 			break;
 		}
@@ -287,16 +168,15 @@ if (verb === "apply") {
 	console.log(`now install the plugin:  dsh plugin --profile web add dsh-git-badge`);
 } else {
 	// revert
-	if (existsSync(BACKUP_CLIENT)) {
-		const r = inspect();
+	if (existsSync(paths.backupClient)) {
+		const r = inspect(paths);
 		const installedHash = r.hash;
-		const backupHash = sha256(readText(BACKUP_CLIENT));
+		const backupHash = sha256(readFileSync(paths.backupClient, "utf8"));
 		if (installedHash === backupHash) {
 			// Idempotent re-run: the installed bytes already ARE the backup.
 			console.log("already reverted — installed client.js matches the backup; nothing to do.");
 		} else if (r.state === "ours-current" || r.state === "ours-stale" || r.state === "ours-corrupt") {
-			writeText(CLIENT, readText(BACKUP_CLIENT));
-			copyFileSync(BACKUP_INDEX, INDEX);
+			doRestore(paths);
 			console.log("reverted client.js/index.js to the bytes as found before patching.");
 			// A revert also changes bytes the running bundles were composed from.
 			writeRestartMarker("revert");
@@ -306,14 +186,14 @@ if (verb === "apply") {
 			console.error(`artifact (state: ${r.state}), so upstream replaced it since the patch was`);
 			console.error("applied. Restoring the backup would DOWNGRADE the package.");
 			console.error("Nothing was changed. If the downgrade is really what you want, restore");
-			console.error(`${BACKUP_CLIENT} by hand.`);
+			console.error(`${paths.backupClient} by hand.`);
 			process.exit(1);
 		}
 	} else {
-		const r = inspect();
+		const r = inspect(paths);
 		if (r.state === "ours-current" || r.state === "ours-stale" || r.state === "ours-corrupt") {
 			console.error("REFUSING: the installed file is patched but no backup exists in");
-			console.error(`${DATA_DIR}, so the original bytes are unknown here. Options:`);
+			console.error("the seam data dir, so the original bytes are unknown here. Options:");
 			console.error("  1. If you applied from a clone of the plugin's repository, run its");
 			console.error("     wrapper instead — it keeps its own backup:");
 			console.error("       <clone>/seam/apply.sh revert");
@@ -324,6 +204,6 @@ if (verb === "apply") {
 		console.log("no backup present and nothing of ours installed; client.js left untouched.");
 	}
 	// restore the no-op host half if no backup of the original exists
-	if (!existsSync(BACKUP_INDEX)) copyFileSync(STUB_INDEX, INDEX);
+	if (!existsSync(paths.backupIndex)) copyFileSync(paths.stub, paths.index);
 	console.log("remember to remove the plugin:  dsh plugin --profile web remove dsh-git-badge");
 }
