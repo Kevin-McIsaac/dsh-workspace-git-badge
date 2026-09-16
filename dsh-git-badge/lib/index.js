@@ -733,17 +733,24 @@ function legacyOrderFile() {
 }
 
 /**
- * The live order — one in-memory value, updated by the settings scope. It is
- * authoritative only once the namespace actually registered; until then (and on
- * a host without the settings stack, or in a unit test that never calls apply)
- * the legacy file is read per call, which is the pre-settings behaviour.
+ * The live order — one in-memory value. apply() seeds it from the pre-settings
+ * JSON file once at boot; the settings scope then owns it, so a change applies
+ * to the next status read with no file poll and no restart. A host without the
+ * settings stack (and a unit test that never calls apply) simply keeps the
+ * default. Reading the file once per boot instead of per status read keeps a
+ * sync disk read off the hot path; the file's contract is a boot-time seed,
+ * which is all it ever was once the namespace exists.
  */
 let currentOrder = DEFAULT_NEXT_ORDER;
-let settingsOrderActive = false;
+
+/** Seed the live order from the pre-settings JSON file — apply()'s boot step. */
+function seedOrder() {
+	currentOrder = legacyOrderFile();
+}
 
 /** The ranking order every status read uses. */
 function nextOrder() {
-	return settingsOrderActive ? currentOrder : legacyOrderFile();
+	return currentOrder;
 }
 
 /**
@@ -1595,7 +1602,7 @@ function apply(ctx) {
 	// exists, seeds the namespace as its composition BASE so an order configured
 	// before this existed survives the upgrade; it is also the fallback when the
 	// settings service is absent (a host composed without dsh-settings).
-	currentOrder = legacyOrderFile();
+	seedOrder();
 	if (typeof ctx.inject === "function") {
 		try {
 			ctx.inject(["settings"], async (settingsCtx) => {
@@ -1610,12 +1617,12 @@ function apply(ctx) {
 					base: { order: legacyOrderFile() }
 				});
 				currentOrder = normalizeOrder(scope.get()?.order);
-				settingsOrderActive = true;
 				settingsCtx.effect(() => scope.watch((next) => {
 					currentOrder = normalizeOrder(next?.order);
 				}), "dsh-git-badge: order settings");
 				settingsCtx.effect(() => () => {
-					settingsOrderActive = false;
+					// the namespace is gone: fall back to the boot-time seed
+					seedOrder();
 				}, "dsh-git-badge: order settings teardown");
 			});
 		} catch (error) {
@@ -1760,6 +1767,7 @@ export {
 	operationMarker,
 	nextStep,
 	nextActions,
+	seedOrder,
 	outerGitDir,
 	parseStatusV2,
 	parseWorktreeList,

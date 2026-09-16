@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { changeListeners, config, gitStatus, nextActions, nextStep, outerGitDir, runGit as pluginRunGit } from "../lib/index.js";
+import { changeListeners, config, gitStatus, nextActions, nextStep, outerGitDir, runGit as pluginRunGit, seedOrder } from "../lib/index.js";
 import { makeRepo, makeTempDir, runGit } from "../test-support/repo.mjs";
 
 /** Subscribe to change notifications; released with the test. */
@@ -367,13 +367,15 @@ test("nextStep: failing PR checks → watch them", () => {
 test("nextStep: the ranking order can be overridden by the config file", async (t) => {
 	const home = await makeTempDir(t, "dsh-git-badge-next-");
 	process.env.DSH_HOME = home;
-	t.after(() => { delete process.env.DSH_HOME; });
+	t.after(() => { delete process.env.DSH_HOME; seedOrder(); }); // leave the default order behind
 	await writeFile(join(home, "git-badge-next.json"), JSON.stringify({ order: ["commit", "sync"] }));
+	seedOrder(); // the file is a boot-time seed; this mirrors a boot
 	// dirty + behind: default ranks sync first; the override puts commit first
 	const next = rule({ git: true, upstream: "o/m", behind: 2, stagedFiles: 1 });
 	assert.equal(next.args, "commit");
 	// unknown categories and omitted ones behave: unlisted rank after, in default order
 	await writeFile(join(home, "git-badge-next.json"), JSON.stringify({ order: ["bogus", "merge"] }));
+	seedOrder();
 	assert.equal(
 		rule({ git: true, upstream: "o/m", pr: { number: 5, state: "passing", mergeState: "CLEAN" } }).args,
 		"merge 5",
