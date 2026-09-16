@@ -756,9 +756,15 @@ window.__ModuleLoader__.load({
 		 * columns line up in both by construction), and the card's own width
 		 * behaviour: full-width lines, nowrap, ellipsis.
 		 */
-		function PrCommitsList({ info }) {
+		function PrCommitsList({ info, pending = false }) {
 			const commits = info?.prCommits;
 			if (!Array.isArray(commits) || commits.length === 0) {
+				// `pending`: the detail payload has not landed yet, so "no commits"
+				// would be a false negative — name the pull request the token points
+				// at instead, the way the mark's card degrades to the base response.
+				if (pending) {
+					return react_jsx_runtime.jsx("span", { style: CARD_CONTAINER, children: formatPrDetail(info?.pr) ?? "loading\u2026" });
+				}
 				return react_jsx_runtime.jsx("span", { style: CARD_CONTAINER, children: "no commits beyond the base branch" });
 			}
 			return react_jsx_runtime.jsxs("div", { style: CARD_CONTAINER, children: [
@@ -792,12 +798,13 @@ window.__ModuleLoader__.load({
 		 * the one question the count poses ("what are these?"). One stacked
 		 * column with sub-headers: UNSTAGED (tracked, edited — valid regardless
 		 * of the collapsed untracked retry) then UNTRACKED. Reads the same lazy
-		 * detail payload the mark's card uses; no tooltip at all when neither
-		 * list has names (the count itself is absent on a clean tree, so an
-		 * empty list is rare — a mid-fetch hover shows it plain until the
-		 * response lands).
+		 * detail payload the mark's card uses. The wrapper is always mounted (see
+		 * withTooltip) and the label degrades while the names are in flight: the
+		 * COUNTS are already in the base response, so it restates the breakdown
+		 * rather than claiming an empty list. "no changed files" is reserved for a
+		 * landed payload that genuinely has no names.
 		 */
-		function CountNames({ info }) {
+		function CountNames({ info, pending = false }) {
 			const sections = [
 				{
 					label: "staged",
@@ -816,6 +823,11 @@ window.__ModuleLoader__.load({
 				}
 			].filter((section) => Array.isArray(section.names) && section.names.length > 0);
 			if (sections.length === 0) {
+				// `pending`: the names have not been fetched yet, but the COUNTS have —
+				// restate those rather than the false "no changed files".
+				if (pending) {
+					return react_jsx_runtime.jsx("span", { style: CARD_CONTAINER, children: formatFileBreakdown(info) });
+				}
 				return react_jsx_runtime.jsx("span", { style: CARD_CONTAINER, children: "no changed files" });
 			}
 			return react_jsx_runtime.jsxs("div", { style: CARD_CONTAINER, children:
@@ -1020,13 +1032,19 @@ window.__ModuleLoader__.load({
 		//#region composer chip (upstream additive surface: conversation.input.left)
 		/**
 		 * The ONE copy of the hover-card degrade rule: wrap a node in the shell's
-		 * Tooltip when the primitive exists AND `wrap` justifies the card, and
-		 * render the node bare otherwise — a missing card is a smaller failure
-		 * than a missing badge. `label` is the thunk the Tooltip calls only when
-		 * it opens, so the card's element tree stays out of closed tooltips.
+		 * Tooltip when the primitive exists, and render the node bare otherwise — a
+		 * missing card is a smaller failure than a missing badge. `label` is the
+		 * thunk the Tooltip calls only when it opens, so the card's element tree
+		 * stays out of closed tooltips.
+		 *
+		 * ALWAYS mount the wrapper — never conditionally, once its data arrives.
+		 * The primitive is uncontrolled (it has no `open` prop) and opens on the
+		 * CHILD's mouseenter, so a wrapper mounted after the pointer is already
+		 * inside can never open for that visit: the pointer has to leave and
+		 * return. Gate the LABEL's content instead.
 		 */
-		function withTooltip(node, label, maxWidth, wrap = true) {
-			if (Tooltip === void 0 || wrap !== true) return node;
+		function withTooltip(node, label, maxWidth) {
+			if (Tooltip === void 0) return node;
 			return react_jsx_runtime.jsx(Tooltip, { side: "top", maxWidth, label, children: node });
 		}
 
@@ -1107,8 +1125,8 @@ window.__ModuleLoader__.load({
 			// The branch NAME is its own hover surface: the commits this branch adds
 			// (BranchCommitsList), sharing the mark's lazy detail fetch. The rest of
 			// the leading text (operation token) and the count keep their own
-			// surfaces. Degrades to plain text without the Tooltip primitive or
-			// when the branch adds nothing beyond upstream.
+			// surfaces. The wrapper is always mounted (see withTooltip); without the
+			// Tooltip primitive the name renders plain.
 			const branchHover = (() => {
 				// The branch name links to the compare view (base...branch) — the web
 				// page of exactly what the lineage tooltip lists. Vouched http(s)
@@ -1121,14 +1139,21 @@ window.__ModuleLoader__.load({
 				// count stays its own surface — it answers a different question.
 				const sync = formatSync(info);
 				const label = info.branch + sync;
-				const branch = isLink
+				// The Tooltip's CHILD must not change element type once the detail
+				// payload lands: the primitive opens on the child's mouseenter and has
+				// no `open` prop, so a node replaced under the pointer may never be
+				// re-entered. The outer span is the stable hover surface; only this
+				// inner node swaps (plain text -> anchor) as the compare URL arrives.
+				const inner = isLink
 					? react_jsx_runtime.jsx("a", {
 						href: detail.compareUrl,
 						target: "_blank",
 						rel: "noopener noreferrer",
 						"aria-label": "Compare " + info.branch + " with main on GitHub" + (sync === "" ? "" : ", " + (info.ahead || 0) + " ahead and " + (info.behind || 0) + " behind upstream"),
-						onPointerEnter: () => { setHovered(true); setBranchLinkHover(true); },
+						onPointerEnter: () => setBranchLinkHover(true),
 						onPointerLeave: () => setBranchLinkHover(false),
+						// focus joins hover: a keyboard user needs the same underline, and
+						// focus (unlike a pointer) must also start the detail fetch
 						onFocus: () => { setHovered(true); setBranchLinkHover(true); },
 						onBlur: () => setBranchLinkHover(false),
 						style: {
@@ -1138,14 +1163,17 @@ window.__ModuleLoader__.load({
 						},
 						children: label
 					})
-					: react_jsx_runtime.jsx("span", {
-						onPointerEnter: () => setHovered(true),
-						style: { cursor: "default" },
-						children: label
-					});
-				// mid-fetch the branch shows plain; the lineage tooltip is
-				// unconditional once the payload lands
-				return withTooltip(branch, () => react_jsx_runtime.jsx(BranchLineage, { info: detail }), 480, detail !== void 0 && detail !== null);
+					: label;
+				const branch = react_jsx_runtime.jsx("span", {
+					onPointerEnter: () => setHovered(true),
+					style: { cursor: isLink ? "pointer" : "default" },
+					children: inner
+				});
+				// ALWAYS wrapped. A wrapper mounted only once the lazy detail arrives
+				// cannot open for the visit that fetched it (see the child-stability
+				// note above); until the payload lands the lineage degrades to the base
+				// response, the way the mark's own card already does.
+				return withTooltip(branch, () => react_jsx_runtime.jsx(BranchLineage, { info: detail ?? info }), 480);
 			})();
 			const text = formatOperationToken(info);
 			// The ✎n count is its OWN hover surface: a names-only tooltip (see
@@ -1160,9 +1188,12 @@ window.__ModuleLoader__.load({
 					style: { cursor: "default" },
 					children: countText
 				});
-				const hasNames = (Array.isArray(detail?.untrackedNames) && detail.untrackedNames.length > 0)
-					|| (Array.isArray(detail?.unstagedNames) && detail.unstagedNames.length > 0);
-				return withTooltip(count, () => react_jsx_runtime.jsx(CountNames, { info: detail }), 480, hasNames);
+				// always wrapped, for the same reason as the branch: the primitive
+				// opens on the child's mouseenter, so a wrapper added after the
+				// pointer arrives never opens. While the names are in flight the label
+				// restates the breakdown the base response already carries.
+				const pending = detail === void 0 || detail === null;
+				return withTooltip(count, () => react_jsx_runtime.jsx(CountNames, { info: detail ?? info, pending }), 480);
 			})();
 			const prToken = formatPrToken(info);
 			const prUrl = prLinkUrl(info);
@@ -1210,9 +1241,10 @@ window.__ModuleLoader__.load({
 						onBlur: () => setLinkHover(false),
 						children: prToken
 					});
-				const hasCommits = detail !== void 0 && detail !== null
-					&& Array.isArray(detail.prCommits) && detail.prCommits.length > 0;
-				return withTooltip(token, () => react_jsx_runtime.jsx(PrCommitsList, { info: detail }), 480, hasCommits);
+				// always wrapped (see the branch): while the commits are in flight the
+				// label names the PR state the base response already carries
+				const pending = detail === void 0 || detail === null;
+				return withTooltip(token, () => react_jsx_runtime.jsx(PrCommitsList, { info: detail ?? info, pending }), 480);
 			})();
 			const chip = react_jsx_runtime.jsxs("span", {
 				style: {
