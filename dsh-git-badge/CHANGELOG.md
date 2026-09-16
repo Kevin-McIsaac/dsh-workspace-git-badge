@@ -40,6 +40,14 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Changed
 
+- **The session row's action token only appears when the session is idle.** A turn
+  in flight is exactly when a git suggestion is noise: the checkout is still
+  moving and the agent has not finished. The row reads its run state from the
+  shell's standard kit — `useSessions`, the same selector hook the workspace UI
+  itself uses — and renders nothing while that session is `running`. The filter is
+  on render, not on the fetch, so the row's hover line is unaffected. On a shell
+  that seeds no such hook the row behaves as before, and the console says which of
+  the two it got.
 - **The PR/CI token stops lagging behind the forge.** The forge read is
   TTL-bounded and its refresh is request-driven, while an idle chip only asks
   every 60s — so the old 90s `prTtlMs` silently suppressed every other poll, and
