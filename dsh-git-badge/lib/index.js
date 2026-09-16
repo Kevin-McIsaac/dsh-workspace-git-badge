@@ -758,7 +758,7 @@ function nextOrder() {
  *
  * @returns {{ args: string, command: string|undefined, why: string, what: string } | null}
  */
-function nextStep(info) {
+function nextStepRules(info) {
 	if (info === void 0 || info === null || info.git !== true) return null;
 	const unmerged = info.unmergedFiles || 0;
 	const plural = (n) => (n === 1 ? "" : "s");
@@ -814,15 +814,80 @@ function nextStep(info) {
 	if (pr !== void 0 && pr.number !== void 0 && pr.state === "failing") {
 		add("checks", `checks ${pr.number}`, `checks failing on #${pr.number}`, "watch the CI checks on pull request " + pr.number, `gh pr checks ${pr.number} --watch`);
 	}
-	if (rules.length === 0) return null;
+
+	// STANDING options: never ranked, never the primary suggestion — they are
+	// things you may do, not things the checkout is asking for. `pr view` exists
+	// whenever a pull request does; `pr` (create) only for a pushed branch that
+	// is not the default; `clean` last and flagged, because a destructive verb
+	// whose intent git status cannot reveal must never be suggested.
+	const standing = [];
+	if (pr !== void 0 && pr.number !== void 0) {
+		standing.push({
+			args: `pr view ${pr.number}`,
+			why: `open pull request #${pr.number}`,
+			what: `show pull request ${pr.number} on GitHub`
+		});
+	} else if (ahead === 0 && behind === 0 && info.upstream !== void 0 && dirty === 0 && info.defaultBranch !== true) {
+		standing.push({ args: "pr", why: "branch is pushed and has no pull request", what: "open a pull request for this branch" });
+	}
+	if (untracked > 0) {
+		standing.push({
+			args: "clean",
+			why: `${untracked} untracked file${plural(untracked)}`,
+			what: "remove untracked files — lists them and asks first",
+			danger: true
+		});
+	}
 
 	const order = nextOrder();
 	const rank = (cat) => {
 		const at = order.indexOf(cat);
 		return at === -1 ? order.length : at;
 	};
-	const [top] = [...rules].sort((a, b) => rank(a.cat) - rank(b.cat));
-	return { args: top.args, command: top.command, why: top.why, what: top.what };
+	const ranked = [...rules].sort((a, b) => rank(a.cat) - rank(b.cat)).slice(0, 5);
+	return { ranked, standing };
+}
+
+/**
+ * Every action the checkout justifies, in order — the ONE list both surfaces
+ * render: the card shows the primary entry, the (+) picker lists them all.
+ *
+ * The server owns the whole list because both halves previously carried their
+ * own copy of these conditions and drifted: the card promoted a client-only
+ * extra into its action row, and `/gh pr` was offered on the default branch.
+ * One authority, one list, no reconciliation.
+ *
+ * Exactly one entry can be `primary` (the top RANKED rule) or none at all —
+ * a clean, synced checkout has actions (look at the PR, clean up) but no
+ * suggestion, because "no suggestion" is also a suggestion.
+ *
+ * @returns {{ actions: Array<{args, why, what, command?, danger?, primary?}>, next: object|null }}
+ */
+function nextActions(info) {
+	const built = nextStepRules(info);
+	if (built === null) return { actions: [], next: null };
+	const { ranked, standing } = built;
+	const actions = [
+		...ranked.map((rule, index) => ({
+			args: rule.args,
+			why: rule.why,
+			what: rule.what,
+			...(rule.command === void 0 ? {} : { command: rule.command }),
+			...(index === 0 ? { primary: true } : {})
+		})),
+		...standing
+	];
+	const primary = actions.find((action) => action.primary === true) ?? null;
+	return { actions, next: primary };
+}
+
+/**
+ * The single ranked suggestion, or null — the card's action row and the legacy
+ * shape. It is the primary entry of {@link nextActions}, never a standing
+ * option.
+ */
+function nextStep(info) {
+	return nextActions(info).next;
 }
 
 /**
@@ -1043,8 +1108,13 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 		const pr = prStatusFor(toplevel, parsed.branch, notifyChange);
 		if (pr !== void 0) info.pr = pr;
 	}
-	const next = nextStep(info);
+	// The ranked suggestion rides EVERY response (it is pure derivation, and a
+	// sidebar row may one day use it instead of its own copy of these rules);
+	// the full action list is sent only for `pr=1`, the surfaces that have a
+	// picker, so a row's payload stays lean.
+	const { actions, next } = nextActions(info);
 	if (next !== null) info.next = next;
+	if (wantPr && actions.length > 0) info.actions = actions;
 	return info;
 }
 
@@ -1683,6 +1753,7 @@ export {
 	OPERATION_MARKERS,
 	operationMarker,
 	nextStep,
+	nextActions,
 	outerGitDir,
 	parseStatusV2,
 	parseWorktreeList,

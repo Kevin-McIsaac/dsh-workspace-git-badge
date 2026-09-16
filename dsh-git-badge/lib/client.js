@@ -232,62 +232,21 @@ window.__ModuleLoader__.load({
 
 
 		/**
-		 * The /gh picker's sub-actions — the skill invocations the checkout
-		 * justifies, most urgent first. The server's `next` (the ranked top rule,
-		 * already carrying args/why/what) always leads; the client adds the other
-		 * justified actions as secondary entries, mirroring the server's category
-		 * rules but never re-deciding the winner.
+		 * The actions BOTH surfaces render — the server's list, verbatim.
+		 *
+		 * This half used to re-derive pull/push/commit/pr from the raw counts,
+		 * which meant two implementations of the same conditions drifting apart:
+		 * the card once promoted a client-only extra into its action row, and
+		 * `/gh pr` was offered on the default branch. The node half owns the
+		 * rules and the ranking now; the client adds presentation only — the risk
+		 * gate for `clean`, and the labels.
+		 *
+		 * Falls back to the single `next` for a payload from an older node half.
 		 */
 		function ghSkillActions(info) {
 			if (info === void 0 || info === null || info.git !== true) return [];
-			const subs = [];
-			const seen = new Set();
-			const add = (args, why, what) => {
-				if (args === void 0 || args === null || args === "" || seen.has(args)) return;
-				seen.add(args);
-				subs.push({ args, why, what });
-			};
-			const next = info.next;
-			if (next !== void 0 && next !== null) add(next.args, next.why, next.what);
-			const ahead = info.ahead || 0;
-			const behind = info.behind || 0;
-			const staged = info.stagedFiles || 0;
-			const unstaged = info.unstagedFiles || 0;
-			const untracked = info.untrackedFiles || 0;
-			if (behind > 0 && ahead > 0) {
-				add("sync", ahead + " ahead, " + behind + " behind — diverged", "rebase your commits onto upstream and push (asks before any force)");
-			} else {
-				if (behind > 0) add("pull", behind + " behind " + (info.upstream ?? "upstream"), "update this branch from upstream");
-				if (ahead > 0) add("push", ahead + " ahead of " + (info.upstream ?? "upstream"), "push local commits to the remote");
-			}
-			if (staged > 0) add("commit", staged + " staged", "commit the staged changes");
-			if (unstaged > 0) add("commit", unstaged + " unstaged", "stage and commit the working changes");
-			if (unstaged === 0 && untracked > 0) add("commit", untracked + " untracked", "stage the new files and commit them");
-			const pr = info.pr;
-			if (pr !== void 0 && pr !== null && pr.number !== void 0) {
-				if (pr.state === "failing") add("checks " + pr.number, "checks failing on #" + pr.number, "watch the CI checks on pull request " + pr.number);
-				add("pr view " + pr.number, "open pull request #" + pr.number, "show pull request " + pr.number + " on GitHub");
-			} else if (ahead === 0 && behind === 0 && info.upstream !== void 0 && staged + unstaged + untracked === 0
-				&& info.defaultBranch !== true) {
-				// NOT on the default branch: main/master with no pull request is its
-				// normal state, and a PR from main into main is nonsense (the node
-				// half resolves the repository's default branch name for this flag)
-				add("pr", "branch is pushed and has no pull request", "open a pull request for this branch");
-			}
-			// /gh clean is offered LAST and only when there is something to remove:
-			// it can never become the hover's action row (that reads the first
-			// entry), because a destructive verb whose intent cannot be inferred
-			// from git status is available on request, never suggested.
-			const listed = subs.slice(0, 5);
-			if (untracked > 0) {
-				listed.push({
-					args: "clean",
-					why: untracked + " untracked file" + (untracked === 1 ? "" : "s"),
-					what: "remove untracked files — lists them and asks first",
-					danger: true
-				});
-			}
-			return listed;
+			if (Array.isArray(info.actions)) return info.actions;
+			return info.next === void 0 || info.next === null ? [] : [info.next];
 		}
 
 		/**

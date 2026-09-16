@@ -10,6 +10,21 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Changed
+
+- **One action list, built by the server.** Both halves used to derive the
+  pull/push/commit/pr conditions, and the copies drifted: the card once promoted
+  a client-only extra into its action row, and `/gh pr` was offered on the
+  default branch. The node half now publishes `actions` — the ranked rules in the
+  configured order with the top entry flagged `primary` (also served as `next`,
+  on every response), then the standing options (`pr view <n>`, `pr`, and the
+  flagged `clean`). `merge <n>` becomes a standing entry whenever the PR is
+  mergeable, so it now appears alongside a primary `push`/`pull` instead of only
+  when it wins the ranking. The client renders the list verbatim and keeps only
+  presentation — labels and the clean risk gate; `actions` rides the `pr=1`
+  payload only, so sidebar rows stay lean. Net: ~65 lines of duplicated client
+  rules deleted, and the conditions are unit-tested where the data lives.
+
 ### Fixed
 
 - **No more "open a pull request" on `main`, and the hover card shows only the
