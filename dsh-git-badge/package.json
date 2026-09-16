@@ -55,6 +55,7 @@
     "seam/anchors.js",
     "seam/apply.js",
     "seam/checkout.js",
+    "seam/patch.js",
     "seam/postinstall.js",
     "seam/skill.js",
     "seam/store.js",

@@ -3,7 +3,7 @@
  *
  * Two contracts are under test, and the first is a performance one:
  *
- *  1. LAZINESS. The card's fields cost a `log -3` plus a stash list, so the chip
+ *  1. LAZINESS. The card's fields cost a `log -10` plus a stash list, so the chip
  *     must not ask for them until a pointer rests on it — the base request asks
  *     for the PR token only, and the row asks for neither.
  *  2. GRACEFUL ABSENCE. A shell without the Tooltip primitive still gets a

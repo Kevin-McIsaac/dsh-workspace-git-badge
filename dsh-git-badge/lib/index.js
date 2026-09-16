@@ -44,7 +44,7 @@
  *       on the first refresh after each TTL window. `GIT_TERMINAL_PROMPT=0`, the
  *       shared timeout and the TTL bound keep an offline or slow remote harmless;
  *       on failure the stale-ref answer simply stands.
- *     - `detail=1` adds one `log -3` plus a stash count, and `pr=1` adds the
+ *     - `detail=1` adds a `log -10` plus a stash count, and `pr=1` adds the
  *       branch's GitHub PR/CI state read through the user's own `gh` CLI. Both
  *       serve the input chip only — the hover card and the PR token — so a
  *       sidebar row refresh pays for neither. The PR read is TTL-bounded and
@@ -99,15 +99,6 @@ const config = {
 	defaultBranchTtlMs: 60000,
 	/** fs-event burst collapse window */
 	debounceMs: 200,
-	/**
-	 * Coalescing window for identical status reads. 0 (the default) collapses only
-	 * CONCURRENT identical reads — which is exactly what a burst of sidebar
-	 * session rows mounting together produces — and leaves sequential reads
-	 * honest, so a caller that mutates a repository and asks again always sees the
-	 * new state. Raise it to also absorb serial bursts, at the cost of serving a
-	 * change up to that many milliseconds late.
-	 */
-	statusCacheMs: 0,
 	/** backoff before re-attempting a failed watcher (or a missing .git) */
 	watchRetryMs: 60000,
 	/**
@@ -209,6 +200,41 @@ function runGit(dir, args, opts) {
 /** Marker response for a git invocation that failed or timed out (transient). */
 const GIT_DEGRADED = { git: false, error: "git unavailable (timeout or failure)" };
 
+/**
+ * One in-flight run per key, with optional TTL rate-limiting — the shape every
+ * cache in this half needs, written once. A caller that arrives while a run is
+ * in flight shares its promise instead of stampeding, and one whose record is
+ * fresher than `ttlMs` is served from the record instead of starting a new
+ * run. The store maps key -> { lastAttemptAt, inFlight, value }: `value` is
+ * the last settled answer, kept only when `keepValue` so a lapsed caller can
+ * be served the PREVIOUS answer while a refresh runs; `run(record)` receives
+ * the record (its `value` is that previous answer) and resolves to the next
+ * one. TTL-less stores drop the record when the run settles; a failed run is
+ * not remembered except as a TTL'd store's attempt time, which rate-limits
+ * the retry. `serve` decides what a busy-or-fresh call returns (default: the
+ * in-flight promise, or the kept value).
+ */
+function singleFlight(store, key, { ttlMs = 0, keepValue = false, serve }, run) {
+	const previous = store.get(key);
+	if (previous !== void 0 && (previous.inFlight !== null || Date.now() - previous.lastAttemptAt < ttlMs)) {
+		return serve !== void 0 ? serve(previous) : keepValue ? previous.value : previous.inFlight;
+	}
+	const record = { lastAttemptAt: Date.now(), inFlight: null, value: keepValue ? previous?.value : void 0 };
+	record.inFlight = (async () => {
+		try {
+			const value = await run(record);
+			if (keepValue) record.value = value;
+			return value;
+		} finally {
+			record.lastAttemptAt = Date.now();
+			record.inFlight = null;
+			if (ttlMs === 0) store.delete(key);
+		}
+	})();
+	store.set(key, record);
+	return keepValue ? record.value : record.inFlight;
+}
+
 //#region TTL-bounded background fetch
 /**
  * ahead/behind come from the local remote-tracking ref, which only moves on
@@ -231,19 +257,17 @@ const defaultBranchState = new Map();
 
 /** The cached default branch, kicking a refresh when stale. Never throws. */
 function defaultBranchFor(toplevel, notify) {
-	const now = Date.now();
-	const cached = defaultBranchState.get(toplevel);
-	if (cached === void 0 || now - cached.at >= config.defaultBranchTtlMs) {
-		// out of band: this answer is served from what we already know
-		void (async () => {
-			const out = await runGit(toplevel, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
-			const name = out.stdout === null ? "" : out.stdout.trim().replace(/^origin\//u, "");
-			const previous = defaultBranchState.get(toplevel)?.value;
-			defaultBranchState.set(toplevel, { at: Date.now(), value: name === "" ? void 0 : name });
-			if (previous !== defaultBranchState.get(toplevel).value) notify?.();
-		})();
-	}
-	return cached?.value;
+	return singleFlight(defaultBranchState, toplevel, {
+		ttlMs: config.defaultBranchTtlMs,
+		keepValue: true,
+		serve: (state) => state.value
+	}, async (record) => {
+		const out = await runGit(toplevel, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+		const name = out.stdout === null ? "" : out.stdout.trim().replace(/^origin\//u, "");
+		const value = name === "" ? void 0 : name;
+		if (record.value !== value) notify?.();
+		return value;
+	});
 }
 
 /** lastFetchAt per toplevel; in-flight promise per toplevel collapses races. */
@@ -257,13 +281,12 @@ const fetchState = new Map();
  * means concurrent requests share one fetch instead of stampeding.
  */
 async function maybeFetch(toplevel) {
-	const now = Date.now();
-	const state = fetchState.get(toplevel);
-	if (state !== void 0) {
-		if (state.inFlight !== null) return state.inFlight;
-		if (now - state.lastAttemptAt < config.fetchTtlMs) return false;
-	}
-	const inFlight = (async () => {
+	return singleFlight(fetchState, toplevel, {
+		ttlMs: config.fetchTtlMs,
+		// a lapsed-but-idle caller is served "nothing fetched"; only an in-flight
+		// fetch is worth sharing
+		serve: (state) => (state.inFlight ?? false)
+	}, async () => {
 		// --no-tags --prune: refs-only refresh, cheapest correct form.
 		// No remote name: `git fetch` uses the branch's configured upstream,
 		// and a bare `fetch --all` would probe every remote for every badge.
@@ -275,13 +298,8 @@ async function maybeFetch(toplevel) {
 			// route latency, paid at most once per fetchTtlMs per workspace.
 			timeout: config.fetchTimeoutMs
 		});
-		const ok = out.stdout !== null;
-		fetchState.set(toplevel, { lastAttemptAt: Date.now(), inFlight: null });
-		return ok;
-	})();
-	if (state === void 0) fetchState.set(toplevel, { lastAttemptAt: now, inFlight });
-	else state.inFlight = inFlight;
-	return inFlight;
+		return out.stdout !== null;
+	});
 }
 //#endregion
 
@@ -441,26 +459,19 @@ function prListKey(byBranch) {
  */
 function prStatusFor(toplevel, branch, notify) {
 	if (config.prStatus === "off") return void 0;
-	const now = Date.now();
 	const key = toplevel + "\u0000" + branch;
-	const state = prState.get(key);
-	if (state !== void 0) {
-		// Fresh, or a refresh is already running: serve what we have either way.
-		if (now - state.lastAttemptAt < config.prTtlMs || state.inFlight !== null) return state.value;
-	}
-	const record = { lastAttemptAt: now, inFlight: null, value: state?.value };
-	const inFlight = (async () => {
+	return singleFlight(prState, key, {
+		ttlMs: config.prTtlMs,
+		keepValue: true,
+		// the previous answer is served while a refresh runs, so a forge round
+		// trip is never route latency
+		serve: (state) => state.value
+	}, async (record) => {
 		const value = await readPrStatus(toplevel, branch).catch(() => void 0);
 		const changed = JSON.stringify(record.value ?? null) !== JSON.stringify(value ?? null);
-		record.lastAttemptAt = Date.now();
-		record.inFlight = null;
-		record.value = value;
 		if (changed) notify(toplevel);
 		return value;
-	})();
-	record.inFlight = inFlight;
-	prState.set(key, record);
-	return record.value;
+	});
 }
 //#endregion
 
@@ -622,13 +633,7 @@ const worktreeInFlight = new Map();
  * local git calls, and a worktree created a moment ago must be visible at once.
  */
 function worktreesFor(dir) {
-	const pending = worktreeInFlight.get(dir);
-	if (pending !== void 0) return pending;
-	const run = readWorktrees(dir).finally(() => {
-		worktreeInFlight.delete(dir);
-	});
-	worktreeInFlight.set(dir, run);
-	return run;
+	return singleFlight(worktreeInFlight, dir, {}, () => readWorktrees(dir));
 }
 
 /**
@@ -728,17 +733,24 @@ function legacyOrderFile() {
 }
 
 /**
- * The live order — one in-memory value, updated by the settings scope. It is
- * authoritative only once the namespace actually registered; until then (and on
- * a host without the settings stack, or in a unit test that never calls apply)
- * the legacy file is read per call, which is the pre-settings behaviour.
+ * The live order — one in-memory value. apply() seeds it from the pre-settings
+ * JSON file once at boot; the settings scope then owns it, so a change applies
+ * to the next status read with no file poll and no restart. A host without the
+ * settings stack (and a unit test that never calls apply) simply keeps the
+ * default. Reading the file once per boot instead of per status read keeps a
+ * sync disk read off the hot path; the file's contract is a boot-time seed,
+ * which is all it ever was once the namespace exists.
  */
 let currentOrder = DEFAULT_NEXT_ORDER;
-let settingsOrderActive = false;
+
+/** Seed the live order from the pre-settings JSON file — apply()'s boot step. */
+function seedOrder() {
+	currentOrder = legacyOrderFile();
+}
 
 /** The ranking order every status read uses. */
 function nextOrder() {
-	return settingsOrderActive ? currentOrder : legacyOrderFile();
+	return currentOrder;
 }
 
 /**
@@ -890,15 +902,6 @@ function nextActions(info) {
 }
 
 /**
- * The single ranked suggestion, or null — the card's action row and the legacy
- * shape. It is the primary entry of {@link nextActions}, never a standing
- * option.
- */
-function nextStep(info) {
-	return nextActions(info).next;
-}
-
-/**
  * Git status for dir; { git: false } when dir is not a repository,
  * GIT_DEGRADED on transient git failure.
  *
@@ -1041,10 +1044,11 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 		// `remote get-url origin` with ssh syntax converted; absent when there is
 		// no origin or the URL is not recognisably a hosted repo.
 		// These reads are independent — one batch, so hover latency is the
-		// longest call rather than their sum. The only dependent call (the
-		// left-right count needs a probed base ref) runs after the batch and
-		// tolerates its own failure.
-		const [remoteUrl, probeMain, probeMaster, logOut2, stashOut] = await Promise.all([
+		// longest call rather than their sum. `logHead` is the plain HEAD log
+		// the no-base-branch fallback below serves as the branch's commit list;
+		// the only dependent calls (the left-right count and the signed log both
+		// need a probed base ref) run after the batch and tolerate failure.
+		const [remoteUrl, probeMain, probeMaster, logHead, stashOut] = await Promise.all([
 			runGit(toplevel, ["remote", "get-url", "origin"]),
 			runGit(toplevel, ["rev-parse", "--verify", "--quiet", "origin/main"]),
 			runGit(toplevel, ["rev-parse", "--verify", "--quiet", "origin/master"]),
@@ -1097,9 +1101,9 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 				if (Number.isFinite(total)) info.branchCommitsTotal = total;
 			}
 		} else {
-			const plainOut = await runGit(toplevel, ["log", "-10", "--format=%h%x09%s%x09%cr", "HEAD"]);
-			if (plainOut.stdout !== null && plainOut.stdout.trim() !== "") {
-				info.branchCommits = plainOut.stdout.trim().split("\n").map((line) => {
+			// already fetched in the batch above — no second invocation
+			if (logHead.stdout !== null && logHead.stdout.trim() !== "") {
+				info.branchCommits = logHead.stdout.trim().split("\n").map((line) => {
 					const [hash, subject, when] = line.split("\t");
 					return { hash, subject: subject ?? "", when: when ?? "" };
 				}).filter((c) => c.hash !== void 0);
@@ -1146,38 +1150,19 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 
 /** In-flight status reads, so N callers asking at once share one `git status`. */
 const statusInFlight = new Map();
-/** Completed reads inside `config.statusCacheMs`; unused at the 0 default. */
-const statusCache = new Map();
 
 /**
  * Status for dir, with identical CONCURRENT reads collapsed into one. That is the
  * shape a burst of sidebar session rows produces when they mount together: N rows
  * of one workspace resolve to the same directory, and without this they would run
- * N `git status` walks of the same tree at the same instant.
- *
- * The optional `statusCacheMs` window extends the collapse to serial bursts. It
- * defaults to 0 on purpose: a cache that outlives the call would let a caller
- * that mutates a repository and asks again read a stale answer, and correctness
- * of a *status* badge outranks saving a walk.
+ * N `git status` walks of the same tree at the same instant. Deliberately NO
+ * completed-read cache: one that outlived the call would let a caller that
+ * mutates a repository and asks again read a stale answer, and correctness of a
+ * *status* badge outranks saving a walk.
  */
 function gitStatus(dir, wantDetail, wantPr) {
 	const key = dir + "\u0000" + (wantDetail === true) + "\u0000" + (wantPr === true);
-	if (config.statusCacheMs > 0) {
-		const hit = statusCache.get(key);
-		if (hit !== void 0 && Date.now() - hit.at < config.statusCacheMs) return Promise.resolve(hit.value);
-	}
-	const pending = statusInFlight.get(key);
-	if (pending !== void 0) return pending;
-	const run = gitStatusUncached(dir, wantDetail, wantPr)
-		.then((value) => {
-			if (config.statusCacheMs > 0) statusCache.set(key, { at: Date.now(), value });
-			return value;
-		})
-		.finally(() => {
-			statusInFlight.delete(key);
-		});
-	statusInFlight.set(key, run);
-	return run;
+	return singleFlight(statusInFlight, key, {}, () => gitStatusUncached(dir, wantDetail, wantPr));
 }
 
 //#region git-state watcher
@@ -1546,17 +1531,10 @@ async function resolveWorkspace(ctx, params) {
  * directory that is not a worktree of this repository.
  */
 function sessionCheckouts() {
-	if (typeof config.sessionCheckoutsFile === "string") {
-		try {
-			const raw = JSON.parse(readFileSync(config.sessionCheckoutsFile, "utf8"));
-			return raw !== null && typeof raw === "object" && typeof raw.sessions === "object" && raw.sessions !== null
-				? raw.sessions
-				: {};
-		} catch {
-			return {};
-		}
-	}
-	return readSessionCheckouts();
+	// The store owns the file's shape; the test seam only redirects the path.
+	return config.sessionCheckoutsFile === null
+		? readSessionCheckouts()
+		: readSessionCheckouts(config.sessionCheckoutsFile);
 }
 
 async function registeredCheckout(target, sessionId) {
@@ -1615,7 +1593,7 @@ function apply(ctx) {
 	// exists, seeds the namespace as its composition BASE so an order configured
 	// before this existed survives the upgrade; it is also the fallback when the
 	// settings service is absent (a host composed without dsh-settings).
-	currentOrder = legacyOrderFile();
+	seedOrder();
 	if (typeof ctx.inject === "function") {
 		try {
 			ctx.inject(["settings"], async (settingsCtx) => {
@@ -1630,12 +1608,12 @@ function apply(ctx) {
 					base: { order: legacyOrderFile() }
 				});
 				currentOrder = normalizeOrder(scope.get()?.order);
-				settingsOrderActive = true;
 				settingsCtx.effect(() => scope.watch((next) => {
 					currentOrder = normalizeOrder(next?.order);
 				}), "dsh-git-badge: order settings");
 				settingsCtx.effect(() => () => {
-					settingsOrderActive = false;
+					// the namespace is gone: fall back to the boot-time seed
+					seedOrder();
 				}, "dsh-git-badge: order settings teardown");
 			});
 		} catch (error) {
@@ -1778,8 +1756,8 @@ export {
 	config,
 	OPERATION_MARKERS,
 	operationMarker,
-	nextStep,
 	nextActions,
+	seedOrder,
 	outerGitDir,
 	parseStatusV2,
 	parseWorktreeList,

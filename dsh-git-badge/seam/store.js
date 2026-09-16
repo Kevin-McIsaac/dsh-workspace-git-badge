@@ -85,11 +85,15 @@ function sessionCheckoutsPath() {
 	return join(dataDir(), "session-checkouts.json");
 }
 
-/** Every registration, `{ sessionId: { path, at } }`. Never throws. */
-export function readSessionCheckouts() {
+/** Every registration, `{ sessionId: { path, at } }`. Never throws.
+ *
+ * `file` overrides the store path — the test seam lib/index.js uses (its
+ * `config.sessionCheckoutsFile`) — so the file's shape is parsed in ONE place.
+ */
+export function readSessionCheckouts(file = sessionCheckoutsPath()) {
 	try {
-		if (!existsSync(sessionCheckoutsPath())) return {};
-		const raw = JSON.parse(readFileSync(sessionCheckoutsPath(), "utf8"));
+		if (!existsSync(file)) return {};
+		const raw = JSON.parse(readFileSync(file, "utf8"));
 		return raw !== null && typeof raw === "object" && typeof raw.sessions === "object" && raw.sessions !== null
 			? raw.sessions
 			: {};

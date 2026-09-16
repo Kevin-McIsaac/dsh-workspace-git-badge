@@ -56,8 +56,17 @@ window.__ModuleLoader__.load({
 		const Menu = primitives === null ? void 0 : primitives.Menu;
 		const rankByName = primitives === null ? void 0 : primitives.rankByName;
 
-		/** Module-level git-status cache. Entries are invalidated by SSE events, never by age. */
+		/**
+		 * Module-level git-status cache. Entries are invalidated by SSE events,
+		 * never by age — and BOUNDED, because a long-lived tab opens and closes
+		 * many sessions and nothing else removes an entry. When the cap is
+		 * exceeded the oldest-INSERTED key is evicted (Map order is insertion,
+		 * not use); an evicted surface simply refetches, which the in-flight map
+		 * collapses like any other request.
+		 */
 		const GIT_CACHE = new Map();
+		/** The cache's entry bound — each surface is one key, plus lazy detail keys. */
+		const GIT_CACHE_LIMIT = 64;
 		/** In-flight fetches per cacheKey: bursts collapse into one request. */
 		const GIT_INFLIGHT = new Map();
 		/** Slow safety-net poll: refreshes even if the SSE stream is silently dead. */
@@ -138,7 +147,7 @@ window.__ModuleLoader__.load({
 		 * `options.detail` / `options.pr` ask the node half for the chip's extras
 		 * (see targetQuery). `options.enabled: false` holds the fetch back
 		 * entirely — that is what makes the hover card's extra fields LAZY: the
-		 * chip renders without them and only starts paying for `log -3` plus a
+		 * chip renders without them and only starts paying for a `log -10` plus a
 		 * stash list once a pointer actually rests on it. The hook is still called
 		 * unconditionally (hooks may not be conditional); the GATE is inside.
 		 */
@@ -173,6 +182,9 @@ window.__ModuleLoader__.load({
 					if (data !== null && data.error !== void 0 && GIT_CACHE.has(cacheKey)) return;
 					if (data !== null && typeof data.workspace === "string") resolvedWorkspace = data.workspace;
 					GIT_CACHE.set(cacheKey, { at: Date.now(), data });
+					if (GIT_CACHE.size > GIT_CACHE_LIMIT) {
+						GIT_CACHE.delete(GIT_CACHE.keys().next().value);
+					}
 					if (alive) setState({ key: cacheKey, data });
 				};
 				const load = () => {
@@ -240,13 +252,10 @@ window.__ModuleLoader__.load({
 		 * `/gh pr` was offered on the default branch. The node half owns the
 		 * rules and the ranking now; the client adds presentation only — the risk
 		 * gate for `clean`, and the labels.
-		 *
-		 * Falls back to the single `next` for a payload from an older node half.
 		 */
 		function ghSkillActions(info) {
 			if (info === void 0 || info === null || info.git !== true) return [];
-			if (Array.isArray(info.actions)) return info.actions;
-			return info.next === void 0 || info.next === null ? [] : [info.next];
+			return Array.isArray(info.actions) ? info.actions : [];
 		}
 
 		/**
@@ -1010,6 +1019,18 @@ window.__ModuleLoader__.load({
 
 		//#region composer chip (upstream additive surface: conversation.input.left)
 		/**
+		 * The ONE copy of the hover-card degrade rule: wrap a node in the shell's
+		 * Tooltip when the primitive exists AND `wrap` justifies the card, and
+		 * render the node bare otherwise — a missing card is a smaller failure
+		 * than a missing badge. `label` is the thunk the Tooltip calls only when
+		 * it opens, so the card's element tree stays out of closed tooltips.
+		 */
+		function withTooltip(node, label, maxWidth, wrap = true) {
+			if (Tooltip === void 0 || wrap !== true) return node;
+			return react_jsx_runtime.jsx(Tooltip, { side: "top", maxWidth, label, children: node });
+		}
+
+		/**
 		 * Chip line in the input row: git state of the workspace the CURRENT
 		 * conversation is attached to. It targets the session id and lets the node
 		 * half resolve the workspace, so this surface needs no `workspaces`
@@ -1044,7 +1065,7 @@ window.__ModuleLoader__.load({
 			const target = sessionId === void 0 ? void 0 : { kind: "session", id: sessionId };
 			// the PR/CI token is always on the chip, so its fetch is not gated
 			const info = useGitStatus(target, { pr: true });
-			// The card's extras cost a `log -3` plus a stash list, so they are
+			// The card's extras cost a `log -10` plus a stash list, so they are
 			// fetched only once a pointer actually RESTS on the chip, then kept
 			// fresh by the same SSE path. Eagerly asking would add both invocations
 			// to every refresh — and a refresh fires on every file edit.
@@ -1069,23 +1090,17 @@ window.__ModuleLoader__.load({
 			// so the extras are paid for exactly when the card that can render them
 			// is about to open. Defined inside the component: it closes over the
 			// hovered state that gates the detail fetch.
-			const hoverableMark = (() => {
-				const mark = react_jsx_runtime.jsx("span", {
+			const hoverableMark = withTooltip(
+				react_jsx_runtime.jsx("span", {
 					onPointerEnter: () => setHovered(true),
 					style: { display: "inline-flex", alignItems: "center", flex: "none", cursor: "default" },
 					children: react_jsx_runtime.jsx(StatusMark, { info })
-				});
-				if (Tooltip === void 0) return mark;
-				return react_jsx_runtime.jsx(Tooltip, {
-					side: "top",
-					// matches the body cap: the tooltip must never be the clamp
-				maxWidth: 600,
-					// a function label keeps the card's element tree out of every render
-					// until the tooltip actually opens
-					label: () => react_jsx_runtime.jsx(HoverCard, { info, detail }),
-					children: mark
-				});
-			})();
+				}),
+				// a function label keeps the card's element tree out of every render
+				// until the tooltip actually opens
+				() => react_jsx_runtime.jsx(HoverCard, { info, detail }),
+				600 // matches the body cap: the tooltip must never be the clamp
+			);
 			// the mark is an element now rather than a leading glyph in the string, so
 			// the SAME StatusMark the sidebar row draws carries the status here too;
 			// the container's 4px gap supplies the space the emoji's own did
@@ -1128,17 +1143,9 @@ window.__ModuleLoader__.load({
 						style: { cursor: "default" },
 						children: label
 					});
-				if (Tooltip === void 0 || detail === void 0 || detail === null) {
-					// mid-fetch the branch shows plain; the lineage tooltip is
-					// unconditional once the payload lands
-					return branch;
-				}
-				return react_jsx_runtime.jsx(Tooltip, {
-					side: "top",
-					maxWidth: 480,
-					label: () => react_jsx_runtime.jsx(BranchLineage, { info: detail }),
-					children: branch
-				});
+				// mid-fetch the branch shows plain; the lineage tooltip is
+				// unconditional once the payload lands
+				return withTooltip(branch, () => react_jsx_runtime.jsx(BranchLineage, { info: detail }), 480, detail !== void 0 && detail !== null);
 			})();
 			const text = formatOperationToken(info);
 			// The ✎n count is its OWN hover surface: a names-only tooltip (see
@@ -1155,15 +1162,7 @@ window.__ModuleLoader__.load({
 				});
 				const hasNames = (Array.isArray(detail?.untrackedNames) && detail.untrackedNames.length > 0)
 					|| (Array.isArray(detail?.unstagedNames) && detail.unstagedNames.length > 0);
-				if (Tooltip === void 0 || !hasNames) {
-					return count;
-				}
-				return react_jsx_runtime.jsx(Tooltip, {
-					side: "top",
-					maxWidth: 480,
-					label: () => react_jsx_runtime.jsx(CountNames, { info: detail }),
-					children: count
-				});
+				return withTooltip(count, () => react_jsx_runtime.jsx(CountNames, { info: detail }), 480, hasNames);
 			})();
 			const prToken = formatPrToken(info);
 			const prUrl = prLinkUrl(info);
@@ -1211,16 +1210,9 @@ window.__ModuleLoader__.load({
 						onBlur: () => setLinkHover(false),
 						children: prToken
 					});
-				if (Tooltip === void 0 || detail === void 0 || detail === null
-					|| !Array.isArray(detail.prCommits) || detail.prCommits.length === 0) {
-					return token;
-				}
-				return react_jsx_runtime.jsx(Tooltip, {
-					side: "top",
-					maxWidth: 480,
-					label: () => react_jsx_runtime.jsx(PrCommitsList, { info: detail }),
-					children: token
-				});
+				const hasCommits = detail !== void 0 && detail !== null
+					&& Array.isArray(detail.prCommits) && detail.prCommits.length > 0;
+				return withTooltip(token, () => react_jsx_runtime.jsx(PrCommitsList, { info: detail }), 480, hasCommits);
 			})();
 			const chip = react_jsx_runtime.jsxs("span", {
 				style: {

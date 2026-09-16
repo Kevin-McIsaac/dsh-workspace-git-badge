@@ -21,6 +21,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { basename, resolve } from "node:path";
+import { parseWorktreeList } from "../lib/index.js";
 import { clearSessionCheckout, writeSessionCheckout } from "./store.js";
 
 function usage(message) {
@@ -28,13 +29,10 @@ function usage(message) {
 	console.error("usage: dsh-git-badge-checkout <path> | --clear");
 }
 
-/** Worktree paths git lists for the repo containing `dir`. */
+/** Worktree paths git lists for the repo containing `dir` — the node half's parser. */
 function worktreePaths(dir) {
 	const out = execFileSync("git", ["-C", dir, "worktree", "list", "--porcelain"], { encoding: "utf8" });
-	return out
-		.split("\n")
-		.filter((line) => line.startsWith("worktree "))
-		.map((line) => resolve(line.slice("worktree ".length).trim()));
+	return parseWorktreeList(out).map((entry) => resolve(entry.path));
 }
 
 function branchOf(dir) {

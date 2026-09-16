@@ -10,6 +10,11 @@
  * applied right here; otherwise the plugin's boot log and the chip tooltip name
  * the same one manual command.
  *
+ * The mechanics live once in patch.js, shared with the apply CLI — the state
+ * gate below reads the same inspect() report the CLI acts on, so the hook and
+ * the tool cannot disagree about what a file's state is. This file only decides
+ * what to print for each state at install time.
+ *
  * GUARDRAILS — this script may never break an install:
  *   - it runs ONLY when the installed DSH client.js is pristine upstream AND
  *     every anchor resolves exactly once (`patchable`); any other state —
@@ -21,68 +26,51 @@
  * client bundle at boot, and an install script restarting the host that is
  * installing it is not safe to automate.
  */
-import { execSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { applyPatch, firstFailure, isOurs, seamPresent } from "./anchors.js";
+import { existsSync, readFileSync } from "node:fs";
+import { firstFailure } from "./anchors.js";
+import { doPatch, installPaths, inspect } from "./patch.js";
 import { installSkill } from "./skill.js";
-import { dataDir, writeRestartMarker } from "./store.js";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const HINT = "Sidebar session-row badges need one manual step: `npx dsh-git-badge apply`, then restart dsh web.";
-
-function dshClientPath() {
-	try {
-		const root = process.env.DSH_INSTALL || join(execSync("npm root -g", { encoding: "utf8" }).trim(), "@deepseek-ai", "dsh");
-		return join(root, "node_modules", "@deepseek-ai", "dsh-client-ui-workspace", "lib", "client.js");
-	} catch {
-		return null;
-	}
-}
 
 function main() {
 	// The skill does not depend on the DSH install — install it before any
 	// client-shaped early return, so a market install always gets /gh.
 	console.log(`[dsh-git-badge] gh skill: ${installSkill()} — /gh in the input's commands menu.`);
-	const client = dshClientPath();
-	if (client === null || !existsSync(client)) {
+	const paths = installPaths();
+	if (paths === null || !existsSync(paths.client)) {
 		console.log(`[dsh-git-badge] DSH install not found; skipping seam setup. ${HINT}`);
 		return;
 	}
-	// the index stub is copied with the client on apply (see apply.js)
-	const index = join(dirname(client), "index.js");
-	const text = readFileSync(client, "utf8");
-
-	// Already ours (any rev): nothing to do here; apply.js upgrade rules govern.
-	if (isOurs(text)) {
-		console.log("[dsh-git-badge] seam already applied — sidebar session-row badges active after restart.");
-		return;
+	const state = inspect(paths).state;
+	switch (state) {
+		// Already ours (any rev): nothing to do here; apply.js upgrade rules govern.
+		case "ours-current":
+		case "ours-stale":
+		case "ours-corrupt":
+			console.log("[dsh-git-badge] seam already applied — sidebar session-row badges active after restart.");
+			return;
+		// Upstream landed the seam: the patch is retired.
+		case "upstream-landed":
+			console.log("[dsh-git-badge] DSH declares the seam itself — no patch needed.");
+			return;
+		// Pristine, but the anchors no longer resolve: a DSH update moved anchored
+		// code. Never patch half of anything — print, and let a patched anchors.js
+		// do it.
+		case "drift": {
+			const fail = firstFailure(readFileSync(paths.client, "utf8"));
+			console.log(`[dsh-git-badge] DSH build drifted from the patch anchors (${fail?.name}); skipping. ${HINT}`);
+			return;
+		}
+		case "patchable":
+			// The one state we act on: pristine upstream, anchors resolve.
+			doPatch(paths, "postinstall");
+			console.log("[dsh-git-badge] seam applied — RESTART dsh web to get sidebar session-row badges.");
+			return;
+		default:
+			// missing / unreadable / ours-corrupt: nothing this hook can do safely.
+			console.log(`[dsh-git-badge] DSH install state '${state}'; skipping seam setup. ${HINT}`);
 	}
-	// Upstream landed the seam: the patch is retired.
-	if (seamPresent(text)) {
-		console.log("[dsh-git-badge] DSH declares the seam itself — no patch needed.");
-		return;
-	}
-	// Pristine, but the anchors no longer resolve: a DSH update moved anchored
-	// code. Never patch half of anything — print, and let a patched anchors.js
-	// do it.
-	const fail = firstFailure(text);
-	if (fail !== null) {
-		console.log(`[dsh-git-badge] DSH build drifted from the patch anchors (${fail.name}); skipping. ${HINT}`);
-		return;
-	}
-	// The one state we act on: pristine upstream, anchors resolve.
-	mkdirSync(dataDir(), { recursive: true });
-	copyFileSync(client, join(dataDir(), "backup-client.js"));
-	copyFileSync(index, join(dataDir(), "backup-index.js"));
-	writeFileSync(client, applyPatch(text));
-	copyFileSync(join(HERE, "stub-index.js"), index);
-	console.log("[dsh-git-badge] seam applied — RESTART dsh web to get sidebar session-row badges.");
-	// Tell the running UI: dshmarket cannot see this host-file change, so the
-	// plugin offers the Restart button itself (marker → status response → chip).
-	// Read/cleared by the plugin halves — see seam/store.js.
-	writeRestartMarker("postinstall");
 }
 
 try {
