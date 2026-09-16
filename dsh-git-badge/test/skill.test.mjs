@@ -36,3 +36,34 @@ test("/gh clean forbids the flags that widen the blast radius", () => {
 test("the hard rules tie the dry run to the clean verb", () => {
 	assert.match(FLAT, /`\/gh clean`'s dry run and verbatim quote come before any `git clean -f`/);
 });
+
+// ---------------------------------------------------------------------------
+// the menu entry (client half): /gh clean appears only with untracked files,
+// last, and carrying the host's risk gate
+// ---------------------------------------------------------------------------
+
+test("/gh clean is offered only when there are untracked files, and last", async () => {
+	const { createClient } = await import("../test-support/client.mjs");
+	const { ghSkillActions } = createClient().internals;
+	const clean = { git: true, branch: "main", upstream: "origin/main", ahead: 0, behind: 0, dirty: true, untrackedFiles: 2 };
+	const without = ghSkillActions({ ...clean, untrackedFiles: 0, dirty: false });
+	assert.equal(without.some((a) => a.args === "clean"), false, "nothing to clean, nothing offered");
+	const withFiles = ghSkillActions({ ...clean, stagedFiles: 1 });
+	assert.equal(withFiles[withFiles.length - 1].args, "clean", "offered last");
+	assert.equal(withFiles[0].args, "commit", "and never the suggestion the hover shows");
+	const entry = withFiles[withFiles.length - 1];
+	assert.equal(entry.danger, true, "flagged so the picker attaches the gate");
+	assert.match(entry.what, /asks first/);
+});
+
+test("the clean risk gate carries every field the host's confirmation renders", async () => {
+	const { createClient } = await import("../test-support/client.mjs");
+	const { cleanGate } = createClient().internals;
+	const gate = cleanGate();
+	for (const field of ["title", "description", "acknowledgeLabel", "cancelLabel", "confirmLabel"]) {
+		assert.equal(typeof gate[field], "string", `${field} must be a string`);
+		assert.ok(gate[field].length > 0, `${field} must not be empty`);
+	}
+	assert.match(gate.description, /no reflog and no stash entry/, "the gate says WHY it is dangerous");
+	assert.match(gate.acknowledgeLabel, /cannot be recovered/, "the checkbox states the risk");
+});

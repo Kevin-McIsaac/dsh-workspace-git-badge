@@ -88,7 +88,11 @@ unstaged / untracked / unmerged), plus any in-progress operation marker
   the badge has.
 
 - **`/gh clean [<path>...]`** — remove untracked files, and only with the user's
-  explicit yes for the exact list. This is the one verb whose first step is a
+  explicit yes for the exact list. It appears in the `/gh` menu whenever
+  untracked files exist, always last, behind the host's risk gate: picking it
+  opens a confirmation whose box must be ticked before the invocation is even
+  sent. That gate names the RISK, not the files — so the explicit paths and the
+  second yes below are still required. This is the one verb whose first step is a
   DRY RUN, always:
 
   1. `git clean -n -- <paths>` and quote its output back verbatim — the user is
