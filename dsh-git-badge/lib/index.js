@@ -95,6 +95,8 @@ const config = {
 	fetchTimeoutMs: 8000,
 	/** minimum interval between background fetches per toplevel */
 	fetchTtlMs: 60000,
+	/** how long a resolved default-branch name is trusted (per toplevel) */
+	defaultBranchTtlMs: 60000,
 	/** fs-event burst collapse window */
 	debounceMs: 200,
 	/**
@@ -210,6 +212,32 @@ const GIT_DEGRADED = { git: false, error: "git unavailable (timeout or failure)"
  * auto-fetch), with a TTL rather than a timer: fetch only happens when
  * someone is actually looking at the badge.
  */
+/**
+ * toplevel -> { at, value } for the repository's default branch name ("main"),
+ * resolved from `refs/remotes/origin/HEAD`. Read on the HOT path and refreshed
+ * out of band, exactly like the fetch: a status call must never pay a process
+ * for it, so the first request after a cache miss simply answers without the
+ * flag and the next one carries it.
+ */
+const defaultBranchState = new Map();
+
+/** The cached default branch, kicking a refresh when stale. Never throws. */
+function defaultBranchFor(toplevel, notify) {
+	const now = Date.now();
+	const cached = defaultBranchState.get(toplevel);
+	if (cached === void 0 || now - cached.at >= config.defaultBranchTtlMs) {
+		// out of band: this answer is served from what we already know
+		void (async () => {
+			const out = await runGit(toplevel, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+			const name = out.stdout === null ? "" : out.stdout.trim().replace(/^origin\//u, "");
+			const previous = defaultBranchState.get(toplevel)?.value;
+			defaultBranchState.set(toplevel, { at: Date.now(), value: name === "" ? void 0 : name });
+			if (previous !== defaultBranchState.get(toplevel).value) notify?.();
+		})();
+	}
+	return cached?.value;
+}
+
 /** lastFetchAt per toplevel; in-flight promise per toplevel collapses races. */
 const fetchState = new Map();
 
@@ -897,6 +925,12 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 		ahead: parsed.ahead,
 		behind: parsed.behind
 	};
+	// Is this the repository's DEFAULT branch? main/master with no pull request
+	// is that branch's normal state, and "open a pull request for this branch" is
+	// nonsense there, so the surfaces suppress it. Cached and refreshed out of
+	// band: the flag may be absent on the very first read, present on the next.
+	const defaultBranch = defaultBranchFor(toplevel, notifyChange);
+	if (defaultBranch !== void 0 && defaultBranch === parsed.branch) info.defaultBranch = true;
 	if (wantDetail) {
 		// The ✎n NAMES — the one part of the count the numbers cannot answer
 		// ("what are these?"). Hover-gated with the rest of detail=1, so no

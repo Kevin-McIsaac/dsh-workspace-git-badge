@@ -225,6 +225,25 @@ test("the branch hover lists the commits this branch adds", () => {
 	assert.ok(!branchLabel.includes("2 staged"), "no card content bleeds into it");
 });
 
+test("the card's action row is the SERVER's verdict, not the client's extras", () => {
+	// clean feature branch, pushed, no PR: the picker offers /gh pr (an extra),
+	// but the server's next is null — so the card must stay quiet rather than
+	// promoting that extra into its top line
+	const client = createClient({ tooltip: true, hover: true });
+	const clean = { branch: "feat/x", upstream: "origin/feat/x", ahead: 0, behind: 0, dirty: false };
+	const body = card(client, clean);
+	assert.ok(!body.includes("action"), `no action row when the server suggests nothing: ${body}`);
+	// and when the server DOES suggest, the row is its suggestion — `next` is the
+	// whole contract, so the fixture supplies it the way the response does
+	const dirty = {
+		...clean,
+		dirty: true,
+		stagedFiles: 2,
+		next: { args: "commit", why: "work to commit: 2 staged", what: "commit the staged changes" }
+	};
+	assert.match(card(client, dirty), /action.*\/gh commit/, "the server's suggestion is the row");
+});
+
 test("the detail fields appear only once detail has been fetched", () => {
 	const without = card(createClient({ tooltip: true, hover: false }), BASE, DETAIL);
 	assert.ok(!without.includes("stashed"), "no stash before the detail request");

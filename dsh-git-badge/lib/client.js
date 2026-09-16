@@ -267,7 +267,11 @@ window.__ModuleLoader__.load({
 			if (pr !== void 0 && pr !== null && pr.number !== void 0) {
 				if (pr.state === "failing") add("checks " + pr.number, "checks failing on #" + pr.number, "watch the CI checks on pull request " + pr.number);
 				add("pr view " + pr.number, "open pull request #" + pr.number, "show pull request " + pr.number + " on GitHub");
-			} else if (ahead === 0 && behind === 0 && info.upstream !== void 0 && staged + unstaged + untracked === 0) {
+			} else if (ahead === 0 && behind === 0 && info.upstream !== void 0 && staged + unstaged + untracked === 0
+				&& info.defaultBranch !== true) {
+				// NOT on the default branch: main/master with no pull request is its
+				// normal state, and a PR from main into main is nonsense (the node
+				// half resolves the repository's default branch name for this flag)
 				add("pr", "branch is pushed and has no pull request", "open a pull request for this branch");
 			}
 			// /gh clean is offered LAST and only when there is something to remove:
@@ -936,11 +940,13 @@ window.__ModuleLoader__.load({
 				rows.push(cardRow(label, value));
 			};
 			// The "action" row — the top line, in the card's ordinary row layout:
-			// the gh skill invocation the checkout justifies, derived from the same
-			// state the /gh picker uses (first sub-action wins). Plain text, no
-			// affordance: the actionable surface is the (+) menu's /gh picker, and
-			// this row is the read-only pointer to it.
-			const topAction = ghSkillActions(data)[0];
+			// the SERVER's ranked suggestion, and nothing else. The client's
+			// extras (secondary picker entries) must never promote themselves into
+			// this line: when the server says there is nothing to do — clean and
+			// synced — the row is omitted, and "no suggestion" stays a suggestion.
+			// Plain text, no affordance: the actionable surface is the (+) menu's
+			// /gh picker, and this row is the read-only pointer to it.
+			const topAction = data.next;
 			if (topAction !== void 0) {
 				// git-comment convention: the invocation, two spaces, then "# "
 				// plus what it does

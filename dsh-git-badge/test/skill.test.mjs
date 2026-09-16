@@ -67,3 +67,20 @@ test("the clean risk gate carries every field the host's confirmation renders", 
 	assert.match(gate.description, /no reflog and no stash entry/, "the gate says WHY it is dangerous");
 	assert.match(gate.acknowledgeLabel, /cannot be recovered/, "the checkbox states the risk");
 });
+
+// ---------------------------------------------------------------------------
+// the default branch: no pull request is ever suggested FROM main
+// ---------------------------------------------------------------------------
+
+test("no pr entry when the branch IS the repository's default", async () => {
+	const { createClient } = await import("../test-support/client.mjs");
+	const { ghSkillActions } = createClient().internals;
+	const cleanMain = {
+		git: true, branch: "main", upstream: "origin/main", ahead: 0, behind: 0,
+		dirty: false, stagedFiles: 0, unstagedFiles: 0, untrackedFiles: 0, defaultBranch: true
+	};
+	assert.deepEqual(ghSkillActions(cleanMain), [], "clean main has nothing to suggest");
+	// the same state on a FEATURE branch is the case the entry exists for
+	const cleanFeature = { ...cleanMain, branch: "feat/x", upstream: "origin/feat/x", defaultBranch: false };
+	assert.equal(ghSkillActions(cleanFeature)[0].args, "pr");
+});
