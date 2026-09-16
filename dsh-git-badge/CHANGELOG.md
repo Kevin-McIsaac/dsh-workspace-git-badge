@@ -10,6 +10,14 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-09-16
+
+### Fixed
+
+- **Typos in the repository README.** Corrected `.e.,` to `e.g.,`, `can't be
+  change` to `can't be changed`, and removed a stray blank line before the
+  `## Worktrees` heading.
+
 ## [0.16.0] - 2026-09-16
 
 ### Added

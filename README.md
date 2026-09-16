@@ -78,15 +78,14 @@ runs the whole suite (parser, real temp repositories, resolution, SSE, the
 watcher, every `gh` degradation path and the rendered surfaces) with no DSH, no
 network and no restart.
 
-
 ## Worktrees
 
 A worktree isolates each session to ensure it does not step on another 
-sessions work, .e., change or delete the branch, modify the same file.
+sessions work, e.g., change or delete the branch, modify the same file.
 
 ### The challenge
 A DSH session remembers the directory it was created in and that
-value can't be change. After moving a session to a worktree there is no native method 
+value can't be changed. After moving a session to a worktree there is no native method 
 for the status badge to identify which worktree the session maps to. This
 means the status badge reports the wrong branch, the wrong counts, 
 the wrong pull request. 
