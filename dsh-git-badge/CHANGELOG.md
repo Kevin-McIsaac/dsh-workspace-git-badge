@@ -10,6 +10,18 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Added
+
+- **A `/gh clean [<path>...]` verb, confirm-first by construction.** Removing
+  untracked files is the one operation with no reflog and no stash entry, so the
+  verb's first step is always `git clean -n -- <paths>` with the output quoted
+  back verbatim (the user approves the list, not the idea), then an explicit yes,
+  then `git clean -f -- <paths>` on named paths only. `-x`, `-d` and bare
+  `git clean -f` are forbidden — ignored files are often credentials and `-d`
+  turns one path into a tree. It stays out of the badge's ranked suggestions: a
+  destructive action the agent cannot infer intent for is never suggested, only
+  available on request.
+
 ### Changed
 
 - **The upstream sync numbers ride the branch's hover and link.** `↑a ↓b` were
