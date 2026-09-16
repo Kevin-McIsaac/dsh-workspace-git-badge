@@ -996,6 +996,9 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 	// band: the flag may be absent on the very first read, present on the next.
 	const defaultBranch = defaultBranchFor(toplevel, notifyChange);
 	if (defaultBranch !== void 0 && defaultBranch === parsed.branch) info.defaultBranch = true;
+	// Resolved inside the detail block; the PR-token hover below reuses it, so it
+	// is declared here rather than scoped to that block.
+	let baseRef = null;
 	if (wantDetail) {
 		// The ✎n NAMES — the one part of the count the numbers cannot answer
 		// ("what are these?"). Hover-gated with the rest of detail=1, so no
@@ -1043,7 +1046,7 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 		if (remoteUrl.stdout !== null && remoteUrl.stdout.trim() !== "") {
 			info.repoUrl = remoteToWebUrl(remoteUrl.stdout);
 		}
-		const baseRef = probeMain.stdout !== null && probeMain.stdout.trim() !== ""
+		baseRef = probeMain.stdout !== null && probeMain.stdout.trim() !== ""
 			? "origin/main"
 			: probeMaster.stdout !== null && probeMaster.stdout.trim() !== "" ? "origin/master" : null;
 		if (baseRef !== null && info.repoUrl !== void 0) {
@@ -1107,6 +1110,21 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 	if (wantPr) {
 		const pr = prStatusFor(toplevel, parsed.branch, notifyChange);
 		if (pr !== void 0) info.pr = pr;
+	}
+	if (baseRef !== null && info.pr !== void 0 && info.pr !== null && info.pr.number !== void 0
+		&& info.pr.open !== false && (info.mainAhead || 0) > 0) {
+		// The PR's OWN commits (base..HEAD) — the token's hover answers "what is in
+		// this pull request", so it lists exactly that: not the branch's recent
+		// history, nothing else. Hover-gated with the rest of detail=1, and the
+		// total is the ahead count already computed above (no second rev-list).
+		const prOut = await runGit(toplevel, ["log", "-10", "--format=%h%x09%s%x09%cr", baseRef + "..HEAD"]);
+		if (prOut.stdout !== null && prOut.stdout.trim() !== "") {
+			info.prCommits = prOut.stdout.trim().split("\n").map((line) => {
+				const [hash, subject, when] = line.split("\t");
+				return { hash, subject: subject ?? "", when: when ?? "" };
+			}).filter((c) => c.hash !== void 0);
+			info.prCommitsTotal = info.mainAhead;
+		}
 	}
 	// The ranked suggestion rides EVERY response (it is pure derivation, and a
 	// sidebar row may one day use it instead of its own copy of these rules);

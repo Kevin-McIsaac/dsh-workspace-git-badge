@@ -10,6 +10,28 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Added
+
+- **The PR token has its own hover: the commits in that pull request.** `PR#47 ✓`
+  now shows the commits on the branch that are not on the base
+  (`git log <base>..HEAD`, capped at 10 with "… and k more"), in the same line
+  format as the branch hover's list — hash, subject, compressed age, full-width
+  with ellipsis. Nothing else rides it: the token already states the number and
+  CI state, so the one question left is what is in it. Hover-gated with the rest
+  of `detail=1`, and the total reuses the ahead count already computed.
+
+### Changed
+
+- **The branch hover shows only the merge axis.** `upstream` and `sync` are gone
+  — they stated the same divergence against the branch's own remote, in arrows,
+  when `merge` already states it against the base branch in words. The `merge`
+  row now ALWAYS renders: `ready to merge`, `blocked: draft | review required |
+  checks failing`, `no pull request`, each joined with `N ahead, M behind main`
+  when those counts are known. A row that can be absent is a row the reader has
+  to reconstruct.
+- The commit cells lost their trailing colon (a later change had reintroduced it
+  after the earlier removal), so both hovers read `abc1234  subject · 2h ago`.
+
 ### Changed
 
 - **One action list, built by the server.** Both halves used to derive the
