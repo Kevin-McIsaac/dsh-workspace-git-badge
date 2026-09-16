@@ -209,6 +209,41 @@ function runGit(dir, args, opts) {
 /** Marker response for a git invocation that failed or timed out (transient). */
 const GIT_DEGRADED = { git: false, error: "git unavailable (timeout or failure)" };
 
+/**
+ * One in-flight run per key, with optional TTL rate-limiting — the shape every
+ * cache in this half needs, written once. A caller that arrives while a run is
+ * in flight shares its promise instead of stampeding, and one whose record is
+ * fresher than `ttlMs` is served from the record instead of starting a new
+ * run. The store maps key -> { lastAttemptAt, inFlight, value }: `value` is
+ * the last settled answer, kept only when `keepValue` so a lapsed caller can
+ * be served the PREVIOUS answer while a refresh runs; `run(record)` receives
+ * the record (its `value` is that previous answer) and resolves to the next
+ * one. TTL-less stores drop the record when the run settles; a failed run is
+ * not remembered except as a TTL'd store's attempt time, which rate-limits
+ * the retry. `serve` decides what a busy-or-fresh call returns (default: the
+ * in-flight promise, or the kept value).
+ */
+function singleFlight(store, key, { ttlMs = 0, keepValue = false, serve }, run) {
+	const previous = store.get(key);
+	if (previous !== void 0 && (previous.inFlight !== null || Date.now() - previous.lastAttemptAt < ttlMs)) {
+		return serve !== void 0 ? serve(previous) : keepValue ? previous.value : previous.inFlight;
+	}
+	const record = { lastAttemptAt: Date.now(), inFlight: null, value: keepValue ? previous?.value : void 0 };
+	record.inFlight = (async () => {
+		try {
+			const value = await run(record);
+			if (keepValue) record.value = value;
+			return value;
+		} finally {
+			record.lastAttemptAt = Date.now();
+			record.inFlight = null;
+			if (ttlMs === 0) store.delete(key);
+		}
+	})();
+	store.set(key, record);
+	return keepValue ? record.value : record.inFlight;
+}
+
 //#region TTL-bounded background fetch
 /**
  * ahead/behind come from the local remote-tracking ref, which only moves on
@@ -231,19 +266,17 @@ const defaultBranchState = new Map();
 
 /** The cached default branch, kicking a refresh when stale. Never throws. */
 function defaultBranchFor(toplevel, notify) {
-	const now = Date.now();
-	const cached = defaultBranchState.get(toplevel);
-	if (cached === void 0 || now - cached.at >= config.defaultBranchTtlMs) {
-		// out of band: this answer is served from what we already know
-		void (async () => {
-			const out = await runGit(toplevel, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
-			const name = out.stdout === null ? "" : out.stdout.trim().replace(/^origin\//u, "");
-			const previous = defaultBranchState.get(toplevel)?.value;
-			defaultBranchState.set(toplevel, { at: Date.now(), value: name === "" ? void 0 : name });
-			if (previous !== defaultBranchState.get(toplevel).value) notify?.();
-		})();
-	}
-	return cached?.value;
+	return singleFlight(defaultBranchState, toplevel, {
+		ttlMs: config.defaultBranchTtlMs,
+		keepValue: true,
+		serve: (state) => state.value
+	}, async (record) => {
+		const out = await runGit(toplevel, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+		const name = out.stdout === null ? "" : out.stdout.trim().replace(/^origin\//u, "");
+		const value = name === "" ? void 0 : name;
+		if (record.value !== value) notify?.();
+		return value;
+	});
 }
 
 /** lastFetchAt per toplevel; in-flight promise per toplevel collapses races. */
@@ -257,13 +290,12 @@ const fetchState = new Map();
  * means concurrent requests share one fetch instead of stampeding.
  */
 async function maybeFetch(toplevel) {
-	const now = Date.now();
-	const state = fetchState.get(toplevel);
-	if (state !== void 0) {
-		if (state.inFlight !== null) return state.inFlight;
-		if (now - state.lastAttemptAt < config.fetchTtlMs) return false;
-	}
-	const inFlight = (async () => {
+	return singleFlight(fetchState, toplevel, {
+		ttlMs: config.fetchTtlMs,
+		// a lapsed-but-idle caller is served "nothing fetched"; only an in-flight
+		// fetch is worth sharing
+		serve: (state) => (state.inFlight ?? false)
+	}, async () => {
 		// --no-tags --prune: refs-only refresh, cheapest correct form.
 		// No remote name: `git fetch` uses the branch's configured upstream,
 		// and a bare `fetch --all` would probe every remote for every badge.
@@ -275,13 +307,8 @@ async function maybeFetch(toplevel) {
 			// route latency, paid at most once per fetchTtlMs per workspace.
 			timeout: config.fetchTimeoutMs
 		});
-		const ok = out.stdout !== null;
-		fetchState.set(toplevel, { lastAttemptAt: Date.now(), inFlight: null });
-		return ok;
-	})();
-	if (state === void 0) fetchState.set(toplevel, { lastAttemptAt: now, inFlight });
-	else state.inFlight = inFlight;
-	return inFlight;
+		return out.stdout !== null;
+	});
 }
 //#endregion
 
@@ -441,26 +468,19 @@ function prListKey(byBranch) {
  */
 function prStatusFor(toplevel, branch, notify) {
 	if (config.prStatus === "off") return void 0;
-	const now = Date.now();
 	const key = toplevel + "\u0000" + branch;
-	const state = prState.get(key);
-	if (state !== void 0) {
-		// Fresh, or a refresh is already running: serve what we have either way.
-		if (now - state.lastAttemptAt < config.prTtlMs || state.inFlight !== null) return state.value;
-	}
-	const record = { lastAttemptAt: now, inFlight: null, value: state?.value };
-	const inFlight = (async () => {
+	return singleFlight(prState, key, {
+		ttlMs: config.prTtlMs,
+		keepValue: true,
+		// the previous answer is served while a refresh runs, so a forge round
+		// trip is never route latency
+		serve: (state) => state.value
+	}, async (record) => {
 		const value = await readPrStatus(toplevel, branch).catch(() => void 0);
 		const changed = JSON.stringify(record.value ?? null) !== JSON.stringify(value ?? null);
-		record.lastAttemptAt = Date.now();
-		record.inFlight = null;
-		record.value = value;
 		if (changed) notify(toplevel);
 		return value;
-	})();
-	record.inFlight = inFlight;
-	prState.set(key, record);
-	return record.value;
+	});
 }
 //#endregion
 
@@ -622,13 +642,7 @@ const worktreeInFlight = new Map();
  * local git calls, and a worktree created a moment ago must be visible at once.
  */
 function worktreesFor(dir) {
-	const pending = worktreeInFlight.get(dir);
-	if (pending !== void 0) return pending;
-	const run = readWorktrees(dir).finally(() => {
-		worktreeInFlight.delete(dir);
-	});
-	worktreeInFlight.set(dir, run);
-	return run;
+	return singleFlight(worktreeInFlight, dir, {}, () => readWorktrees(dir));
 }
 
 /**
@@ -1167,18 +1181,13 @@ function gitStatus(dir, wantDetail, wantPr) {
 		const hit = statusCache.get(key);
 		if (hit !== void 0 && Date.now() - hit.at < config.statusCacheMs) return Promise.resolve(hit.value);
 	}
-	const pending = statusInFlight.get(key);
-	if (pending !== void 0) return pending;
-	const run = gitStatusUncached(dir, wantDetail, wantPr)
-		.then((value) => {
+	const pending = singleFlight(statusInFlight, key, {}, () =>
+		gitStatusUncached(dir, wantDetail, wantPr).then((value) => {
 			if (config.statusCacheMs > 0) statusCache.set(key, { at: Date.now(), value });
 			return value;
 		})
-		.finally(() => {
-			statusInFlight.delete(key);
-		});
-	statusInFlight.set(key, run);
-	return run;
+	);
+	return pending;
 }
 
 //#region git-state watcher
