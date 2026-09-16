@@ -1041,10 +1041,11 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 		// `remote get-url origin` with ssh syntax converted; absent when there is
 		// no origin or the URL is not recognisably a hosted repo.
 		// These reads are independent — one batch, so hover latency is the
-		// longest call rather than their sum. The only dependent call (the
-		// left-right count needs a probed base ref) runs after the batch and
-		// tolerates its own failure.
-		const [remoteUrl, probeMain, probeMaster, logOut2, stashOut] = await Promise.all([
+		// longest call rather than their sum. `logHead` is the plain HEAD log
+		// the no-base-branch fallback below serves as the branch's commit list;
+		// the only dependent calls (the left-right count and the signed log both
+		// need a probed base ref) run after the batch and tolerate failure.
+		const [remoteUrl, probeMain, probeMaster, logHead, stashOut] = await Promise.all([
 			runGit(toplevel, ["remote", "get-url", "origin"]),
 			runGit(toplevel, ["rev-parse", "--verify", "--quiet", "origin/main"]),
 			runGit(toplevel, ["rev-parse", "--verify", "--quiet", "origin/master"]),
@@ -1097,9 +1098,9 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 				if (Number.isFinite(total)) info.branchCommitsTotal = total;
 			}
 		} else {
-			const plainOut = await runGit(toplevel, ["log", "-10", "--format=%h%x09%s%x09%cr", "HEAD"]);
-			if (plainOut.stdout !== null && plainOut.stdout.trim() !== "") {
-				info.branchCommits = plainOut.stdout.trim().split("\n").map((line) => {
+			// already fetched in the batch above — no second invocation
+			if (logHead.stdout !== null && logHead.stdout.trim() !== "") {
+				info.branchCommits = logHead.stdout.trim().split("\n").map((line) => {
 					const [hash, subject, when] = line.split("\t");
 					return { hash, subject: subject ?? "", when: when ?? "" };
 				}).filter((c) => c.hash !== void 0);
