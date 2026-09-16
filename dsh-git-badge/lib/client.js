@@ -305,16 +305,29 @@ window.__ModuleLoader__.load({
 		 *  - clean workspaces stay quiet: arrows only when nonzero, no ✎ at 0
 		 *  - no upstream: arrows omitted entirely
 		 */
-		function formatGitSuffix(info) {
-			const parts = [];
+		/**
+		 * The upstream sync arrows (" ↑1 ↓2"), or "". Split out from the file
+		 * count so each rides the surface that OWNS it: the arrows belong to the
+		 * branch (they are the branch's standing against its upstream, and the
+		 * branch name's hover and compare link cover them), while ✎n belongs to the
+		 * count's names tooltip.
+		 */
+		function formatSync(info) {
 			const hasUpstream = info.ahead !== void 0 || info.behind !== void 0;
 			const files = (info.changedFiles || 0) + (info.untrackedFiles || 0);
-			if (hasUpstream && (files > 0 || info.ahead > 0 || info.behind > 0)) {
-				parts.push("\u2191" + (info.ahead || 0));
-				parts.push("\u2193" + (info.behind || 0));
-			}
-			if (files > 0) parts.push("\u270E" + files);
-			return parts.length > 0 ? " " + parts.join(" ") : "";
+			if (!hasUpstream || (files === 0 && !(info.ahead > 0) && !(info.behind > 0))) return "";
+			return " \u2191" + (info.ahead || 0) + " \u2193" + (info.behind || 0);
+		}
+
+		/** The ✎n file count (" ✎3"), or "". */
+		function formatFileCount(info) {
+			const files = (info.changedFiles || 0) + (info.untrackedFiles || 0);
+			return files > 0 ? " \u270E" + files : "";
+		}
+
+		/** Both halves, in chip order — kept for callers that want the whole suffix. */
+		function formatGitSuffix(info) {
+			return formatSync(info) + formatFileCount(info);
 		}
 
 		/**
@@ -1011,12 +1024,18 @@ window.__ModuleLoader__.load({
 				// only (the node half rebuilt the URL from parsed parts); new tab,
 				// never navigating the conversation away.
 				const isLink = typeof detail?.compareUrl === "string" && detail.compareUrl.startsWith("https://");
+				// The sync arrows ride WITH the branch: they are the branch's standing
+				// against its upstream, so the same hover (lineage) and the same link
+				// (compare view, where the arrows are the diff) cover them. The ✎n
+				// count stays its own surface — it answers a different question.
+				const sync = formatSync(info);
+				const label = info.branch + sync;
 				const branch = isLink
 					? react_jsx_runtime.jsx("a", {
 						href: detail.compareUrl,
 						target: "_blank",
 						rel: "noopener noreferrer",
-						"aria-label": "Compare " + info.branch + " with main on GitHub",
+						"aria-label": "Compare " + info.branch + " with main on GitHub" + (sync === "" ? "" : ", " + (info.ahead || 0) + " ahead and " + (info.behind || 0) + " behind upstream"),
 						onPointerEnter: () => { setHovered(true); setBranchLinkHover(true); },
 						onPointerLeave: () => setBranchLinkHover(false),
 						onFocus: () => { setHovered(true); setBranchLinkHover(true); },
@@ -1026,12 +1045,12 @@ window.__ModuleLoader__.load({
 							textDecoration: branchLinkHover ? "underline" : "none",
 							cursor: "pointer"
 						},
-						children: info.branch
+						children: label
 					})
 					: react_jsx_runtime.jsx("span", {
 						onPointerEnter: () => setHovered(true),
 						style: { cursor: "default" },
-						children: info.branch
+						children: label
 					});
 				if (Tooltip === void 0 || detail === void 0 || detail === null) {
 					// mid-fetch the branch shows plain; the lineage tooltip is
@@ -1051,10 +1070,12 @@ window.__ModuleLoader__.load({
 			// either triggers it once — and degrades to a plain count on a shell
 			// without the Tooltip primitive.
 			const countHover = (() => {
+				// ✎n only: the sync arrows moved to the branch's surface above
+				const countText = formatFileCount(info);
 				const count = react_jsx_runtime.jsx("span", {
 					onPointerEnter: () => setHovered(true),
 					style: { cursor: "default" },
-					children: formatGitSuffix(info)
+					children: countText
 				});
 				const hasNames = (Array.isArray(detail?.untrackedNames) && detail.untrackedNames.length > 0)
 					|| (Array.isArray(detail?.unstagedNames) && detail.unstagedNames.length > 0);

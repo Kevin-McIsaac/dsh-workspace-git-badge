@@ -10,6 +10,16 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Changed
+
+- **The upstream sync numbers ride the branch's hover and link.** `↑a ↓b` were
+  rendered inside the file count's names tooltip and outside the branch's compare
+  link, though they are the branch's standing against its upstream — so they now
+  sit with the branch name: same lineage hover, same compare-view link, and the
+  link's accessible name says "N ahead and M behind upstream". `✎n` keeps its own
+  names tooltip. Visible side effect: the arrows render before a paused-operation
+  token rather than after it.
+
 ## [0.16.1] - 2026-09-16
 
 ### Fixed
