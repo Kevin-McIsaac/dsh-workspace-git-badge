@@ -10,6 +10,31 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-09-17
+
+### Fixed
+
+- **The branch, file-count and PR hovers open on the FIRST hover.** Those three
+  surfaces were only wrapped in the shell's `Tooltip` once the lazy `detail=1`
+  payload arrived. That primitive is uncontrolled — it has no `open` prop and
+  opens from a `mouseenter` it attaches to its child — so a wrapper mounted after
+  the pointer had already arrived could never open for that visit: the first hover
+  did nothing, and worked only after leaving and returning (or after hovering the
+  status mark had already warmed the cache). All four surfaces are now wrapped
+  from the first render, and a label whose detail is still in flight degrades to
+  the base response instead of claiming an empty list — the count restates the
+  file breakdown, the PR token names the PR. The branch's hover child also stays a
+  `span`, so the compare link appearing underneath a resting pointer cannot
+  remount it. The status mark's own card was never affected.
+
+### Changed
+
+- **Internal simplification pass, no user-facing change** (#52): one
+  `singleFlight` now backs the status cache and its in-flight coalescing, one
+  patch engine (`seam/patch.js`) backs both `seam/apply.js` and
+  `seam/postinstall.js`, and the server returns one `nextActions` shape
+  (`{actions, next}`) for the row's action list.
+
 ## [0.17.0] - 2026-09-16
 
 ### Added
