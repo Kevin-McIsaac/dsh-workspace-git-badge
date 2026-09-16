@@ -510,3 +510,27 @@ test("a dirty repository response carries the commit suggestion", async (t) => {
 	assert.equal(info.next.args, "push");
 	assert.equal(info.next.why, "no upstream configured");
 });
+
+test("the base response flags the repository's default branch", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("base");
+	const bare = join(repo.root, "origin-bare.git");
+	await runGit(repo.root, ["clone", "--bare", repo.root, bare]);
+	await runGit(repo.root, ["remote", "add", "origin", bare]);
+	await runGit(repo.root, ["push", "-u", "origin", "main"]);
+	// origin/HEAD is what the node half reads; a clone sets it, a bare push does not
+	await runGit(repo.root, ["remote", "set-head", "origin", "-a"]);
+	// the lookup is out of band, so the first read may answer without the flag —
+	// poll explicitly (this file's waitFor does not await its callback)
+	let seen;
+	for (let attempt = 0; attempt < 40 && seen === void 0; attempt += 1) {
+		const info = await gitStatus(repo.root);
+		if (info.defaultBranch === true) seen = info;
+		else await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+	assert.equal(seen?.defaultBranch, true, "main is the default branch");
+	// a feature branch is not
+	await runGit(repo.root, ["checkout", "-b", "feat/x"]);
+	const feature = await gitStatus(repo.root);
+	assert.equal(feature.defaultBranch, void 0);
+});

@@ -10,6 +10,19 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **No more "open a pull request" on `main`, and the hover card shows only the
+  server's verdict.** Two layers disagreed: the node half correctly returned
+  nothing to do for a clean, synced default branch, while the client's extras
+  still offered `/gh pr` — and the card promoted that extra into its `action:`
+  row, so a checkout with nothing to do displayed a suggestion. The node half now
+  resolves the repository's default branch (`refs/remotes/origin/HEAD`,
+  TTL-cached and refreshed out of band like the fetch, so the hot path pays
+  nothing) and flags it on the response; the `pr` extra is suppressed when the
+  branch IS that default; and the card's action row reads the server's `next`
+  directly, leaving the extras to the `/gh` picker where they belong.
+
 ### Added
 
 - **`/gh clean [<path>...]` appears in the `/gh` menu behind a risk gate.** The
