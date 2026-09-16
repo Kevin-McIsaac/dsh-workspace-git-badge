@@ -40,6 +40,14 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Changed
 
+- **The PR/CI token stops lagging behind the forge.** The forge read is
+  TTL-bounded and its refresh is request-driven, while an idle chip only asks
+  every 60s — so the old 90s `prTtlMs` silently suppressed every other poll, and
+  a pull request that appeared on GitHub with no local git event to announce it
+  could take ~2.5 minutes to show up. At 20s the TTL no longer outlives the
+  client's poll, so the first refresh after the forge changes picks it up and the
+  worst case falls to roughly the poll interval. Cost: up to one `gh pr view` per
+  open chip per minute, where it was one per ~2 minutes.
 - **The branch hover shows only the merge axis.** `upstream` and `sync` are gone
   — they stated the same divergence against the branch's own remote, in arrows,
   when `merge` already states it against the base branch in words. The `merge`

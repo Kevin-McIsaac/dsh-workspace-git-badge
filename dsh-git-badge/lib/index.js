@@ -132,8 +132,16 @@ const config = {
 	 * process — see the PR region.
 	 */
 	prStatus: "auto",
-	/** minimum interval between forge refreshes per repository */
-	prTtlMs: 90000,
+	/**
+	 * Minimum interval between forge refreshes per repository. It must stay BELOW
+	 * the client's idle poll (FALLBACK_POLL_MS, 60s in lib/client.js): the refresh
+	 * is request-driven, so a TTL longer than that poll silently suppresses every
+	 * OTHER request — and a pull request that appears on the forge with no local
+	 * git event to announce it then waits out TTL + poll before it shows. At 90s
+	 * that worst case was ~2.5 minutes; 20s bounds it at roughly one poll, for up
+	 * to one `gh pr view` per open chip per minute.
+	 */
+	prTtlMs: 20000,
 	/**
 	 * Forge call budget. Unlike git this is a network round trip to GitHub, so
 	 * it gets a more generous budget than the status sample — but it is bounded
