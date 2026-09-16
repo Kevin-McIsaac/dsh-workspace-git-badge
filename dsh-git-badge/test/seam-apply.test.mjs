@@ -218,9 +218,16 @@ test("the postinstall hook acts only on pristine installs and never fails one", 
 	// "best effort, never break an install" — pin it here rather than trusting
 	// the try/catch. See the guardrail comment at the top of postinstall.js.
 	const { spawnSync } = await import("node:child_process");
+	// Hermetic store, like every other block in this file: without SEAM_DATA_DIR
+	// the hook resolves dataDir() to the REAL ~/.dsh/git-badge-seam, so the run
+	// clobbered the machine's backup-client.js/backup-index.js and dropped a
+	// restart marker there. On a writable $HOME (CI) that passed silently; under
+	// the read-only $HOME of an agent sandbox the copy threw EROFS, the hook
+	// skipped, and this test failed for a reason that had nothing to do with it.
+	const dataDir = await makeTempDir(t, "dsh-seam-data-");
 	const runHook = (dir) =>
 		spawnSync(process.execPath, [join(SEAM_SHIPPED, "postinstall.js")], {
-			env: { ...process.env, DSH_INSTALL: dir },
+			env: { ...process.env, DSH_INSTALL: dir, SEAM_DATA_DIR: dataDir },
 			encoding: "utf8",
 		});
 	const mklib = async (name) => {
