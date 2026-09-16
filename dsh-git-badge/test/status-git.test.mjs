@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { changeListeners, config, gitStatus, nextStep, outerGitDir, runGit as pluginRunGit } from "../lib/index.js";
+import { changeListeners, config, gitStatus, nextActions, nextStep, outerGitDir, runGit as pluginRunGit } from "../lib/index.js";
 import { makeRepo, makeTempDir, runGit } from "../test-support/repo.mjs";
 
 /** Subscribe to change notifications; released with the test. */
@@ -533,4 +533,52 @@ test("the base response flags the repository's default branch", async (t) => {
 	await runGit(repo.root, ["checkout", "-b", "feat/x"]);
 	const feature = await gitStatus(repo.root);
 	assert.equal(feature.defaultBranch, void 0);
+});
+
+// ---------------------------------------------------------------------------
+// nextActions — the ONE action list both surfaces render. The client used to
+// re-derive these rules and the two copies drifted (a client-only extra once
+// became the card's action row; /gh pr was offered on the default branch), so
+// the shape asserted here IS the contract: one primary at most, standing
+// options never primary, merge available whenever the PR is mergeable.
+// ---------------------------------------------------------------------------
+
+const ACTION_BASE = { git: true, branch: "feat/x", upstream: "origin/feat/x", ahead: 0, behind: 0, dirty: false, stagedFiles: 0, unstagedFiles: 0, untrackedFiles: 0 };
+const MERGEABLE = { number: 46, state: "passing", mergeState: "CLEAN", review: "APPROVED", open: true };
+
+test("nextActions: merge is a standalone entry when the PR is mergeable but outranked", () => {
+	// pushing comes first (publish precedes merge in the default order), yet merge
+	// is still offered — the reason this list exists rather than a single verdict
+	const ahead = nextActions({ ...ACTION_BASE, ahead: 1, pr: MERGEABLE });
+	assert.equal(ahead.next.args, "push", "publish is the primary action");
+	assert.deepEqual(ahead.actions.map((a) => a.args), ["push", "merge 46", "pr view 46"]);
+	assert.equal(ahead.actions.filter((a) => a.primary === true).length, 1, "exactly one primary");
+	// behind: same story, pull first
+	const behind = nextActions({ ...ACTION_BASE, behind: 2, pr: MERGEABLE });
+	assert.deepEqual(behind.actions.map((a) => a.args), ["pull", "merge 46", "pr view 46"]);
+	// in sync, merge leads
+	const synced = nextActions({ ...ACTION_BASE, pr: MERGEABLE });
+	assert.equal(synced.next.args, "merge 46");
+	assert.equal(synced.actions[0].primary, true);
+});
+
+test("nextActions: standing options are never the primary suggestion", () => {
+	// a clean, synced feature branch has plenty to offer and nothing to suggest
+	const clean = nextActions({ ...ACTION_BASE });
+	assert.equal(clean.next, null, "no suggestion is also a suggestion");
+	assert.deepEqual(clean.actions.map((a) => a.args), ["pr"], "but opening a PR is available");
+	assert.equal(clean.actions[0].primary, void 0);
+	// untracked files add the flagged clean entry, last
+	const dirty = nextActions({ ...ACTION_BASE, dirty: true, untrackedFiles: 2 });
+	assert.deepEqual(dirty.actions.map((a) => a.args), ["commit", "clean"]);
+	const cleanEntry = dirty.actions[dirty.actions.length - 1];
+	assert.equal(cleanEntry.args, "clean");
+	assert.equal(cleanEntry.danger, true);
+	assert.equal(cleanEntry.primary, void 0);
+});
+
+test("nextActions: a default branch is offered nothing", () => {
+	const main = nextActions({ ...ACTION_BASE, branch: "main", upstream: "origin/main", defaultBranch: true });
+	assert.deepEqual(main.actions, []);
+	assert.equal(main.next, null);
 });

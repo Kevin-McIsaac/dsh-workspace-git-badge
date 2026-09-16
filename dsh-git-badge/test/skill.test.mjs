@@ -42,18 +42,47 @@ test("the hard rules tie the dry run to the clean verb", () => {
 // last, and carrying the host's risk gate
 // ---------------------------------------------------------------------------
 
-test("/gh clean is offered only when there are untracked files, and last", async () => {
-	const { createClient } = await import("../test-support/client.mjs");
-	const { ghSkillActions } = createClient().internals;
-	const clean = { git: true, branch: "main", upstream: "origin/main", ahead: 0, behind: 0, dirty: true, untrackedFiles: 2 };
-	const without = ghSkillActions({ ...clean, untrackedFiles: 0, dirty: false });
-	assert.equal(without.some((a) => a.args === "clean"), false, "nothing to clean, nothing offered");
-	const withFiles = ghSkillActions({ ...clean, stagedFiles: 1 });
-	assert.equal(withFiles[withFiles.length - 1].args, "clean", "offered last");
-	assert.equal(withFiles[0].args, "commit", "and never the suggestion the hover shows");
-	const entry = withFiles[withFiles.length - 1];
+test("the server offers clean only with untracked files, and last", async () => {
+	// the rules moved into the node half with the action list (the client renders
+	// it verbatim now), so this drives nextActions directly
+	const { nextActions } = await import("../lib/index.js");
+	const base = { git: true, branch: "feat/x", upstream: "origin/feat/x", ahead: 0, behind: 0, dirty: false, stagedFiles: 0, unstagedFiles: 0, untrackedFiles: 0 };
+	const without = nextActions({ ...base, untrackedFiles: 0 });
+	assert.equal(without.actions.some((a) => a.args === "clean"), false, "nothing to clean, nothing offered");
+	const withFiles = nextActions({ ...base, stagedFiles: 1, untrackedFiles: 2 });
+	assert.equal(withFiles.actions[withFiles.actions.length - 1].args, "clean", "offered last");
+	assert.equal(withFiles.actions[0].args, "commit", "and never the primary suggestion");
+	const entry = withFiles.actions[withFiles.actions.length - 1];
 	assert.equal(entry.danger, true, "flagged so the picker attaches the gate");
 	assert.match(entry.what, /asks first/);
+});
+
+test("the server never suggests a pull request FROM the default branch", async () => {
+	const { nextActions } = await import("../lib/index.js");
+	const cleanMain = {
+		git: true, branch: "main", upstream: "origin/main", ahead: 0, behind: 0,
+		dirty: false, stagedFiles: 0, unstagedFiles: 0, untrackedFiles: 0, defaultBranch: true
+	};
+	assert.deepEqual(nextActions(cleanMain).actions, [], "clean main has nothing to offer");
+	assert.equal(nextActions(cleanMain).next, null, "and no primary suggestion");
+	// the same state on a FEATURE branch is the case the entry exists for
+	const cleanFeature = { ...cleanMain, branch: "feat/x", upstream: "origin/feat/x", defaultBranch: false };
+	assert.equal(nextActions(cleanFeature).actions[0].args, "pr");
+});
+
+test("the client renders the server's list verbatim (and falls back to next)", async () => {
+	const { createClient } = await import("../test-support/client.mjs");
+	const { ghSkillActions } = createClient().internals;
+	const serverList = [
+		{ args: "push", why: "1 ahead", what: "push", command: "git push", primary: true },
+		{ args: "merge 46", why: "ready", what: "merge (squash)" },
+		{ args: "clean", why: "2 untracked files", what: "remove untracked files", danger: true }
+	];
+	assert.deepEqual(ghSkillActions({ git: true, actions: serverList }), serverList, "verbatim, gate flags included");
+	// a payload from an older node half still renders its single suggestion
+	const fallback = ghSkillActions({ git: true, next: { args: "pull", why: "2 behind", what: "update" } });
+	assert.deepEqual(fallback.map((a) => a.args), ["pull"]);
+	assert.deepEqual(ghSkillActions({ git: true }), [], "nothing to render");
 });
 
 test("the clean risk gate carries every field the host's confirmation renders", async () => {
@@ -72,15 +101,3 @@ test("the clean risk gate carries every field the host's confirmation renders", 
 // the default branch: no pull request is ever suggested FROM main
 // ---------------------------------------------------------------------------
 
-test("no pr entry when the branch IS the repository's default", async () => {
-	const { createClient } = await import("../test-support/client.mjs");
-	const { ghSkillActions } = createClient().internals;
-	const cleanMain = {
-		git: true, branch: "main", upstream: "origin/main", ahead: 0, behind: 0,
-		dirty: false, stagedFiles: 0, unstagedFiles: 0, untrackedFiles: 0, defaultBranch: true
-	};
-	assert.deepEqual(ghSkillActions(cleanMain), [], "clean main has nothing to suggest");
-	// the same state on a FEATURE branch is the case the entry exists for
-	const cleanFeature = { ...cleanMain, branch: "feat/x", upstream: "origin/feat/x", defaultBranch: false };
-	assert.equal(ghSkillActions(cleanFeature)[0].args, "pr");
-});

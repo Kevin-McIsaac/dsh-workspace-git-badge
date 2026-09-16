@@ -150,6 +150,23 @@ test("detail=1 is honoured at the route level", async (t) => {
 	assert.equal(baseBody.untrackedNames, void 0);
 });
 
+test("the action list rides only the pr=1 payload", async (t) => {
+	const { routes, repo } = await setup(t);
+	// one untracked file: something the list can offer, so its presence is
+	// distinguishable from the "nothing to say" case where it is omitted
+	await repo.write("untracked.txt", "x\n");
+	// a sidebar row's request: the ranked suggestion rides every response (pure
+	// derivation), but the picker's LIST is picker-only — that is the lean split
+	const row = JSON.parse((await get(routes, `?workspace=${WORKSPACE_ID}`)).text());
+	assert.equal(row.actions, void 0, "rows never pay for the picker's list");
+	assert.equal(typeof row.next?.args, "string", "the suggestion is available to every surface");
+	// the chip's request serves the list, and its verdict matches the row's
+	const chip = JSON.parse((await get(routes, `?workspace=${WORKSPACE_ID}&pr=1`)).text());
+	assert.ok(Array.isArray(chip.actions), "pr=1 carries the list");
+	assert.equal(chip.actions.at(-1).args, "clean", "including the flagged, untracked-only entry");
+	assert.deepEqual(chip.next, row.next, "one verdict, whichever surface asks");
+});
+
 test("a workspace id wins over a session id when both are supplied", async (t) => {
 	const { routes } = await setup(t);
 	const res = await get(routes, `?workspace=${WORKSPACE_ID}&session=sess-unknown`);
