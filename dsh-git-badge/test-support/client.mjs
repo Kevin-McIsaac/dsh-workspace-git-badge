@@ -127,13 +127,21 @@ export function createClient({ tooltip = false, hover = false } = {}) {
 	);
 
 	const registered = {};
-	const info = console.info;
-	// apply() reports which surfaces and capabilities it found; capture rather than
-	// print, so the boot diagnostics are assertable instead of test noise
+	const realInfo = console.info;
+	// Diagnostics are captured rather than printed, so they are assertable instead of
+	// test noise: apply()'s boot lines, and the FIRST row render's idle-gate line —
+	// that one can only be known once the shell hands the component its props.
 	const logs = [];
-	console.info = (...args) => { logs.push(args.map(String).join(" ")); };
+	const capture = (fn) => {
+		console.info = (...args) => { logs.push(args.map(String).join(" ")); };
+		try {
+			return fn();
+		} finally {
+			console.info = realInfo;
+		}
+	};
 	let client;
-	try {
+	capture(() => {
 		client = captured.factory(fakeRequire);
 		client.apply({
 			slots: {
@@ -145,9 +153,7 @@ export function createClient({ tooltip = false, hover = false } = {}) {
 				spec: () => void 0
 			}
 		});
-	} finally {
-		console.info = info;
-	}
+	});
 
 	// `git: true` is the node half's "this is a repository" marker; a payload that
 	// names `git` itself (e.g. { git: false }) wins, so non-repo cases are testable
@@ -166,25 +172,25 @@ export function createClient({ tooltip = false, hover = false } = {}) {
 		internals: client.__internals,
 		/** The boot diagnostics apply() emitted, one string per console.info call. */
 		logs,
-		/** Render the sidebar SESSION-row badge (mark + PR token). */
-		row(data) {
+		/** Render the sidebar SESSION-row badge (mark + PR token); `props` adds kit. */
+		row(data, props) {
 			feed(data);
-			return expand(registered["sidebar.workspaces.sessionRow"]({ sessionId: "s-1", workspaceId: "ws-1", label: "Session 1" }));
+			return capture(() => expand(registered["sidebar.workspaces.sessionRow"]({ sessionId: "s-1", workspaceId: "ws-1", label: "Session 1", ...props })));
 		},
 		/** Render the session row's hover-card detail line (the badge's provenance). */
-		rowDetail(data) {
+		rowDetail(data, props) {
 			feed(data);
-			return expand(registered["sidebar.workspaces.sessionRow.detail"]({ sessionId: "s-1", workspaceId: "ws-1", label: "Session 1" }));
+			return capture(() => expand(registered["sidebar.workspaces.sessionRow.detail"]({ sessionId: "s-1", workspaceId: "ws-1", label: "Session 1", ...props })));
 		},
 		/** Render the composer chip. */
 		chip(data, detail) {
 			feed(data, detail);
-			return expand(registered["conversation.input.left"]({ sessionId: "s-1" }));
+			return capture(() => expand(registered["conversation.input.left"]({ sessionId: "s-1" })));
 		},
 		/** The chip BEFORE expansion, so a test can see the Tooltip wrapper itself. */
 		rawChip(data, detail) {
 			feed(data, detail);
-			return registered["conversation.input.left"]({ sessionId: "s-1" });
+			return capture(() => registered["conversation.input.left"]({ sessionId: "s-1" }));
 		}
 	};
 }

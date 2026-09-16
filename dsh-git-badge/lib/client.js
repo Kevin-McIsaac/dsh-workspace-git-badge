@@ -552,9 +552,57 @@ window.__ModuleLoader__.load({
 		 */
 		const ACTION_STYLE = { flex: "none", marginLeft: "auto", marginRight: "8px", fontWeight: 500 };
 
-		/** The action badge: floated, weighted, and coloured by severity. */
-		function SessionGitBadge({ sessionId }) {
+		/**
+		 * The row's own run state, from the shell's standard kit.
+		 *
+		 * The renderer that assembles slots hands EVERY entry the sessions store as
+		 * a selector hook (`useSessions`) — the same kit that supplies
+		 * `useWorkspaces` — which is how a row can tell an idle session from one
+		 * mid-turn without the seam having to carry it. A shell that does not seed
+		 * that kit leaves the prop undefined: then we cannot know, and the badge
+		 * behaves exactly as it did before rather than guessing "idle".
+		 *
+		 * One helper and one call site, so the hook order is identical on every path
+		 * (the fallback is a plain function, never a hook).
+		 */
+		function useSessionRunning(useSessions, sessionId) {
+			const select = typeof useSessions === "function" ? useSessions : () => void 0;
+			return select((state) => state?.byId?.[sessionId]?.running) === true;
+		}
+
+		/**
+		 * Report the idle gate ONCE, the way the boot diagnostics report the seam and
+		 * the Tooltip primitive. Whether the shell actually handed a slot the
+		 * sessions store is invisible from anywhere else, and a gate that silently
+		 * never fires is indistinguishable from a gate that never needed to.
+		 */
+		let idleGateReported = false;
+		function reportIdleGate(present) {
+			if (idleGateReported) return;
+			idleGateReported = true;
+			console.info(
+				"[dsh-git-badge] session-row idle gate = " +
+					(present
+						? "on (the standard kit supplies useSessions)."
+						: "off (no useSessions prop) — the token cannot tell a running turn, so it shows as before.")
+			);
+		}
+
+		/**
+		 * The action badge: floated, weighted, and coloured by severity — and shown
+		 * only when the session is IDLE. A turn in flight is precisely when a git
+		 * suggestion is noise: the checkout is still moving and the agent has not
+		 * finished, so the action describes a state that is about to change. Nothing
+		 * about the action itself changes; the gate is the whole feature.
+		 *
+		 * The filter is on RENDER, not on the fetch: hiding the row must not take the
+		 * hover card's detail line down with it — both read the same cached status.
+		 */
+		function SessionGitBadge({ sessionId, useSessions }) {
 			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId }, { pr: true });
+			const running = useSessionRunning(useSessions, sessionId);
+			reportIdleGate(typeof useSessions === "function");
+			if (running) return null;
 			if (sessionId === void 0 || info === void 0 || info.git !== true) return null;
 			const action = actionToken(info);
 			if (action === "") return null;
