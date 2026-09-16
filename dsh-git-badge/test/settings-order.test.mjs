@@ -12,7 +12,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { apply, config, nextStep } from "../lib/index.js";
+import { apply, config, nextActions } from "../lib/index.js";
 import { makeRepo } from "../test-support/repo.mjs";
 
 /** A schemastery-shaped stub: enough for the namespace schema to resolve. */
@@ -103,7 +103,7 @@ test("a pre-settings JSON file seeds the namespace base", async () => {
 	}
 });
 
-test("a live scope order is what nextStep ranks by", async () => {
+test("a live scope order is what nextActions ranks by", async () => {
 	const home = mkdtempSync(join(tmpdir(), "dsh-git-badge-live-"));
 	const previousHome = process.env.DSH_HOME;
 	const previousLoader = config.settingsSchemaLoader;
@@ -114,7 +114,7 @@ test("a live scope order is what nextStep ranks by", async () => {
 		const { ctx } = fakeCtx({ order: ["commit", "sync"] });
 		apply(ctx);
 		await new Promise((resolve) => setTimeout(resolve, 0));
-		const next = nextStep({ git: true, upstream: "o/m", behind: 2, stagedFiles: 1 });
+		const next = nextActions({ git: true, upstream: "o/m", behind: 2, stagedFiles: 1 }).next;
 		assert.equal(next.args, "commit", "the namespace order wins once registered");
 	} finally {
 		config.settingsSchemaLoader = previousLoader;

@@ -902,15 +902,6 @@ function nextActions(info) {
 }
 
 /**
- * The single ranked suggestion, or null — the card's action row and the legacy
- * shape. It is the primary entry of {@link nextActions}, never a standing
- * option.
- */
-function nextStep(info) {
-	return nextActions(info).next;
-}
-
-/**
  * Git status for dir; { git: false } when dir is not a repository,
  * GIT_DEGRADED on transient git failure.
  *
@@ -1765,7 +1756,6 @@ export {
 	config,
 	OPERATION_MARKERS,
 	operationMarker,
-	nextStep,
 	nextActions,
 	seedOrder,
 	outerGitDir,

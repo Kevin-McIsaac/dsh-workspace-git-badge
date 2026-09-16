@@ -70,7 +70,7 @@ test("the server never suggests a pull request FROM the default branch", async (
 	assert.equal(nextActions(cleanFeature).actions[0].args, "pr");
 });
 
-test("the client renders the server's list verbatim (and falls back to next)", async () => {
+test("the client renders the server's list verbatim", async () => {
 	const { createClient } = await import("../test-support/client.mjs");
 	const { ghSkillActions } = createClient().internals;
 	const serverList = [
@@ -79,9 +79,6 @@ test("the client renders the server's list verbatim (and falls back to next)", a
 		{ args: "clean", why: "2 untracked files", what: "remove untracked files", danger: true }
 	];
 	assert.deepEqual(ghSkillActions({ git: true, actions: serverList }), serverList, "verbatim, gate flags included");
-	// a payload from an older node half still renders its single suggestion
-	const fallback = ghSkillActions({ git: true, next: { args: "pull", why: "2 behind", what: "update" } });
-	assert.deepEqual(fallback.map((a) => a.args), ["pull"]);
 	assert.deepEqual(ghSkillActions({ git: true }), [], "nothing to render");
 });
 

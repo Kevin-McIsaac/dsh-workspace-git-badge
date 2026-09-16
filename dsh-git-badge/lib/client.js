@@ -240,13 +240,10 @@ window.__ModuleLoader__.load({
 		 * `/gh pr` was offered on the default branch. The node half owns the
 		 * rules and the ranking now; the client adds presentation only — the risk
 		 * gate for `clean`, and the labels.
-		 *
-		 * Falls back to the single `next` for a payload from an older node half.
 		 */
 		function ghSkillActions(info) {
 			if (info === void 0 || info === null || info.git !== true) return [];
-			if (Array.isArray(info.actions)) return info.actions;
-			return info.next === void 0 || info.next === null ? [] : [info.next];
+			return Array.isArray(info.actions) ? info.actions : [];
 		}
 
 		/**

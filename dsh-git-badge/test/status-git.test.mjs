@@ -6,7 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { changeListeners, config, gitStatus, nextActions, nextStep, outerGitDir, runGit as pluginRunGit, seedOrder } from "../lib/index.js";
+import { changeListeners, config, gitStatus, nextActions, outerGitDir, runGit as pluginRunGit, seedOrder } from "../lib/index.js";
 import { makeRepo, makeTempDir, runGit } from "../test-support/repo.mjs";
 
 /** Subscribe to change notifications; released with the test. */
@@ -253,24 +253,24 @@ test("a submodule is NOT a worktree, though its git dir is out-of-tree too", asy
 });
 
 // ---------------------------------------------------------------------------
-// nextStep — the hover card's action row and the (+) picker. Rules carry a
+// nextActions — the hover card's action row and the (+) picker. Rules carry a
 // category and are ranked by the configured order (nextOrder), so the tests
 // assert the default ranking, the new diverged/merge-ready rules, and the
 // override file — plus two end-to-end cases against real repositories.
 // ---------------------------------------------------------------------------
 
-const rule = (info) => nextStep(info);
+const rule = (info) => nextActions(info).next;
 
-test("nextStep: clean, synced, no PR → null (no suggestion is a suggestion)", () => {
+test("nextActions: clean, synced, no PR → null (no suggestion is a suggestion)", () => {
 	assert.equal(rule({ git: true, branch: "main", upstream: "origin/main", ahead: 0, behind: 0 }), null);
 });
 
-test("nextStep: not-a-repo or garbage input → null", () => {
+test("nextActions: not-a-repo or garbage input → null", () => {
 	assert.equal(rule(void 0), null);
 	assert.equal(rule({ git: false }), null);
 });
 
-test("nextStep: a paused operation wins and names its resume command", () => {
+test("nextActions: a paused operation wins and names its resume command", () => {
 	for (const [operation, command] of [
 		["merge", "git merge --continue"],
 		["rebase", "git rebase --continue"],
@@ -286,19 +286,19 @@ test("nextStep: a paused operation wins and names its resume command", () => {
 	}
 });
 
-test("nextStep: a paused bisect gets a why but no command (the call is the user's)", () => {
+test("nextActions: a paused bisect gets a why but no command (the call is the user's)", () => {
 	const next = rule({ git: true, operation: "bisect" });
 	assert.equal(next.command, void 0);
 	assert.match(next.why, /bisect/);
 });
 
-test("nextStep: unmerged without a marker falls back to git status", () => {
+test("nextActions: unmerged without a marker falls back to git status", () => {
 	const next = rule({ git: true, unmergedFiles: 1 });
 	assert.equal(next.args, "next");
 	assert.equal(next.why, "1 unmerged file to resolve");
 });
 
-test("nextStep: diverged (ahead AND behind) → sync, not a plain pull", () => {
+test("nextActions: diverged (ahead AND behind) → sync, not a plain pull", () => {
 	const next = rule({ git: true, upstream: "o/m", ahead: 2, behind: 3 });
 	assert.equal(next.args, "sync");
 	assert.equal(next.command, void 0, "rebase+force-push is the agent's confirmed work, not a copied command");
@@ -306,7 +306,7 @@ test("nextStep: diverged (ahead AND behind) → sync, not a plain pull", () => {
 	assert.match(next.what, /asks before any force/);
 });
 
-test("nextStep: behind alone → pull", () => {
+test("nextActions: behind alone → pull", () => {
 	const next = rule({ git: true, upstream: "o/m", behind: 3, stagedFiles: 1 });
 	assert.equal(next.args, "pull");
 	assert.equal(next.command, "git pull --ff-only");
@@ -314,7 +314,7 @@ test("nextStep: behind alone → pull", () => {
 	assert.match(next.what, /update this branch/);
 });
 
-test("nextStep: ahead → push", () => {
+test("nextActions: ahead → push", () => {
 	const next = rule({ git: true, upstream: "o/m", ahead: 2 });
 	assert.deepEqual(
 		{ args: next.args, command: next.command, why: next.why },
@@ -322,14 +322,14 @@ test("nextStep: ahead → push", () => {
 	);
 });
 
-test("nextStep: no upstream on a dirty branch → publish it", () => {
+test("nextActions: no upstream on a dirty branch → publish it", () => {
 	const next = rule({ git: true, branch: "feat/x", stagedFiles: 1 });
 	assert.equal(next.args, "push");
 	assert.equal(next.command, "git push -u origin feat/x");
 	assert.equal(next.why, "no upstream configured");
 });
 
-test("nextStep: dirty work — staged, unstaged, untracked choose the command", () => {
+test("nextActions: dirty work — staged, unstaged, untracked choose the command", () => {
 	// an upstream is set in every case: a dirty branch with NO upstream is the
 	// publish-it-first rule's business, asserted separately above
 	assert.equal(rule({ git: true, upstream: "o/m", stagedFiles: 2 }).command, "git commit");
@@ -342,7 +342,7 @@ test("nextStep: dirty work — staged, unstaged, untracked choose the command", 
 	assert.match(rule({ git: true, upstream: "o/m", stagedFiles: 2 }).what, /commit the staged/);
 });
 
-test("nextStep: merge-ready PR (GitHub's own CLEAN verdict) → merge <n>", () => {
+test("nextActions: merge-ready PR (GitHub's own CLEAN verdict) → merge <n>", () => {
 	const next = rule({ git: true, upstream: "o/m", pr: { number: 31, state: "passing", mergeState: "CLEAN" } });
 	assert.equal(next.args, "merge 31");
 	assert.equal(next.command, void 0, "merging is the agent's confirmed work");
@@ -355,7 +355,7 @@ test("nextStep: merge-ready PR (GitHub's own CLEAN verdict) → merge <n>", () =
 	assert.equal(rule({ git: true, upstream: "o/m", pr: { number: 31, state: "passing", mergeState: "BLOCKED" } }), null);
 });
 
-test("nextStep: failing PR checks → watch them", () => {
+test("nextActions: failing PR checks → watch them", () => {
 	const next = rule({ git: true, pr: { number: 142, state: "failing" } });
 	assert.equal(next.args, "checks 142");
 	assert.equal(next.command, "gh pr checks 142 --watch");
@@ -364,7 +364,7 @@ test("nextStep: failing PR checks → watch them", () => {
 	assert.equal(rule({ git: true }), null);
 });
 
-test("nextStep: the ranking order can be overridden by the config file", async (t) => {
+test("nextActions: the ranking order can be overridden by the config file", async (t) => {
 	const home = await makeTempDir(t, "dsh-git-badge-next-");
 	process.env.DSH_HOME = home;
 	t.after(() => { delete process.env.DSH_HOME; seedOrder(); }); // leave the default order behind
