@@ -1533,17 +1533,10 @@ async function resolveWorkspace(ctx, params) {
  * directory that is not a worktree of this repository.
  */
 function sessionCheckouts() {
-	if (typeof config.sessionCheckoutsFile === "string") {
-		try {
-			const raw = JSON.parse(readFileSync(config.sessionCheckoutsFile, "utf8"));
-			return raw !== null && typeof raw === "object" && typeof raw.sessions === "object" && raw.sessions !== null
-				? raw.sessions
-				: {};
-		} catch {
-			return {};
-		}
-	}
-	return readSessionCheckouts();
+	// The store owns the file's shape; the test seam only redirects the path.
+	return config.sessionCheckoutsFile === null
+		? readSessionCheckouts()
+		: readSessionCheckouts(config.sessionCheckoutsFile);
 }
 
 async function registeredCheckout(target, sessionId) {
