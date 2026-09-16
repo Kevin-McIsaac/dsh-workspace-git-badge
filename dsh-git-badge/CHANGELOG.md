@@ -10,6 +10,25 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Added
+
+- **`/gh clean [<path>...]` appears in the `/gh` menu behind a risk gate.** The
+  menu is built from status, not from this skill's prose, so the verb is offered
+  there whenever untracked files exist — always last, never as the badge's
+  suggested action, and carrying the host's own `RiskConfirmation`: Confirm
+  stays disabled until "I understand untracked files cannot be recovered" is
+  ticked. That gate names the risk; the agent then names the files
+  (`git clean -n`, quoted back) and asks again before `git clean -f`.
+- **A `/gh clean [<path>...]` verb, confirm-first by construction.** Removing
+  untracked files is the one operation with no reflog and no stash entry, so the
+  verb's first step is always `git clean -n -- <paths>` with the output quoted
+  back verbatim (the user approves the list, not the idea), then an explicit yes,
+  then `git clean -f -- <paths>` on named paths only. `-x`, `-d` and bare
+  `git clean -f` are forbidden — ignored files are often credentials and `-d`
+  turns one path into a tree. It stays out of the badge's ranked suggestions: a
+  destructive action the agent cannot infer intent for is never suggested, only
+  available on request.
+
 ### Changed
 
 - **The upstream sync numbers ride the branch's hover and link.** `↑a ↓b` were

@@ -270,7 +270,39 @@ window.__ModuleLoader__.load({
 			} else if (ahead === 0 && behind === 0 && info.upstream !== void 0 && staged + unstaged + untracked === 0) {
 				add("pr", "branch is pushed and has no pull request", "open a pull request for this branch");
 			}
-			return subs.slice(0, 6);
+			// /gh clean is offered LAST and only when there is something to remove:
+			// it can never become the hover's action row (that reads the first
+			// entry), because a destructive verb whose intent cannot be inferred
+			// from git status is available on request, never suggested.
+			const listed = subs.slice(0, 5);
+			if (untracked > 0) {
+				listed.push({
+					args: "clean",
+					why: untracked + " untracked file" + (untracked === 1 ? "" : "s"),
+					what: "remove untracked files — lists them and asks first",
+					danger: true
+				});
+			}
+			return listed;
+		}
+
+		/**
+		 * The risk gate the menu shows for `/gh clean`, in the host's own
+		 * confirmation shape (RiskConfirmation: title, description, an acknowledge
+		 * checkbox, two button labels). Confirm stays disabled until the box is
+		 * ticked — that is the "are you sure?", before the invocation is even sent.
+		 * The agent then re-establishes the exact list with `git clean -n` and asks
+		 * again: two gates, because this one names the risk and that one names the
+		 * files.
+		 */
+		function cleanGate() {
+			return {
+				title: "Remove untracked files?",
+				description: "Untracked files have no reflog and no stash entry — once removed they cannot be recovered. The agent will show the exact list (`git clean -n`) and ask again before removing anything.",
+				acknowledgeLabel: "I understand untracked files cannot be recovered",
+				cancelLabel: "Cancel",
+				confirmLabel: "Continue"
+			};
 		}
 
 		/**
@@ -1445,7 +1477,12 @@ window.__ModuleLoader__.load({
 										info = await fetch("/api/git-badge?" + query).then((r) => r.json());
 									}
 									const actions = ghSkillActions(info);
-									return actions.map((action) => ({ label: "/gh " + action.args, detail: action.why, args: action.args }));
+									return actions.map((action) => ({
+										label: "/gh " + action.args,
+										detail: action.why,
+										args: action.args,
+										...action.danger === true ? { confirmation: cleanGate() } : {}
+									}));
 								} catch (error) {
 									console.error("[dsh-git-badge] /gh options failed:", error);
 									return [];
@@ -1688,7 +1725,7 @@ window.__ModuleLoader__.load({
 		// Additive; the host reads apply/inject and ignores the rest. The suite
 		// drives these to assert the REQUEST contract — which surface asks for the
 		// expensive extras — without a browser, a fetch or a network.
-		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, actionToken, ghSkillActions, moveCategory };
+		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, actionToken, ghSkillActions, cleanGate, moveCategory };
 		return module.exports;
 	}
 });

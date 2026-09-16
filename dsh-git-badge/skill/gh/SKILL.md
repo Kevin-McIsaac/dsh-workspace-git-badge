@@ -87,6 +87,27 @@ unstaged / untracked / unmerged), plus any in-progress operation marker
   A session's cwd is fixed at creation, so this registration is the ONLY signal
   the badge has.
 
+- **`/gh clean [<path>...]`** — remove untracked files, and only with the user's
+  explicit yes for the exact list. It appears in the `/gh` menu whenever
+  untracked files exist, always last, behind the host's risk gate: picking it
+  opens a confirmation whose box must be ticked before the invocation is even
+  sent. That gate names the RISK, not the files — so the explicit paths and the
+  second yes below are still required. This is the one verb whose first step is a
+  DRY RUN, always:
+
+  1. `git clean -n -- <paths>` and quote its output back verbatim — the user is
+     approving that list, not the idea of cleaning;
+  2. ask; if the answer is anything but an unambiguous yes, stop and change
+     nothing;
+  3. `git clean -f -- <paths>` — named paths only.
+
+  Never `-x` (ignored files are often credentials), never `-d` (whole
+  directories), never a bare `git clean -f`, and never a path the user did not
+  name or approve. With no argument, list what `git clean -n` reports and ask
+  which paths to remove rather than picking for them. Untracked files have no
+  reflog and no stash entry: what this removes cannot be recovered, so a
+  mistaken cleanup is unrecoverable in a way a mistaken commit is not.
+
 - **`/gh order`** — reconfigure which action class the badge ranks first. The
   order lives in the `git-badge` settings namespace, edited in the UI at
   **Settings → Plugins → Git Badge** (an ordered list with up/down controls).
@@ -108,7 +129,8 @@ the `gh-pr` skill; hand off rather than improvise a lifecycle.
 ## Hard rules
 
 - Never `git reset --hard`, `git clean`, `git checkout -- .`, `git push
-  --force` (plain), or any history rewrite without an explicit user yes.
+  --force` (plain), or any history rewrite without an explicit user yes —
+  `/gh clean`'s dry run and verbatim quote come before any `git clean -f`.
 - `GIT_TERMINAL_PROMPT=0` on network commands so a missing credential fails
   fast instead of hanging.
 - One operation per invocation; report the outcome, then stop.
