@@ -1109,12 +1109,19 @@ window.__ModuleLoader__.load({
 			// The PR token, with its own hover: the commits IN THIS PR (see
 			// PrCommitsList). Built here so the link/plain cases and the tooltip
 			// compose once instead of nesting a third conditional in the children.
+			// The token is its OWN detail gate: resting on it (or focusing it)
+			// enables the same `detail=1` fetch the mark and the branch do. Without
+			// that, a pointer going straight to the token had rested on nothing that
+			// fetches, so `prCommits` was never requested and this hover could not
+			// open at all — the data it renders is detail-only.
 			const prTokenHover = (() => {
 				const token = prUrl === void 0
 					? react_jsx_runtime.jsx("span", {
 						// the glyph is not the only channel: the token says what the
 						// CI state IS, for anyone who cannot see it
 						"aria-label": prTokenLabel(info),
+						onPointerEnter: () => setHovered(true),
+						style: { cursor: "default" },
 						children: prToken
 					})
 					: react_jsx_runtime.jsx("a", {
@@ -1137,9 +1144,9 @@ window.__ModuleLoader__.load({
 						},
 						// focus joins hover — the token is keyboard-reachable now, and a
 						// keyboard user needs the same "this is a link" signal
-						onPointerEnter: () => setLinkHover(true),
+						onPointerEnter: () => { setHovered(true); setLinkHover(true); },
 						onPointerLeave: () => setLinkHover(false),
-						onFocus: () => setLinkHover(true),
+						onFocus: () => { setHovered(true); setLinkHover(true); },
 						onBlur: () => setLinkHover(false),
 						children: prToken
 					});

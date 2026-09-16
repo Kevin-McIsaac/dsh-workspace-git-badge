@@ -79,6 +79,12 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Fixed
 
+- **The PR token's hover is reachable by hovering the token itself.** The commits
+  it lists are detail-only, and only the status mark and the branch name enabled
+  the `detail=1` fetch — so a pointer that went straight to `PR#47 ✓` had rested
+  on nothing that fetches, and its hover could not open until the mark had been
+  hovered first. The token is now its own detail gate, in both its linked and
+  plain forms.
 - **No more "open a pull request" on `main`, and the hover card shows only the
   server's verdict.** Two layers disagreed: the node half correctly returned
   nothing to do for a clean, synced default branch, while the client's extras

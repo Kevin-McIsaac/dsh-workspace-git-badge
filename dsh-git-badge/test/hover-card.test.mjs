@@ -99,6 +99,23 @@ test("the status mark wires a pointer-enter, which is what unlocks the card's fi
 	assert.ok(markEl !== void 0, "without this the lazy fetch could never start");
 });
 
+test("the PR token wires its own pointer-enter, so its hover can fetch its commits", () => {
+	// The token's hover renders `prCommits`, which is detail-only. The mark's
+	// pointer-enter is not enough: a pointer that goes STRAIGHT to the token has
+	// rested on nothing that fetches, so the detail request was never made and the
+	// hover could not open at all. Both forms must gate the fetch themselves — the
+	// link (a GitHub PR URL) and the plain span (no gh, or no GitHub remote).
+	const client = createClient({ tooltip: true });
+	const tokenFor = (pr) => elements(expand(client.rawChip({ ...BASE, pr })))
+		.find((el) => typeof el.props?.["aria-label"] === "string" && el.props["aria-label"].startsWith("pull request 47"));
+	const plain = tokenFor({ number: 47, state: "passing", open: true });
+	assert.ok(plain !== void 0, "the plain token must be in the tree");
+	assert.equal(typeof plain.props.onPointerEnter, "function", "the plain token must enable the detail fetch itself");
+	const link = tokenFor({ number: 47, state: "passing", open: true, url: "https://github.com/o/r/pull/47" });
+	assert.ok(link !== void 0, "the linked token must be in the tree");
+	assert.equal(typeof link.props.onPointerEnter, "function", "the linked token must enable the detail fetch itself");
+});
+
 test("the client tags an id safely, so a crafted id cannot forge a second parameter", () => {
 	const { targetQuery } = createClient().internals;
 	const query = targetQuery({ kind: "session", id: "a&detail=1&pr=1" }, {});
