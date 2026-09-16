@@ -1007,6 +1007,18 @@ window.__ModuleLoader__.load({
 
 		//#region composer chip (upstream additive surface: conversation.input.left)
 		/**
+		 * The ONE copy of the hover-card degrade rule: wrap a node in the shell's
+		 * Tooltip when the primitive exists AND `wrap` justifies the card, and
+		 * render the node bare otherwise — a missing card is a smaller failure
+		 * than a missing badge. `label` is the thunk the Tooltip calls only when
+		 * it opens, so the card's element tree stays out of closed tooltips.
+		 */
+		function withTooltip(node, label, maxWidth, wrap = true) {
+			if (Tooltip === void 0 || wrap !== true) return node;
+			return react_jsx_runtime.jsx(Tooltip, { side: "top", maxWidth, label, children: node });
+		}
+
+		/**
 		 * Chip line in the input row: git state of the workspace the CURRENT
 		 * conversation is attached to. It targets the session id and lets the node
 		 * half resolve the workspace, so this surface needs no `workspaces`
@@ -1066,23 +1078,17 @@ window.__ModuleLoader__.load({
 			// so the extras are paid for exactly when the card that can render them
 			// is about to open. Defined inside the component: it closes over the
 			// hovered state that gates the detail fetch.
-			const hoverableMark = (() => {
-				const mark = react_jsx_runtime.jsx("span", {
+			const hoverableMark = withTooltip(
+				react_jsx_runtime.jsx("span", {
 					onPointerEnter: () => setHovered(true),
 					style: { display: "inline-flex", alignItems: "center", flex: "none", cursor: "default" },
 					children: react_jsx_runtime.jsx(StatusMark, { info })
-				});
-				if (Tooltip === void 0) return mark;
-				return react_jsx_runtime.jsx(Tooltip, {
-					side: "top",
-					// matches the body cap: the tooltip must never be the clamp
-				maxWidth: 600,
-					// a function label keeps the card's element tree out of every render
-					// until the tooltip actually opens
-					label: () => react_jsx_runtime.jsx(HoverCard, { info, detail }),
-					children: mark
-				});
-			})();
+				}),
+				// a function label keeps the card's element tree out of every render
+				// until the tooltip actually opens
+				() => react_jsx_runtime.jsx(HoverCard, { info, detail }),
+				600 // matches the body cap: the tooltip must never be the clamp
+			);
 			// the mark is an element now rather than a leading glyph in the string, so
 			// the SAME StatusMark the sidebar row draws carries the status here too;
 			// the container's 4px gap supplies the space the emoji's own did
@@ -1125,17 +1131,9 @@ window.__ModuleLoader__.load({
 						style: { cursor: "default" },
 						children: label
 					});
-				if (Tooltip === void 0 || detail === void 0 || detail === null) {
-					// mid-fetch the branch shows plain; the lineage tooltip is
-					// unconditional once the payload lands
-					return branch;
-				}
-				return react_jsx_runtime.jsx(Tooltip, {
-					side: "top",
-					maxWidth: 480,
-					label: () => react_jsx_runtime.jsx(BranchLineage, { info: detail }),
-					children: branch
-				});
+				// mid-fetch the branch shows plain; the lineage tooltip is
+				// unconditional once the payload lands
+				return withTooltip(branch, () => react_jsx_runtime.jsx(BranchLineage, { info: detail }), 480, detail !== void 0 && detail !== null);
 			})();
 			const text = formatOperationToken(info);
 			// The ✎n count is its OWN hover surface: a names-only tooltip (see
@@ -1152,15 +1150,7 @@ window.__ModuleLoader__.load({
 				});
 				const hasNames = (Array.isArray(detail?.untrackedNames) && detail.untrackedNames.length > 0)
 					|| (Array.isArray(detail?.unstagedNames) && detail.unstagedNames.length > 0);
-				if (Tooltip === void 0 || !hasNames) {
-					return count;
-				}
-				return react_jsx_runtime.jsx(Tooltip, {
-					side: "top",
-					maxWidth: 480,
-					label: () => react_jsx_runtime.jsx(CountNames, { info: detail }),
-					children: count
-				});
+				return withTooltip(count, () => react_jsx_runtime.jsx(CountNames, { info: detail }), 480, hasNames);
 			})();
 			const prToken = formatPrToken(info);
 			const prUrl = prLinkUrl(info);
@@ -1208,16 +1198,9 @@ window.__ModuleLoader__.load({
 						onBlur: () => setLinkHover(false),
 						children: prToken
 					});
-				if (Tooltip === void 0 || detail === void 0 || detail === null
-					|| !Array.isArray(detail.prCommits) || detail.prCommits.length === 0) {
-					return token;
-				}
-				return react_jsx_runtime.jsx(Tooltip, {
-					side: "top",
-					maxWidth: 480,
-					label: () => react_jsx_runtime.jsx(PrCommitsList, { info: detail }),
-					children: token
-				});
+				const hasCommits = detail !== void 0 && detail !== null
+					&& Array.isArray(detail.prCommits) && detail.prCommits.length > 0;
+				return withTooltip(token, () => react_jsx_runtime.jsx(PrCommitsList, { info: detail }), 480, hasCommits);
 			})();
 			const chip = react_jsx_runtime.jsxs("span", {
 				style: {
