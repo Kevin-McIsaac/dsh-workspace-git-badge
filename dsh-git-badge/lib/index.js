@@ -44,7 +44,7 @@
  *       on the first refresh after each TTL window. `GIT_TERMINAL_PROMPT=0`, the
  *       shared timeout and the TTL bound keep an offline or slow remote harmless;
  *       on failure the stale-ref answer simply stands.
- *     - `detail=1` adds one `log -3` plus a stash count, and `pr=1` adds the
+ *     - `detail=1` adds a `log -10` plus a stash count, and `pr=1` adds the
  *       branch's GitHub PR/CI state read through the user's own `gh` CLI. Both
  *       serve the input chip only — the hover card and the PR token — so a
  *       sidebar row refresh pays for neither. The PR read is TTL-bounded and

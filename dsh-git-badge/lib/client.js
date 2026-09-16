@@ -138,7 +138,7 @@ window.__ModuleLoader__.load({
 		 * `options.detail` / `options.pr` ask the node half for the chip's extras
 		 * (see targetQuery). `options.enabled: false` holds the fetch back
 		 * entirely — that is what makes the hover card's extra fields LAZY: the
-		 * chip renders without them and only starts paying for `log -3` plus a
+		 * chip renders without them and only starts paying for a `log -10` plus a
 		 * stash list once a pointer actually rests on it. The hook is still called
 		 * unconditionally (hooks may not be conditional); the GATE is inside.
 		 */
@@ -1053,7 +1053,7 @@ window.__ModuleLoader__.load({
 			const target = sessionId === void 0 ? void 0 : { kind: "session", id: sessionId };
 			// the PR/CI token is always on the chip, so its fetch is not gated
 			const info = useGitStatus(target, { pr: true });
-			// The card's extras cost a `log -3` plus a stash list, so they are
+			// The card's extras cost a `log -10` plus a stash list, so they are
 			// fetched only once a pointer actually RESTS on the chip, then kept
 			// fresh by the same SSE path. Eagerly asking would add both invocations
 			// to every refresh — and a refresh fires on every file edit.
