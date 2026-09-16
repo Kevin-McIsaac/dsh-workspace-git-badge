@@ -283,11 +283,20 @@ test("an unchanged refresh notifies nobody", async (t) => {
 	prStatusFor(repo.root, "main", () => {});
 	await waitFor(() => prStatusFor(repo.root, "main", () => {}) !== void 0);
 	const notifications = [];
-	// force the TTL to lapse without waiting 90s
+	// force the TTL to lapse rather than waiting the default out
 	prState.get(prKey(repo.root, "main")).lastAttemptAt = 0;
 	prStatusFor(repo.root, "main", (key) => notifications.push(key));
 	await waitFor(() => prState.get(prKey(repo.root, "main")).inFlight === null);
 	assert.deepEqual(notifications, [], "an unchanged answer must not push SSE traffic");
+});
+
+test("the PR TTL stays under the client's idle poll", () => {
+	// The refresh is request-driven, and at rest the chip's only clock is
+	// FALLBACK_POLL_MS (60s, lib/client.js). A TTL above that poll suppresses
+	// every OTHER refresh, so a forge-side change with no local git event to
+	// announce it waits out TTL + poll: the 90s default made a pull request that
+	// appeared on GitHub take ~2.5 minutes to show. Keep the TTL below the poll.
+	assert.ok(config.prTtlMs <= 60000, `prTtlMs (${config.prTtlMs}) must not exceed the client's 60s idle poll`);
 });
 
 test("a changed refresh notifies subscribers", async (t) => {

@@ -660,11 +660,44 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * ONE commit line, shared by the branch hover and the PR token's hover so
+		 * the two cannot drift apart again: a fixed-width monospace hash cell, so
+		 * every description starts on the same column and the list reads as a
+		 * table, then `subject · age`. `sign` belongs to the branch hover — "+"
+		 * (only on this branch) or "−" (only on main); the PR list passes none,
+		 * because all of its commits are `base..HEAD`.
+		 *
+		 * The cell needs `display: inline-block` for `minWidth` to mean anything: an
+		 * inline span ignores it, which is exactly how the PR list came to render a
+		 * hash with NO gap at all — it reused the card's label style, whose
+		 * `minWidth` and `flex` only do anything inside a flex row.
+		 */
+		function CommitLine({ commit, sign = "" }) {
+			return react_jsx_runtime.jsxs("span", {
+				style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+				children: [
+					react_jsx_runtime.jsx("span", {
+						style: {
+							color: "var(--dsw-alias-label-tertiary, #9ea7ad)",
+							fontFamily: "monospace",
+							display: "inline-block",
+							minWidth: "68px",
+							flex: "none"
+						},
+						children: sign + commit.hash
+					}),
+					commit.subject + (commit.when === "" ? "" : "  \u00B7 " + shortWhen(commit.when))
+				]
+			});
+		}
+
+		/**
 		 * The PR token's own hover body — the commits IN THIS PULL REQUEST
 		 * (`base..HEAD`), and nothing else: the token already says the number and
 		 * CI state, so the one question left is "what is in it?". Same line format
-		 * as the branch hover's commit list (hash, subject, compressed age), and
-		 * the card's own width behaviour: full-width lines, nowrap, ellipsis.
+		 * as the branch hover's commit list (see CommitLine — one renderer, so the
+		 * columns line up in both by construction), and the card's own width
+		 * behaviour: full-width lines, nowrap, ellipsis.
 		 */
 		function PrCommitsList({ info }) {
 			const commits = info?.prCommits;
@@ -675,13 +708,7 @@ window.__ModuleLoader__.load({
 				react_jsx_runtime.jsxs("div", {
 					style: { display: "flex", flexDirection: "column", gap: "2px", minWidth: 0 },
 					children: [
-						...commits.map((commit) => react_jsx_runtime.jsxs("span", {
-							style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-							children: [
-								react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: commit.hash }),
-								commit.subject + (commit.when === "" ? "" : " \u00B7 " + shortWhen(commit.when))
-							]
-						}, commit.hash)),
+						...commits.map((commit) => react_jsx_runtime.jsx(CommitLine, { commit }, commit.hash)),
 						(typeof info.prCommitsTotal === "number" && info.prCommitsTotal > commits.length
 							? "\u2026 and " + (info.prCommitsTotal - commits.length) + " more"
 							: null)
@@ -814,23 +841,9 @@ window.__ModuleLoader__.load({
 					react_jsx_runtime.jsxs("div", {
 						style: { display: "flex", flexDirection: "column", gap: "2px", minWidth: 0 },
 						children:
-							commits.map((commit) => react_jsx_runtime.jsxs("span", {
-								style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-								children: [
-									// fixed-width monospace hash cell: every description starts
-									// on the same column, so the list reads as a table
-									react_jsx_runtime.jsx("span", {
-										style: {
-											color: "var(--dsw-alias-label-tertiary, #9ea7ad)",
-											fontFamily: "monospace",
-											display: "inline-block",
-											minWidth: "68px",
-											flex: "none"
-										},
-										children: (commit.sign === "+" ? "+" : commit.sign === "\u2212" ? "\u2212" : "") + commit.hash
-									}),
-									commit.subject + (commit.when === "" ? "" : "  \u00B7 " + shortWhen(commit.when))
-								]
+							commits.map((commit) => react_jsx_runtime.jsx(CommitLine, {
+								commit,
+								sign: commit.sign === "+" ? "+" : commit.sign === "\u2212" ? "\u2212" : ""
 							}, commit.hash))
 					}, "branch-commits")
 				);
@@ -1109,12 +1122,19 @@ window.__ModuleLoader__.load({
 			// The PR token, with its own hover: the commits IN THIS PR (see
 			// PrCommitsList). Built here so the link/plain cases and the tooltip
 			// compose once instead of nesting a third conditional in the children.
+			// The token is its OWN detail gate: resting on it (or focusing it)
+			// enables the same `detail=1` fetch the mark and the branch do. Without
+			// that, a pointer going straight to the token had rested on nothing that
+			// fetches, so `prCommits` was never requested and this hover could not
+			// open at all — the data it renders is detail-only.
 			const prTokenHover = (() => {
 				const token = prUrl === void 0
 					? react_jsx_runtime.jsx("span", {
 						// the glyph is not the only channel: the token says what the
 						// CI state IS, for anyone who cannot see it
 						"aria-label": prTokenLabel(info),
+						onPointerEnter: () => setHovered(true),
+						style: { cursor: "default" },
 						children: prToken
 					})
 					: react_jsx_runtime.jsx("a", {
@@ -1137,9 +1157,9 @@ window.__ModuleLoader__.load({
 						},
 						// focus joins hover — the token is keyboard-reachable now, and a
 						// keyboard user needs the same "this is a link" signal
-						onPointerEnter: () => setLinkHover(true),
+						onPointerEnter: () => { setHovered(true); setLinkHover(true); },
 						onPointerLeave: () => setLinkHover(false),
-						onFocus: () => setLinkHover(true),
+						onFocus: () => { setHovered(true); setLinkHover(true); },
 						onBlur: () => setLinkHover(false),
 						children: prToken
 					});

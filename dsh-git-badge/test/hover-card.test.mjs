@@ -99,6 +99,23 @@ test("the status mark wires a pointer-enter, which is what unlocks the card's fi
 	assert.ok(markEl !== void 0, "without this the lazy fetch could never start");
 });
 
+test("the PR token wires its own pointer-enter, so its hover can fetch its commits", () => {
+	// The token's hover renders `prCommits`, which is detail-only. The mark's
+	// pointer-enter is not enough: a pointer that goes STRAIGHT to the token has
+	// rested on nothing that fetches, so the detail request was never made and the
+	// hover could not open at all. Both forms must gate the fetch themselves — the
+	// link (a GitHub PR URL) and the plain span (no gh, or no GitHub remote).
+	const client = createClient({ tooltip: true });
+	const tokenFor = (pr) => elements(expand(client.rawChip({ ...BASE, pr })))
+		.find((el) => typeof el.props?.["aria-label"] === "string" && el.props["aria-label"].startsWith("pull request 47"));
+	const plain = tokenFor({ number: 47, state: "passing", open: true });
+	assert.ok(plain !== void 0, "the plain token must be in the tree");
+	assert.equal(typeof plain.props.onPointerEnter, "function", "the plain token must enable the detail fetch itself");
+	const link = tokenFor({ number: 47, state: "passing", open: true, url: "https://github.com/o/r/pull/47" });
+	assert.ok(link !== void 0, "the linked token must be in the tree");
+	assert.equal(typeof link.props.onPointerEnter, "function", "the linked token must enable the detail fetch itself");
+});
+
 test("the client tags an id safely, so a crafted id cannot forge a second parameter", () => {
 	const { targetQuery } = createClient().internals;
 	const query = targetQuery({ kind: "session", id: "a&detail=1&pr=1" }, {});
@@ -272,6 +289,40 @@ test("the PR token's hover lists only the commits in that PR", () => {
 		.filter((el) => el.type === "Tooltip")
 		.map((el) => text(expand(el.props.label())));
 	assert.equal(plain.some((l) => l.includes("PR#47")), false, "no tooltip without commits");
+});
+
+test("the PR hover's commit lines align exactly like the branch hover's", () => {
+	// The visible contract: a FIXED-WIDTH hash cell, so every description starts on
+	// the same column in both lists. Both now come from one renderer (CommitLine),
+	// because the PR list had drifted — it put the hash in the card's label style,
+	// whose minWidth/flex only apply inside a flex row, so on an inline span they
+	// did nothing: no gap after the hash, and the descriptions never lined up.
+	const client = createClient({ tooltip: true, hover: true });
+	const base = { ...BASE, pr: { number: 47, state: "passing", open: true } };
+	const detail = {
+		...base,
+		branchCommits: [{ sign: "+", hash: "aaa1111", subject: "on this branch", when: "3 hours ago" }],
+		prCommits: [{ hash: "bbb2222", subject: "in this PR", when: "5 minutes ago" }],
+		prCommitsTotal: 1
+	};
+	const labels = elements(expand(client.rawChip(base, detail)))
+		.filter((el) => el.type === "Tooltip")
+		.map((el) => expand(el.props.label()));
+	const cellIn = (mentions, hashText) => {
+		const label = labels.find((l) => text(l).includes(mentions));
+		assert.ok(label !== void 0, `expected a hover mentioning "${mentions}": ${JSON.stringify(labels.map(text))}`);
+		const cell = elements(label).find((el) => text(el) === hashText);
+		assert.ok(cell !== void 0, `expected a hash cell for ${hashText}`);
+		return cell;
+	};
+	const branchCell = cellIn("on this branch", "+aaa1111");
+	const prCell = cellIn("in this PR", "bbb2222");
+	// the mechanism, asserted on the PR cell directly (not just "both are equal",
+	// which two equally-broken cells would also satisfy)
+	assert.equal(prCell.props.style.fontFamily, "monospace", "a monospace hash keeps the column stable");
+	assert.equal(prCell.props.style.display, "inline-block", "minWidth needs a non-inline box to apply");
+	assert.equal(prCell.props.style.minWidth, "68px", "the fixed column every description starts on");
+	assert.deepEqual(prCell.props.style, branchCell.props.style, "the branch hover's cell, exactly");
 });
 
 test("the detail fields appear only once detail has been fetched", () => {

@@ -10,6 +10,8 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-09-16
+
 ### Added
 
 - **The PR token has its own hover: the commits in that pull request.** `PR#47 ✓`
@@ -19,49 +21,6 @@ npm. 0.6.0 is the first release recorded here.
   with ellipsis. Nothing else rides it: the token already states the number and
   CI state, so the one question left is what is in it. Hover-gated with the rest
   of `detail=1`, and the total reuses the ahead count already computed.
-
-### Changed
-
-- **The branch hover shows only the merge axis.** `upstream` and `sync` are gone
-  — they stated the same divergence against the branch's own remote, in arrows,
-  when `merge` already states it against the base branch in words. The `merge`
-  row now ALWAYS renders: `ready to merge`, `blocked: draft | review required |
-  checks failing`, `no pull request`, each joined with `N ahead, M behind main`
-  when those counts are known. A row that can be absent is a row the reader has
-  to reconstruct.
-- The commit cells lost their trailing colon (a later change had reintroduced it
-  after the earlier removal), so both hovers read `abc1234  subject · 2h ago`.
-
-### Changed
-
-- **One action list, built by the server.** Both halves used to derive the
-  pull/push/commit/pr conditions, and the copies drifted: the card once promoted
-  a client-only extra into its action row, and `/gh pr` was offered on the
-  default branch. The node half now publishes `actions` — the ranked rules in the
-  configured order with the top entry flagged `primary` (also served as `next`,
-  on every response), then the standing options (`pr view <n>`, `pr`, and the
-  flagged `clean`). `merge <n>` becomes a standing entry whenever the PR is
-  mergeable, so it now appears alongside a primary `push`/`pull` instead of only
-  when it wins the ranking. The client renders the list verbatim and keeps only
-  presentation — labels and the clean risk gate; `actions` rides the `pr=1`
-  payload only, so sidebar rows stay lean. Net: ~65 lines of duplicated client
-  rules deleted, and the conditions are unit-tested where the data lives.
-
-### Fixed
-
-- **No more "open a pull request" on `main`, and the hover card shows only the
-  server's verdict.** Two layers disagreed: the node half correctly returned
-  nothing to do for a clean, synced default branch, while the client's extras
-  still offered `/gh pr` — and the card promoted that extra into its `action:`
-  row, so a checkout with nothing to do displayed a suggestion. The node half now
-  resolves the repository's default branch (`refs/remotes/origin/HEAD`,
-  TTL-cached and refreshed out of band like the fetch, so the hot path pays
-  nothing) and flags it on the response; the `pr` extra is suppressed when the
-  branch IS that default; and the card's action row reads the server's `next`
-  directly, leaving the extras to the `/gh` picker where they belong.
-
-### Added
-
 - **`/gh clean [<path>...]` appears in the `/gh` menu behind a risk gate.** The
   menu is built from status, not from this skill's prose, so the verb is offered
   there whenever untracked files exist — always last, never as the badge's
@@ -81,6 +40,35 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Changed
 
+- **The PR/CI token stops lagging behind the forge.** The forge read is
+  TTL-bounded and its refresh is request-driven, while an idle chip only asks
+  every 60s — so the old 90s `prTtlMs` silently suppressed every other poll, and
+  a pull request that appeared on GitHub with no local git event to announce it
+  could take ~2.5 minutes to show up. At 20s the TTL no longer outlives the
+  client's poll, so the first refresh after the forge changes picks it up and the
+  worst case falls to roughly the poll interval. Cost: up to one `gh pr view` per
+  open chip per minute, where it was one per ~2 minutes.
+- **The branch hover shows only the merge axis.** `upstream` and `sync` are gone
+  — they stated the same divergence against the branch's own remote, in arrows,
+  when `merge` already states it against the base branch in words. The `merge`
+  row now ALWAYS renders: `ready to merge`, `blocked: draft | review required |
+  checks failing`, `no pull request`, each joined with `N ahead, M behind main`
+  when those counts are known. A row that can be absent is a row the reader has
+  to reconstruct.
+- The commit cells lost their trailing colon (a later change had reintroduced it
+  after the earlier removal), so both hovers read `abc1234  subject · 2h ago`.
+- **One action list, built by the server.** Both halves used to derive the
+  pull/push/commit/pr conditions, and the copies drifted: the card once promoted
+  a client-only extra into its action row, and `/gh pr` was offered on the
+  default branch. The node half now publishes `actions` — the ranked rules in the
+  configured order with the top entry flagged `primary` (also served as `next`,
+  on every response), then the standing options (`pr view <n>`, `pr`, and the
+  flagged `clean`). `merge <n>` becomes a standing entry whenever the PR is
+  mergeable, so it now appears alongside a primary `push`/`pull` instead of only
+  when it wins the ranking. The client renders the list verbatim and keeps only
+  presentation — labels and the clean risk gate; `actions` rides the `pr=1`
+  payload only, so sidebar rows stay lean. Net: ~65 lines of duplicated client
+  rules deleted, and the conditions are unit-tested where the data lives.
 - **The upstream sync numbers ride the branch's hover and link.** `↑a ↓b` were
   rendered inside the file count's names tooltip and outside the branch's compare
   link, though they are the branch's standing against its upstream — so they now
@@ -88,6 +76,38 @@ npm. 0.6.0 is the first release recorded here.
   link's accessible name says "N ahead and M behind upstream". `✎n` keeps its own
   names tooltip. Visible side effect: the arrows render before a paused-operation
   token rather than after it.
+
+### Fixed
+
+- **The PR token's hover lines its commits up like the branch hover.** Both lists
+  now come from one renderer: a fixed-width monospace hash cell, so every
+  description starts on the same column and the list reads as a table. The PR
+  list had reused the card's label style, whose `minWidth` and `flex` only apply
+  inside a flex row — on a plain inline span they did nothing, so the hash sat
+  flush against its description with the columns ragged.
+- **The PR token's hover is reachable by hovering the token itself.** The commits
+  it lists are detail-only, and only the status mark and the branch name enabled
+  the `detail=1` fetch — so a pointer that went straight to `PR#47 ✓` had rested
+  on nothing that fetches, and its hover could not open until the mark had been
+  hovered first. The token is now its own detail gate, in both its linked and
+  plain forms.
+- **No more "open a pull request" on `main`, and the hover card shows only the
+  server's verdict.** Two layers disagreed: the node half correctly returned
+  nothing to do for a clean, synced default branch, while the client's extras
+  still offered `/gh pr` — and the card promoted that extra into its `action:`
+  row, so a checkout with nothing to do displayed a suggestion. The node half now
+  resolves the repository's default branch (`refs/remotes/origin/HEAD`,
+  TTL-cached and refreshed out of band like the fetch, so the hot path pays
+  nothing) and flags it on the response; the `pr` extra is suppressed when the
+  branch IS that default; and the card's action row reads the server's `next`
+  directly, leaving the extras to the `/gh` picker where they belong.
+- **The seam suite no longer writes into your real `~/.dsh/git-badge-seam`.**
+  One block spawned the postinstall hook without `SEAM_DATA_DIR`, so the hook
+  resolved its store to the machine's actual data directory: a test run
+  overwrote the real `backup-client.js`/`backup-index.js` and left a
+  `restart-pending.json` behind. It passed on CI only because the runner's
+  `$HOME` is writable — under a read-only `$HOME` it failed with EROFS. The
+  block now takes a throwaway data dir like the rest of the file.
 
 ## [0.16.1] - 2026-09-16
 
