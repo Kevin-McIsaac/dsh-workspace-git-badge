@@ -278,22 +278,18 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [0.14.1] - 2026-09-15
 
+### Changed
+
 - **Skill alignment:** the `gh` skill gains an explicit handoff — one verb per
   invocation is its whole job; the multi-step PR lifecycle (review, merge,
   verify, cleanup) belongs to the `gh-pr` skill. The `gh-pr` skill states the
   mirror scope: one-shot verbs are `gh`'s, lifecycle is its own. The catalog
   stays global-only; repo conventions stay in `AGENTS.md`.
-
 - **The hover card is 33% wider** (360px → 480px) and its `action:` row now
   carries a trailing what-comment in git-comment convention — e.g.
   `action: /gh push  # push local commits to the remote` — so the row says
   what the invocation does, not just which invocation it is. The picker in the
   (+) menu shares the same descriptions.
-
-## [0.14.1] - 2026-09-15
-
-### Changed
-
 - **The chip's hover card top line is now an `action:` row** — the gh skill
   invocation the checkout justifies (e.g. `/gh push`), in the card's ordinary
   label/value layout, replacing the next-step line's why-plus-copy-chip. The
@@ -685,7 +681,20 @@ npm. 0.6.0 is the first release recorded here.
 - `detail=1` is annotated as having no consumer yet (the hover card remains
   pending). Its comment previously claimed `log -1` while the code ran `log -3`.
 
-[Unreleased]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/compare/v0.17.0...HEAD
+[0.17.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.17.0
+[0.16.1]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.16.1
+[0.16.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.16.0
+[0.15.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.15.0
+[0.14.1]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.14.1
+[0.14.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.14.0
+[0.13.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.13.0
+[0.12.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.12.0
+[0.11.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.11.0
+[0.10.1]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.10.1
+[0.10.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.10.0
+[0.9.1]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.9.1
+[0.9.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.9.0
 [0.8.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.8.0
 [0.7.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.7.0
 [0.6.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.6.0
