@@ -582,3 +582,38 @@ test("nextActions: a default branch is offered nothing", () => {
 	assert.deepEqual(main.actions, []);
 	assert.equal(main.next, null);
 });
+
+test("the detail payload lists the PR's own commits (base..HEAD)", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("base");
+	const bare = join(repo.root, "origin-bare.git");
+	await runGit(repo.root, ["clone", "--bare", repo.root, bare]);
+	await runGit(repo.root, ["remote", "add", "origin", bare]);
+	await runGit(repo.root, ["push", "-u", "origin", "main"]);
+	await runGit(repo.root, ["checkout", "-b", "feat/x"]);
+	await repo.commit("first in the PR");
+	await repo.commit("second in the PR");
+	// the forge read only spawns for a GitHub-shaped origin, so the tracking refs
+	// are made against the bare path first and the URL is swapped afterwards
+	await runGit(repo.root, ["remote", "set-url", "origin", "git@github.com:owner/repo.git"]);
+	const previous = config.prRunner;
+	config.prRunner = () => Promise.resolve({ stdout: JSON.stringify({ number: 47, state: "OPEN", statusCheckRollup: [] }) });
+	t.after(() => {
+		config.prRunner = previous;
+	});
+	// the forge read is TTL-cached and out of band: poll until it lands
+	let detail;
+	for (let attempt = 0; attempt < 40 && detail?.prCommits === void 0; attempt += 1) {
+		const info = await gitStatus(repo.root, true, true);
+		if (info.pr !== void 0) detail = info;
+		else await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+	assert.ok(detail !== void 0, "the PR read lands");
+	assert.deepEqual(detail.prCommits.map((c) => c.subject), ["second in the PR", "first in the PR"], "base..HEAD, newest first");
+	assert.equal(detail.prCommitsTotal, 2, "the ahead count already computed, not a second rev-list");
+	// in sync with the base there is nothing in the PR, so the token has no hover
+	await runGit(repo.root, ["push", bare, "feat/x:main"]);
+	await runGit(repo.root, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+	const synced = await gitStatus(repo.root, true, true);
+	assert.equal(synced.prCommits, void 0, "no commits beyond the base — no tooltip");
+});

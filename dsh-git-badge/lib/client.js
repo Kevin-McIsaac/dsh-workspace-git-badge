@@ -659,6 +659,37 @@ window.__ModuleLoader__.load({
 			return name;
 		}
 
+		/**
+		 * The PR token's own hover body — the commits IN THIS PULL REQUEST
+		 * (`base..HEAD`), and nothing else: the token already says the number and
+		 * CI state, so the one question left is "what is in it?". Same line format
+		 * as the branch hover's commit list (hash, subject, compressed age), and
+		 * the card's own width behaviour: full-width lines, nowrap, ellipsis.
+		 */
+		function PrCommitsList({ info }) {
+			const commits = info?.prCommits;
+			if (!Array.isArray(commits) || commits.length === 0) {
+				return react_jsx_runtime.jsx("span", { style: CARD_CONTAINER, children: "no commits beyond the base branch" });
+			}
+			return react_jsx_runtime.jsxs("div", { style: CARD_CONTAINER, children: [
+				react_jsx_runtime.jsxs("div", {
+					style: { display: "flex", flexDirection: "column", gap: "2px", minWidth: 0 },
+					children: [
+						...commits.map((commit) => react_jsx_runtime.jsxs("span", {
+							style: { whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+							children: [
+								react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: commit.hash }),
+								commit.subject + (commit.when === "" ? "" : " \u00B7 " + shortWhen(commit.when))
+							]
+						}, commit.hash)),
+						(typeof info.prCommitsTotal === "number" && info.prCommitsTotal > commits.length
+							? "\u2026 and " + (info.prCommitsTotal - commits.length) + " more"
+							: null)
+					]
+				})
+			] });
+		}
+
 		const CARD_CONTAINER = {
 			display: "flex",
 			flexDirection: "column",
@@ -749,27 +780,11 @@ window.__ModuleLoader__.load({
 				if (value === void 0 || value === null || value === "") return;
 				rows.push(cardRow(label, value));
 			};
-			add("upstream", info?.upstream === void 0 ? "none configured" : info.upstream);
-			const ahead = info?.ahead || 0;
-			const behind = info?.behind || 0;
-			// The sync row speaks ONLY about the upstream it names: with no
-			// upstream configured there are no ahead/behind counts at all (no
-			// `# branch.ab` header), and falling back to 0/0 would claim "in
-			// sync" — a lie the upstream row directly contradicts. Omit it; the
-			// "none configured" row above carries the fact.
-			if (info?.upstream !== void 0) {
-				add("sync", ahead === 0 && behind === 0
-					? "in sync with upstream"
-					: "\u2191" + ahead + " \u2193" + behind);
-			}
-			// The merge-state row, in WORDS (deliberately not arrows — the sync
-			// row above already uses ↑↓ for the push axis, and two arrow pairs
-			// with different references would be read as one). "merge" is its
-			// label because it is the merge axis — the counterpart of "sync",
-			// the push axis — and it stays correct whatever the default branch
-			// is named. A BLOCKED verdict becomes the reason (review required,
-			// checks failing, draft) so a dead-end word names the next action;
-			// CLEAN stays silent — the action row already offers /gh merge.
+			// ONLY the merge axis, and it ALWAYS renders. The old upstream and sync
+			// rows spoke about the push axis (the branch's own remote), which the
+			// merge row subsumes: "1 ahead, 0 behind main" is the same fact stated
+			// against the branch that matters, in words rather than arrows. A row
+			// that can be absent is a row the reader has to reconstruct.
 			const pr = info?.pr;
 			const mergeParts = [];
 			if (pr !== void 0 && pr !== null && pr.number !== void 0) {
@@ -779,12 +794,15 @@ window.__ModuleLoader__.load({
 						: pr.state === "failing" ? "blocked: checks failing"
 						: "blocked");
 				} else if (pr.state === "failing") mergeParts.push("blocked: checks failing");
-				else if (pr.mergeState !== "CLEAN" && pr.review === "REVIEW_REQUIRED") mergeParts.push("blocked: review required");
+				else if (pr.mergeState === "CLEAN" || (pr.state === "passing" && pr.review === "APPROVED")) mergeParts.push("ready to merge");
+				else if (pr.review === "REVIEW_REQUIRED") mergeParts.push("blocked: review required");
+			} else {
+				mergeParts.push("no pull request");
 			}
 			if (info?.mainAhead !== void 0 || info?.mainBehind !== void 0) {
 				mergeParts.push((info.mainAhead || 0) + " ahead, " + (info.mainBehind || 0) + " behind main");
 			}
-			if (mergeParts.length > 0) add("merge", mergeParts.join(" \u00B7 "));
+			add("merge", mergeParts.join(" \u00B7 "));
 			const commits = info?.branchCommits;
 			if (Array.isArray(commits) && commits.length > 0) {
 				// Full-width block, not the label/value two-column row: commit lines
@@ -809,7 +827,7 @@ window.__ModuleLoader__.load({
 											minWidth: "68px",
 											flex: "none"
 										},
-										children: (commit.sign === "+" ? "+" : commit.sign === "\u2212" ? "\u2212" : "") + commit.hash + ":"
+										children: (commit.sign === "+" ? "+" : commit.sign === "\u2212" ? "\u2212" : "") + commit.hash
 									}),
 									commit.subject + (commit.when === "" ? "" : "  \u00B7 " + shortWhen(commit.when))
 								]
@@ -1088,6 +1106,54 @@ window.__ModuleLoader__.load({
 			})();
 			const prToken = formatPrToken(info);
 			const prUrl = prLinkUrl(info);
+			// The PR token, with its own hover: the commits IN THIS PR (see
+			// PrCommitsList). Built here so the link/plain cases and the tooltip
+			// compose once instead of nesting a third conditional in the children.
+			const prTokenHover = (() => {
+				const token = prUrl === void 0
+					? react_jsx_runtime.jsx("span", {
+						// the glyph is not the only channel: the token says what the
+						// CI state IS, for anyone who cannot see it
+						"aria-label": prTokenLabel(info),
+						children: prToken
+					})
+					: react_jsx_runtime.jsx("a", {
+						href: prUrl,
+						// a new tab, because navigating THIS one away from the app
+						// would lose the conversation; noopener/noreferrer keep the
+						// opened tab from getting a handle on it
+						target: "_blank",
+						rel: "noopener noreferrer",
+						"aria-label": prTokenLabel(info) + ", opens on GitHub in a new tab",
+						// the chip's own colour rather than the browser's link blue /
+						// visited purple, so the token still reads as one row. The
+						// affordance is the pointer cursor plus an underline on hover
+						// or focus, set HERE rather than left to the host stylesheet:
+						// a shell that resets anchors would otherwise drop it silently.
+						style: {
+							color: "inherit",
+							textDecoration: linkHover ? "underline" : "none",
+							cursor: "pointer"
+						},
+						// focus joins hover — the token is keyboard-reachable now, and a
+						// keyboard user needs the same "this is a link" signal
+						onPointerEnter: () => setLinkHover(true),
+						onPointerLeave: () => setLinkHover(false),
+						onFocus: () => setLinkHover(true),
+						onBlur: () => setLinkHover(false),
+						children: prToken
+					});
+				if (Tooltip === void 0 || detail === void 0 || detail === null
+					|| !Array.isArray(detail.prCommits) || detail.prCommits.length === 0) {
+					return token;
+				}
+				return react_jsx_runtime.jsx(Tooltip, {
+					side: "top",
+					maxWidth: 480,
+					label: () => react_jsx_runtime.jsx(PrCommitsList, { info: detail }),
+					children: token
+				});
+			})();
 			const chip = react_jsx_runtime.jsxs("span", {
 				style: {
 					display: "inline-flex",
@@ -1121,43 +1187,7 @@ window.__ModuleLoader__.load({
 						branchHover,
 						react_jsx_runtime.jsx("span", { key: "text", children: text }),
 					countHover,
-					prToken === ""
-						? null
-						: prUrl === void 0
-							? react_jsx_runtime.jsx("span", {
-									key: "pr",
-									// the glyph is not the only channel: the token says what the
-									// CI state IS, for anyone who cannot see it
-									"aria-label": prTokenLabel(info),
-									children: prToken
-								})
-							: react_jsx_runtime.jsx("a", {
-									key: "pr",
-									href: prUrl,
-									// a new tab, because navigating THIS one away from the app
-									// would lose the conversation; noopener/noreferrer keep the
-									// opened tab from getting a handle on it
-									target: "_blank",
-									rel: "noopener noreferrer",
-									"aria-label": prTokenLabel(info) + ", opens on GitHub in a new tab",
-									// the chip's own colour rather than the browser's link blue /
-									// visited purple, so the token still reads as one row. The
-									// affordance is the pointer cursor plus an underline on hover
-									// or focus, set HERE rather than left to the host stylesheet:
-									// a shell that resets anchors would otherwise drop it silently.
-									style: {
-										color: "inherit",
-										textDecoration: linkHover ? "underline" : "none",
-										cursor: "pointer"
-									},
-									// focus joins hover — the token is keyboard-reachable now, and a
-									// keyboard user needs the same "this is a link" signal
-									onPointerEnter: () => setLinkHover(true),
-									onPointerLeave: () => setLinkHover(false),
-									onFocus: () => setLinkHover(true),
-									onBlur: () => setLinkHover(false),
-									children: prToken
-								}),
+					prTokenHover,
 					/**
 					 * The seam-absent notice: the market-install notification for the
 					 * state a blocked postinstall leaves behind — chip working, sidebar
