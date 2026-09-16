@@ -56,8 +56,17 @@ window.__ModuleLoader__.load({
 		const Menu = primitives === null ? void 0 : primitives.Menu;
 		const rankByName = primitives === null ? void 0 : primitives.rankByName;
 
-		/** Module-level git-status cache. Entries are invalidated by SSE events, never by age. */
+		/**
+		 * Module-level git-status cache. Entries are invalidated by SSE events,
+		 * never by age — and BOUNDED, because a long-lived tab opens and closes
+		 * many sessions and nothing else removes an entry. When the cap is
+		 * exceeded the oldest-INSERTED key is evicted (Map order is insertion,
+		 * not use); an evicted surface simply refetches, which the in-flight map
+		 * collapses like any other request.
+		 */
 		const GIT_CACHE = new Map();
+		/** The cache's entry bound — each surface is one key, plus lazy detail keys. */
+		const GIT_CACHE_LIMIT = 64;
 		/** In-flight fetches per cacheKey: bursts collapse into one request. */
 		const GIT_INFLIGHT = new Map();
 		/** Slow safety-net poll: refreshes even if the SSE stream is silently dead. */
@@ -173,6 +182,9 @@ window.__ModuleLoader__.load({
 					if (data !== null && data.error !== void 0 && GIT_CACHE.has(cacheKey)) return;
 					if (data !== null && typeof data.workspace === "string") resolvedWorkspace = data.workspace;
 					GIT_CACHE.set(cacheKey, { at: Date.now(), data });
+					if (GIT_CACHE.size > GIT_CACHE_LIMIT) {
+						GIT_CACHE.delete(GIT_CACHE.keys().next().value);
+					}
 					if (alive) setState({ key: cacheKey, data });
 				};
 				const load = () => {
