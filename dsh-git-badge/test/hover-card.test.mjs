@@ -291,6 +291,40 @@ test("the PR token's hover lists only the commits in that PR", () => {
 	assert.equal(plain.some((l) => l.includes("PR#47")), false, "no tooltip without commits");
 });
 
+test("the PR hover's commit lines align exactly like the branch hover's", () => {
+	// The visible contract: a FIXED-WIDTH hash cell, so every description starts on
+	// the same column in both lists. Both now come from one renderer (CommitLine),
+	// because the PR list had drifted — it put the hash in the card's label style,
+	// whose minWidth/flex only apply inside a flex row, so on an inline span they
+	// did nothing: no gap after the hash, and the descriptions never lined up.
+	const client = createClient({ tooltip: true, hover: true });
+	const base = { ...BASE, pr: { number: 47, state: "passing", open: true } };
+	const detail = {
+		...base,
+		branchCommits: [{ sign: "+", hash: "aaa1111", subject: "on this branch", when: "3 hours ago" }],
+		prCommits: [{ hash: "bbb2222", subject: "in this PR", when: "5 minutes ago" }],
+		prCommitsTotal: 1
+	};
+	const labels = elements(expand(client.rawChip(base, detail)))
+		.filter((el) => el.type === "Tooltip")
+		.map((el) => expand(el.props.label()));
+	const cellIn = (mentions, hashText) => {
+		const label = labels.find((l) => text(l).includes(mentions));
+		assert.ok(label !== void 0, `expected a hover mentioning "${mentions}": ${JSON.stringify(labels.map(text))}`);
+		const cell = elements(label).find((el) => text(el) === hashText);
+		assert.ok(cell !== void 0, `expected a hash cell for ${hashText}`);
+		return cell;
+	};
+	const branchCell = cellIn("on this branch", "+aaa1111");
+	const prCell = cellIn("in this PR", "bbb2222");
+	// the mechanism, asserted on the PR cell directly (not just "both are equal",
+	// which two equally-broken cells would also satisfy)
+	assert.equal(prCell.props.style.fontFamily, "monospace", "a monospace hash keeps the column stable");
+	assert.equal(prCell.props.style.display, "inline-block", "minWidth needs a non-inline box to apply");
+	assert.equal(prCell.props.style.minWidth, "68px", "the fixed column every description starts on");
+	assert.deepEqual(prCell.props.style, branchCell.props.style, "the branch hover's cell, exactly");
+});
+
 test("the detail fields appear only once detail has been fetched", () => {
 	const without = card(createClient({ tooltip: true, hover: false }), BASE, DETAIL);
 	assert.ok(!without.includes("stashed"), "no stash before the detail request");

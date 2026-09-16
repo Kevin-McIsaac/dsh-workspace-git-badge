@@ -79,6 +79,12 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Fixed
 
+- **The PR token's hover lines its commits up like the branch hover.** Both lists
+  now come from one renderer: a fixed-width monospace hash cell, so every
+  description starts on the same column and the list reads as a table. The PR
+  list had reused the card's label style, whose `minWidth` and `flex` only apply
+  inside a flex row — on a plain inline span they did nothing, so the hash sat
+  flush against its description with the columns ragged.
 - **The PR token's hover is reachable by hovering the token itself.** The commits
   it lists are detail-only, and only the status mark and the branch name enabled
   the `detail=1` fetch — so a pointer that went straight to `PR#47 ✓` had rested
