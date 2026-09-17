@@ -263,7 +263,22 @@ function defaultBranchFor(toplevel, notify) {
 		serve: (state) => state.value
 	}, async (record) => {
 		const out = await runGit(toplevel, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
-		const name = out.stdout === null ? "" : out.stdout.trim().replace(/^origin\//u, "");
+		let name = out.stdout === null ? "" : out.stdout.trim().replace(/^origin\//u, "");
+		if (name === "") {
+			// `refs/remotes/origin/HEAD` is absent far more often than not: `git
+			// clone --branch <x>`, a pruned ref, or any repo that was only ever
+			// pushed to never gets one. Reading the symref alone therefore answered
+			// "no default branch" forever, which silently disabled EVERY
+			// default-branch rule — the merge row's base-branch wording on `main`,
+			// and the node half's own "no pull-request suggestion on main". Fall
+			// back, network-free, to the same base branch this module already
+			// probes for its ahead/behind row. A repository whose default branch is
+			// neither main nor master still answers undefined, exactly as before.
+			for (const candidate of ["main", "master"]) {
+				const probe = await runGit(toplevel, ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/" + candidate]);
+				if (probe.stdout !== null && probe.stdout.trim() !== "") { name = candidate; break; }
+			}
+		}
 		const value = name === "" ? void 0 : name;
 		if (record.value !== value) notify?.();
 		return value;
