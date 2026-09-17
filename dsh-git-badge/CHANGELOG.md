@@ -10,6 +10,8 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-09-17
+
 ### Fixed
 
 - **The default branch's branch hover no longer says `no pull request`.** The
@@ -720,7 +722,9 @@ npm. 0.6.0 is the first release recorded here.
 - `detail=1` is annotated as having no consumer yet (the hover card remains
   pending). Its comment previously claimed `log -1` while the code ran `log -3`.
 
-[Unreleased]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/compare/v0.17.0...HEAD
+[Unreleased]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/compare/v0.17.2...HEAD
+[0.17.2]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.17.2
+[0.17.1]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.17.1
 [0.17.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.17.0
 [0.16.1]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.16.1
 [0.16.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.16.0
