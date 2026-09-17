@@ -10,6 +10,18 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The default branch is now detected when `refs/remotes/origin/HEAD` is
+  missing.** `defaultBranchFor` read only that symref, so in a repo that has
+  none — `git clone --branch <x>`, a pruned ref, or any repo that was only ever
+  pushed to — it answered "no default branch" forever. Every default-branch rule
+  was therefore silently inert: the 0.17.2 merge row on `main` still said
+  `no pull request`, and the node half still suggested opening a pull request
+  FROM the default branch. The lookup now falls back, network-free, to the base
+  branch this module already probes (`origin/main`, then `origin/master`); a
+  repo whose default is neither still answers `undefined`, exactly as before.
+
 ## [0.17.2] - 2026-09-17
 
 ### Fixed

@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { changeListeners, config, gitStatus, nextActions, outerGitDir, runGit as pluginRunGit, seedOrder } from "../lib/index.js";
-import { makeRepo, makeTempDir, runGit } from "../test-support/repo.mjs";
+import { makeRepo, makeTempDir, runGit, runGitSafe } from "../test-support/repo.mjs";
 
 /** Subscribe to change notifications; released with the test. */
 function spyOn(t) {
@@ -535,6 +535,36 @@ test("the base response flags the repository's default branch", async (t) => {
 	await runGit(repo.root, ["checkout", "-b", "feat/x"]);
 	const feature = await gitStatus(repo.root);
 	assert.equal(feature.defaultBranch, void 0);
+});
+
+test("the default branch is found when refs/remotes/origin/HEAD is absent", async (t) => {
+	// The symref is missing in `git clone --branch <x>`, in a clone whose ref was
+	// pruned, and in every repo that was only ever pushed to. Reading it alone
+	// answered "no default branch" forever, which silently disabled every
+	// default-branch rule — the merge row's base-branch wording on `main`, and the
+	// node half's own "no pull-request suggestion on main". This is the regression
+	// guard for that silent failure, so it must NOT create the symref.
+	const repo = await makeRepo(t);
+	await repo.commit("base");
+	const bare = join(repo.root, "origin-bare.git");
+	await runGit(repo.root, ["clone", "--bare", repo.root, bare]);
+	await runGit(repo.root, ["remote", "add", "origin", bare]);
+	await runGit(repo.root, ["push", "-u", "origin", "main"]);
+	// deliberately NO `git remote set-head origin -a` — assert the precondition
+	// rather than trusting that a push left the symref out
+	const symref = await runGitSafe(repo.root, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
+	assert.equal(symref.ok, false, "precondition: origin/HEAD is genuinely absent");
+	let seen;
+	for (let attempt = 0; attempt < 40 && seen === void 0; attempt += 1) {
+		const info = await gitStatus(repo.root);
+		if (info.defaultBranch === true) seen = info;
+		else await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+	assert.equal(seen?.defaultBranch, true, "origin/main still identifies the default branch");
+	// and the fallback does not over-fire: a feature branch is not the default
+	await runGit(repo.root, ["checkout", "-b", "feat/x"]);
+	const feature = await gitStatus(repo.root);
+	assert.equal(feature.defaultBranch, void 0, "a feature branch is not the default branch");
 });
 
 // ---------------------------------------------------------------------------
