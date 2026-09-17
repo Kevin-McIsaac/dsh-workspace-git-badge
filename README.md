@@ -10,7 +10,7 @@ Most agent workflow failures happen quietly: branches drift, uncommitted files a
 and approved PRs or failed builds sit unnoticed. This plugin brings repository 
 awareness directly into your workflow:
 
-1. **At-a-glance session status**: branch, file counts and PR/CI state on the input box. When the session is working in a linked `git worktree`, the badge follows that tree rather than the main checkout.
+1. **At-a-glance session status**: branch, file counts and PR/CI state on the input box. When the session is working in a linked [`git worktree`](#Worktrees), the badge follows that tree rather than the main checkout.
 
 ![Dark-mode input chip: a tree mark with the worktree branch feat/worktree-aware-chip and a passing PR#18, above a main checkout showing sync and file counts and a failing check](docs/images/chip.svg)
 
@@ -19,10 +19,11 @@ awareness directly into your workflow:
 ![Dark-mode sidebar session rows: one asking you to merge in green, one asking you to fix CI in red, and one with nothing to do showing no token](docs/images/session-rows.svg)
 
 Both are updated within seconds of any commit, checkout, stage or file
-edit — including inside a linked worktree.
-
+edit — including inside a linked  [worktree](#Worktrees) for safe isolation of parallel dhs working session.
 
 ## Install
+
+Use the puging market place or manually install using
 
 ```bash
 dsh plugin --profile web add dsh-git-badge     # marketplace Install does this step
@@ -40,8 +41,9 @@ Then **restart the web process** and refresh the browser:
   # or add to pnpm-workspace.yaml:  allowBuilds: { "dsh-git-badge": true }
   ```
 
-  After that, every later install/upgrade of the plugin applies the seam itself; only the restart stays manual.
+After that, every later install/upgrade of the plugin applies the seam itself; only the restart stays manual.
 
+## Sidebar technical details
 Sidebar session-row tokens need a seam the workspace browser does not declare
 upstream yet (discussion
 [#5092](https://github.com/deepseek-ai/deepseek-harness/discussions/5092)). The
@@ -78,7 +80,7 @@ runs the whole suite (parser, real temp repositories, resolution, SSE, the
 watcher, every `gh` degradation path and the rendered surfaces) with no DSH, no
 network and no restart.
 
-## Worktrees
+# Worktrees
 
 A worktree isolates each session to ensure it does not step on another 
 sessions work, e.g., change or delete the branch, modify the same file.
