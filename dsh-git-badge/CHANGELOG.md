@@ -10,6 +10,8 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-09-17
+
 ### Fixed
 
 - **The default branch is now detected when `refs/remotes/origin/HEAD` is
@@ -734,7 +736,8 @@ npm. 0.6.0 is the first release recorded here.
 - `detail=1` is annotated as having no consumer yet (the hover card remains
   pending). Its comment previously claimed `log -1` while the code ran `log -3`.
 
-[Unreleased]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/compare/v0.17.2...HEAD
+[Unreleased]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/compare/v0.17.3...HEAD
+[0.17.3]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.17.3
 [0.17.2]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.17.2
 [0.17.1]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.17.1
 [0.17.0]: https://github.com/Kevin-McIsaac/dsh-workspace-git-badge/releases/tag/v0.17.0
