@@ -892,10 +892,22 @@ window.__ModuleLoader__.load({
 				} else if (pr.state === "failing") mergeParts.push("blocked: checks failing");
 				else if (pr.mergeState === "CLEAN" || (pr.state === "passing" && pr.review === "APPROVED")) mergeParts.push("ready to merge");
 				else if (pr.review === "REVIEW_REQUIRED") mergeParts.push("blocked: review required");
+			} else if (info?.defaultBranch === true) {
+				// The default branch is the BASE, not a branch with a missing PR:
+				// pull requests merge INTO it and none is ever opened FROM it, so
+				// "no pull request" here reads as a nag for something that cannot
+				// exist. The node half computes `defaultBranch` for exactly this
+				// suppression (see the comment where it is set in lib/index.js);
+				// until now only the action rules consulted it, not this row.
+				mergeParts.push("base branch \u00B7 pull requests merge into this");
 			} else {
 				mergeParts.push("no pull request");
 			}
-			if (info?.mainAhead !== void 0 || info?.mainBehind !== void 0) {
+			// The counts are this branch's standing against its BASE, so on the
+			// base itself they are self-referential ("N ahead, M behind main" while
+			// ON main) and the divergence they would state is already the chip's own
+			// \u2191a \u2193b token. Suppress them on the default branch, with or without a PR.
+			if (info?.defaultBranch !== true && (info?.mainAhead !== void 0 || info?.mainBehind !== void 0)) {
 				mergeParts.push((info.mainAhead || 0) + " ahead, " + (info.mainBehind || 0) + " behind main");
 			}
 			add("merge", mergeParts.join(" \u00B7 "));
