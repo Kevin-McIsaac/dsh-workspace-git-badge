@@ -10,6 +10,8 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.17.4] - 2026-09-18
+
 ### Fixed
 
 - **The documented patcher command finally runs.** Every prompt the product
