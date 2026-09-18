@@ -13,8 +13,12 @@
  * The registration is advisory and self-expiring (24h) — never let it fail the
  * work that earned it:
  *
- *   usage:  npx dsh-git-badge-checkout <path>     register this session
- *           npx dsh-git-badge-checkout --clear    forget this session
+ *   usage:  npx dsh-git-badge checkout <path>     register this session
+ *           npx dsh-git-badge checkout --clear    forget this session
+ *
+ *   (npx can only reach the bin named after the package; the checkout verb
+ *   dispatches to this file from apply.js. The legacy bin name
+ *   dsh-git-badge-checkout still works when invoked directly.)
  *
  * The path is validated as a real worktree of its repository before it is
  * written, so a typo cannot point the badge at an unrelated directory.
@@ -26,7 +30,7 @@ import { clearSessionCheckout, writeSessionCheckout } from "./store.js";
 
 function usage(message) {
 	if (message !== void 0) console.error(message);
-	console.error("usage: dsh-git-badge-checkout <path> | --clear");
+	console.error("usage: dsh-git-badge checkout <path> | --clear");
 }
 
 /** Worktree paths git lists for the repo containing `dir` — the node half's parser. */

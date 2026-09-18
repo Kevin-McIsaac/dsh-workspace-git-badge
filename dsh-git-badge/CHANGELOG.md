@@ -10,6 +10,25 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The documented patcher command finally runs.** Every prompt the product
+  shows — the input-chip tooltip, the postinstall hint, the README — says
+  `npx dsh-git-badge apply`, and every one of them failed with
+  "could not determine executable to run": npm's npx auto-runs a bin only when
+  the bin's name matches the package name, and the package shipped two bins
+  (`dsh-git-badge-seam`, `dsh-git-badge-checkout`) that did not match. The
+  0.9.1 note below claimed npx runs a package's single bin under its own name —
+  wrong npm behavior, shipped untested; `npx dsh-git-badge-seam` fared no
+  better (404 — no *package* carries that name; npx resolves package names,
+  then looks up a bin inside them). The fix is the alias the prompts always
+  assumed: bin `"dsh-git-badge": "seam/apply.js"`. The alias also multiplexes
+  the checkout bin (`npx dsh-git-badge checkout <path|--clear>` dispatches to
+  `seam/checkout.js`), because npx cannot reach a package's second bin by
+  name at all — so the gh skill, the README and checkout's own usage text now
+  name the working form everywhere the old `dsh-git-badge-checkout` spelling
+  appeared. The legacy bins stay for direct invocation.
+
 ## [0.17.3] - 2026-09-17
 
 ### Fixed

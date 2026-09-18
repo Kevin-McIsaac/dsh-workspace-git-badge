@@ -209,8 +209,46 @@ test("the patcher ships in the package: files list, bin, and stub", { skip }, as
 		assert.ok(pkg.files.includes(f), `files must ship ${f}`);
 		assert.ok(existsSync(join(PACKAGE, f)), `${f} exists`);
 	}
-	assert.equal(pkg.bin?.["dsh-git-badge-seam"], "seam/apply.js", "the bin entry names the patcher");
+	assert.equal(pkg.bin?.["dsh-git-badge"], "seam/apply.js", "the package-name alias IS the patcher: npx runs a bin only when its name matches the package");
+	assert.equal(pkg.bin?.["dsh-git-badge-seam"], "seam/apply.js", "the legacy bin entry names the patcher too");
+	assert.equal(pkg.bin?.["dsh-git-badge-checkout"], "seam/checkout.js", "the legacy checkout bin stays for direct invocation");
 	assert.equal(pkg.scripts?.postinstall, "node seam/postinstall.js", "the install-time hook is wired");
+});
+
+test("the package-name alias dispatches checkout to the checkout CLI", { skip }, async (t) => {
+	// npx dsh-git-badge checkout <path|--clear> — apply.js strips the verb and
+	// delegates. Driven through the real script: this pins the argv splice (a
+	// botched shift would point checkout at the verb instead of the path) and
+	// that checkout needs no DSH install (it must run before installPaths).
+	const dataDir = await makeTempDir(t, "dsh-seam-data-");
+	const runCheckout = async (args, env) => {
+		try {
+			const { stdout, stderr } = await exec(process.execPath, [APPLY, "checkout", ...args], {
+				env: { ...process.env, ...env, SEAM_DATA_DIR: dataDir },
+			});
+			return { code: 0, out: stdout + stderr };
+		} catch (error) {
+			return { code: error.code ?? 1, out: String(error.stdout ?? "") + String(error.stderr ?? "") };
+		}
+	};
+
+	// no session id: checkout's own usage error, exit 2 (not apply's usage, exit 1).
+	// Forced empty — the test process itself runs inside a dsh session, whose
+	// exported DSH_SESSION_ID would otherwise leak into the child env.
+	const noSession = await runCheckout(["--clear"], { DSH_SESSION_ID: "" });
+	assert.equal(noSession.code, 2, "the verb reached checkout.js: " + noSession.out);
+	assert.match(noSession.out, /no DSH_SESSION_ID/);
+
+	// --clear with a session id: full delegation, hermetic store, exit 0
+	const cleared = await runCheckout(["--clear"], { DSH_SESSION_ID: "test-session" });
+	assert.equal(cleared.code, 0, "clear succeeded: " + cleared.out);
+	assert.match(cleared.out, /checkout registration cleared/);
+
+	// a PATH argument lands as argv[2] — a non-worktree path must be rejected by
+	// checkout's own validation, proving the splice shifted the argument not the verb
+	const badPath = await runCheckout(["/definitely/not/a/worktree"], { DSH_SESSION_ID: "test-session" });
+	assert.equal(badPath.code, 1, "the path reached checkout.js's validation: " + badPath.out);
+	assert.match(badPath.out, /not a git worktree/);
 });
 
 test("the postinstall hook acts only on pristine installs and never fails one", { skip }, async (t) => {
