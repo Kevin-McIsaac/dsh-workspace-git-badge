@@ -37,13 +37,31 @@
  *                  a stable, user-level store shared by every way this tool
  *                  can run. See seam/store.js for the restart marker.
  *
- * Usage: apply.js apply | apply.js revert | apply.js status
+ * The package also declares this file under the package's own name
+ * (bin "dsh-git-badge"), because npx only auto-runs a bin whose name matches
+ * the package name: `npx dsh-git-badge apply` resolves, while
+ * `npx dsh-git-badge-seam` 404s (no PACKAGE carries that name). The alias
+ * multiplexes the checkout bin too — npx cannot reach a second bin by name,
+ * so the checkout verb dispatches here:
+ *
+ * Usage: npx dsh-git-badge apply | revert | status | checkout <path|--clear>
+ *        (equivalently apply.js <verb>; checkout delegates to checkout.js)
  */
 import { copyFileSync, existsSync, readFileSync } from "node:fs";
 import { MARKER } from "./anchors.js";
 import { backupState, doPatch, doRestore, installPaths, inspect, KNOWN_GOOD_HASH, sha256 } from "./patch.js";
 import { installSkill } from "./skill.js";
 import { writeRestartMarker } from "./store.js";
+
+const VERDICT_EXIT_1 = new Set(["drift", "unreadable", "missing", "ours-corrupt"]);
+
+const verb = process.argv[2];
+if (verb === "checkout") {
+	// alias-bin multiplex: strip the verb so checkout.js sees argv[2] = <path|--clear>
+	process.argv.splice(2, 1);
+	await import("./checkout.js");
+	process.exit(0); // checkout's success path returns; every failure path exits inside
+}
 
 const paths = installPaths();
 if (paths === null) {
@@ -53,11 +71,8 @@ if (paths === null) {
 }
 const CLIENT = paths.client;
 
-const VERDICT_EXIT_1 = new Set(["drift", "unreadable", "missing", "ours-corrupt"]);
-
-const verb = process.argv[2];
 if (!verb || !["apply", "revert", "status"].includes(verb)) {
-	console.error("usage: apply.js apply|revert|status");
+	console.error("usage: dsh-git-badge apply|revert|status   (or: dsh-git-badge checkout <path|--clear>)");
 	process.exit(1);
 }
 
@@ -152,7 +167,7 @@ if (verb === "apply") {
 			console.error("REFUSING: anchor drift — nothing was written.");
 			console.error(`  anchor:   ${name} (found ${count} times, need exactly 1)`);
 			console.error("Upstream changed code this patch anchors on. Update the matching entry");
-			console.error("in anchors.js, then re-run: dsh-git-badge-seam status && dsh-git-badge-seam apply");
+			console.error("in anchors.js, then re-run: dsh-git-badge status && dsh-git-badge apply");
 			process.exit(1);
 		}
 		case "ours-corrupt":

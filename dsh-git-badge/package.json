@@ -5,6 +5,7 @@
   "type": "module",
   "main": "lib/index.js",
   "bin": {
+    "dsh-git-badge": "seam/apply.js",
     "dsh-git-badge-seam": "seam/apply.js",
     "dsh-git-badge-checkout": "seam/checkout.js"
   },
