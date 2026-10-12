@@ -276,6 +276,30 @@ test("a FOLLOWED worktree is named in the CARD, never on the chip", () => {
 	assert.equal(client.internals.worktreeDetail({ branch: "main", isWorktree: false }), void 0, "a main checkout has nothing to name");
 });
 
+test("the card names linked worktrees it is NOT following — the failure made visible", () => {
+	// A registration is written outside the repository, so a file sandbox or a
+	// read-only home can refuse it. The write fails, the badge keeps describing the
+	// session's own checkout, and nothing on screen distinguishes that from a
+	// session with nothing to follow. This row is the difference.
+	const client = createClient();
+	assert.match(
+		client.internals.linkedWorktreesDetail({ linkedWorktrees: 1 }),
+		/^1 linked .*none registered/,
+		"one linked tree reads as linked-but-unregistered"
+	);
+	assert.match(client.internals.linkedWorktreesDetail({ linkedWorktrees: 3 }), /^3 linked/);
+	assert.match(
+		client.internals.linkedWorktreesDetail({ linkedWorktrees: 2 }),
+		/npx dsh-git-badge checkout/,
+		"and carries the command that fixes it"
+	);
+	// absent when there is nothing to say: no count, a zero, or a followed tree
+	assert.equal(client.internals.linkedWorktreesDetail({}), void 0);
+	assert.equal(client.internals.linkedWorktreesDetail({ linkedWorktrees: 0 }), void 0);
+	assert.equal(client.internals.linkedWorktreesDetail({ linkedWorktrees: void 0 }), void 0);
+	assert.equal(client.internals.linkedWorktreesDetail(void 0), void 0);
+});
+
 test("the mark's accessible name states status AND worktree-ness", () => {
 	const client = createClient();
 	const main = mark(client.chip({ ...MAIN, dirty: true }));

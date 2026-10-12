@@ -280,6 +280,22 @@ test("the card does NOT repeat what the count and branch hovers own", () => {
 	assert.ok(body.includes("2 stashed"), "stash stays on the card");
 });
 
+test("the card names the linked worktrees the session is NOT following", () => {
+	// This row exists to make one failure visible. A registration is written
+	// OUTSIDE the repository, so a file sandbox or a read-only home can refuse it;
+	// the write fails, the badge goes on describing the session's own checkout, and
+	// nothing on screen distinguishes that from a session with nothing to follow.
+	// The node half sends the count under detail=1, and the card is where it lands.
+	const client = createClient({ tooltip: true, hover: true });
+	const body = card(client, BASE, { ...DETAIL, linkedWorktrees: 2 });
+	assert.ok(body.includes("2 linked"), `the count is on the card: ${body}`);
+	assert.ok(body.includes("none registered"), "and says what it means");
+	assert.ok(body.includes("npx dsh-git-badge checkout"), "and carries the command that fixes it");
+	// and it stays off the card when there is nothing to report
+	const quiet = card(client, BASE, DETAIL);
+	assert.ok(!quiet.includes("none registered"), `no row without a count: ${quiet}`);
+});
+
 test("the branch hover lists the commits this branch adds", () => {
 	// the BranchCommitsList body is the tooltip's label function — exercised the
 	// same way the card body is

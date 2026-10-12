@@ -244,6 +244,29 @@ patch. The pinned hash (`KNOWN_GOOD_HASH`) is advisory only: `status` reports
 whether the installed build is the one the anchors were verified against, but
 `apply` proceeds on any build whose anchors resolve.
 
+**The two stores are independent, and that is the trap.** `apply` patches
+whichever store it is pointed at, so the shipped default
+(`$DSH_HOME/git-badge-seam`) and this repo's wrapper (`seam/`) each keep their
+own backup. Apply through one, and the other's backup stays behind — and after a
+DSH update that stale backup holds an **older** upstream. Reverting through it
+would write those older bytes over the installed build. That is a real hazard,
+not a hypothetical one. So `revert` validates the backup before restoring it:
+when the current anchors do not resolve against it (`backupState` is not
+`patchable`), revert **REFUSES** and changes nothing.
+
+`status` names the outcome in advance, so read the `revert:` line before you
+need it:
+
+```text
+revert:     would restore the bytes as found — the backup is a build this patch targets
+revert:     would REFUSE — the backup is 'drift' — a different upstream generation, …
+revert:     would REFUSE — no backup in this store, so the original bytes are unknown
+```
+
+Recover from a refused revert by reverting from the store that patched the
+build, or by reinstalling the DSH package. `status` reports only the store it was
+given, so when two checkouts disagree, check `SEAM_DATA_DIR` first.
+
 After apply, **restart the dsh web process** — the workspace bundle URL
 carries a `?rev=` hash that only changes at boot, so a browser refresh alone
 can keep serving stale JS (and the composed boot graph is what the browser
@@ -276,15 +299,32 @@ checkout and the pull request needs no patch at all: it rides upstream's own
   request to carry `pr=1` only. And `pr=1` requires `gh` on PATH, authenticated,
   and a `github.com` `origin` — verify with `gh pr view` in the same directory
   before concluding the token is broken.
-- **Worktree selection changed** → the suite covers the parser, the selection rule,
-  the open-PR read's caching and every failure shape, the watcher a follow needs,
-  the route's registration split, and the followed rendering rules. The live proof
-  has a precondition that is easy to trip over: it needs a repository that HAS a
-  linked worktree **whose branch has an open PR**. Without one — the common state
-  after a PR merges and its worktree is removed — the badge correctly stays on the
-  session's own checkout, so "no swap" is not evidence of a bug. Check with
-  `git worktree list` and `gh pr list --state open` in the same repo first, then
+- **Worktree selection changed** → the suite covers the parser, the registration
+  guardrails (24h TTL, git validation, the main-checkout precondition, the
+  never-swapped-sideways rule), the watcher a follow needs, and the route's
+  session/workspace split. There is **no inference from pull requests** any more —
+  the badge never guesses a worktree — so the live proof has a precondition that
+  is easy to trip over: the session must have **registered** the worktree.
+  Without a registration the badge correctly stays on the session's own checkout
+  (the main one), so "no swap" is not evidence of a bug. Register first, then
   compare a session target against a workspace target (`docs/VERIFICATION.md`).
+
+  **The registration needs a writable `$DSH_HOME`, and an agent sandbox often
+  does not allow one.** `npx dsh-git-badge checkout <path>` writes
+  `$DSH_HOME/git-badge-seam/session-checkouts.json`, so under a file sandbox that
+  permits writes only inside the session workspace it exits 1, naming the target
+  file, the errno, and the three ways out. Under `workspace-write` that is
+  expected, not a bug. The BADGE side is what to check when it happens: a refused
+  registration leaves the badge describing the session's own checkout, and the
+  chip's hover card names the gap — `N linked · none registered — npx
+  dsh-git-badge checkout <path>`. That row is the on-screen difference between
+  "nothing to follow" and "the registration could not be written"; it rides
+  `detail=1` like the card's other extras.
+
+  To make the badge follow instead, do one of three things: grant that one
+  command write access to the store, register from a shell that has it, or add the
+  worktree as its own workspace — a session created there needs no registration at
+  all, because its cwd already IS the tree.
 
 ## Publishing a new version
 

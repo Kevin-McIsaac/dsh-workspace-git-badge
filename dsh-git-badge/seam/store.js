@@ -105,20 +105,24 @@ export function readSessionCheckouts(file = sessionCheckoutsPath()) {
 /**
  * Register the checkout a session is working in. Written by the agent (the
  * git-worktree and /gh checkout paths), read by the node half.
+ *
+ * Returns the OUTCOME rather than a boolean, because the reason matters here more
+ * than anywhere else in this file. A registration that cannot be written is the
+ * one failure the badge CANNOT show: the session quietly keeps its inferred
+ * checkout, which looks identical to a session with nothing to follow. The caller
+ * gets `error`/`code` so it can say what went wrong and where, instead of
+ * reporting a bare failure that the next reader has to rediscover the hard way.
  */
 export function writeSessionCheckout(sessionId, path) {
+	const file = sessionCheckoutsPath();
 	try {
 		mkdirSync(dataDir(), { recursive: true });
 		const sessions = readSessionCheckouts();
 		sessions[sessionId] = { path, at: new Date().toISOString() };
-		writeFileSync(
-			sessionCheckoutsPath(),
-			JSON.stringify({ schema: "dsh-git-badge/session-checkout/v1", sessions }),
-			"utf8",
-		);
-		return true;
-	} catch {
-		return false;
+		writeFileSync(file, JSON.stringify({ schema: "dsh-git-badge/session-checkout/v1", sessions }), "utf8");
+		return { ok: true, file };
+	} catch (error) {
+		return { ok: false, file, error: String(error?.message ?? error), code: String(error?.code ?? "") };
 	}
 }
 

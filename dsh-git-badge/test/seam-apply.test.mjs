@@ -203,6 +203,49 @@ test("revert refuses when upstream replaced the file since the patch", { skip },
 	assert.equal(await readFile(install.client, "utf8"), newer, "the newer upstream file is untouched");
 });
 
+test("revert refuses a backup from a different upstream generation — and status warns first", { skip }, async (t) => {
+	// The cross-store trap. `apply` patches whichever SEAM_DATA_DIR it is pointed
+	// at, so applying through one (the shipped default, $DSH_HOME/git-badge-seam)
+	// leaves another's backup behind (this repo's wrapper keeps its own in seam/).
+	// After a DSH UPDATE that stale backup holds an OLDER upstream, and revert used
+	// to restore it blindly — a silent downgrade of the installed package. It must
+	// refuse, and `status` must say so BEFORE anyone runs it.
+	const install = await fakeInstall(t);
+	const dataDir = await makeTempDir(t, "dsh-seam-data-");
+	await writeFile(install.client, await pristine());
+	await writeFile(install.index, "// index\n");
+	assert.match((await apply(install, "apply", dataDir)).out, /patched lib\/client\.js in place/);
+	const patched = await readFile(install.client, "utf8");
+
+	// The store's backup is from a DIFFERENT upstream generation: an anchor the
+	// current patch targets has moved, so the anchors do not resolve against it.
+	// (A real one comes from a DSH update landing between the two applies.)
+	const foreign = (await pristine()).replace(
+		"function SessionNodeItem({ node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, t }) {",
+		"function SessionNodeItemV2({ node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, t }) {"
+	);
+	await writeFile(join(dataDir, "backup-client.js"), foreign);
+
+	// status names the refusal in advance
+	const status = await apply(install, "status", dataDir);
+	assert.match(status.out, /revert:\s+would REFUSE/, `status must warn before the fact: ${status.out}`);
+
+	// and the revert refuses, leaving the installed build untouched
+	const result = await apply(install, "revert", dataDir);
+	assert.equal(result.code, 1, "restoring a foreign backup must be refused");
+	assert.match(result.out, /REFUSING to revert/);
+	assert.match(result.out, /different upstream generation/);
+	assert.equal(await readFile(install.client, "utf8"), patched, "the installed build was not overwritten");
+
+	// The corrective path still works: refresh this store's backup, and both the
+	// report and the revert go back to normal.
+	await writeFile(join(dataDir, "backup-client.js"), await pristine());
+	assert.match((await apply(install, "status", dataDir)).out, /revert:\s+would restore/);
+	const okay = await apply(install, "revert", dataDir);
+	assert.equal(okay.code, 0, `a valid backup still reverts: ${okay.out}`);
+	assert.equal(await readFile(install.client, "utf8"), await pristine(), "back to the bytes as found");
+});
+
 test("the patcher ships in the package: files list, bin, and stub", { skip }, async () => {
 	const pkg = JSON.parse(await readFile(join(PACKAGE, "package.json"), "utf8"));
 	for (const f of ["seam/apply.js", "seam/anchors.js", "seam/postinstall.js", "seam/store.js", "seam/stub-index.js"]) {
@@ -249,6 +292,34 @@ test("the package-name alias dispatches checkout to the checkout CLI", { skip },
 	const badPath = await runCheckout(["/definitely/not/a/worktree"], { DSH_SESSION_ID: "test-session" });
 	assert.equal(badPath.code, 1, "the path reached checkout.js's validation: " + badPath.out);
 	assert.match(badPath.out, /not a git worktree/);
+});
+
+test("a registration that cannot be written says WHY, and how to recover", { skip }, async (t) => {
+	// The failure the badge cannot show. `writeSessionCheckout` used to swallow the
+	// cause and return false, so the whole report was "could not write the
+	// registration" — no path, no reason, no recovery — and the caller's next step
+	// was guesswork. That is how a session whose agent works in a worktree ends up
+	// with a badge describing the main checkout and nobody knowing why.
+	const dir = await makeTempDir(t, "dsh-seam-blocked-");
+	// a FILE where the store needs a DIRECTORY, so mkdirSync cannot succeed
+	const blocked = join(dir, "blocked");
+	await writeFile(blocked, "not a directory\n");
+	let result;
+	try {
+		// the WORKTREE ROOT (the repo root), which git lists — SEAM_REPO is its seam/ subdir
+		const { stdout, stderr } = await exec(process.execPath, [APPLY, "checkout", join(PACKAGE, "..")], {
+			env: { ...process.env, DSH_SESSION_ID: "session-blocked", SEAM_DATA_DIR: blocked }
+		});
+		result = { code: 0, out: stdout + stderr };
+	} catch (error) {
+		result = { code: error.code ?? 1, out: String(error.stdout ?? "") + String(error.stderr ?? "") };
+	}
+	assert.equal(result.code, 1, `a refused registration must fail loudly: ${result.out}`);
+	assert.match(result.out, /could not write the registration to .*blocked/, "the target is named");
+	assert.match(result.out, /reason: \S/, "the CAUSE is reported, not swallowed");
+	assert.match(result.out, /EEXIST|ENOTDIR|EACCES|EROFS/, "and it is the real errno");
+	assert.match(result.out, /re-run this command/, "the remedies are spelled out");
+	assert.match(result.out, /add the worktree as its own dsh workspace/);
 });
 
 test("the postinstall hook acts only on pristine installs and never fails one", { skip }, async (t) => {

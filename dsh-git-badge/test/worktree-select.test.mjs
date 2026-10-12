@@ -429,6 +429,41 @@ test("the hover card's checkout row is served only with detail=1", async (t) => 
 	assert.equal(detailed.branch, "feat/tree", "the badge still describes the worktree");
 });
 
+test("an unregistered session is told how many linked worktrees it is NOT following", async (t) => {
+	// The failure the badge cannot otherwise show. A registration is written
+	// outside the repository, so a file sandbox or a read-only home can refuse it;
+	// the write fails, the badge keeps describing the session's own checkout, and
+	// the UI looks exactly like a session with nothing to follow. This count is the
+	// on-screen difference between those two states.
+	clearState(t);
+	const { repo, routes } = await setup(t);
+	await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
+	// deliberately NOT registered
+	const detailed = JSON.parse((await get(routes, `?session=${SESSION_ID}&detail=1`)).text());
+	assert.equal(detailed.worktreeFollowed, void 0, "nothing is followed");
+	assert.equal(detailed.linkedWorktrees, 1, "the card can name what is not being followed");
+
+	// detail-gated: a plain sample must not pay the extra `git worktree list`
+	const plain = JSON.parse((await get(routes, `?session=${SESSION_ID}`)).text());
+	assert.equal("linkedWorktrees" in plain, false, "nothing at rest pays for it");
+
+	// and a WORKSPACE-targeted request is about the registry's checkout, not a
+	// session — it has no registration to be missing
+	const workspace = JSON.parse((await get(routes, `?workspace=${WORKSPACE_ID}&detail=1`)).text());
+	assert.equal("linkedWorktrees" in workspace, false);
+});
+
+test("a FOLLOWED worktree reports no unregistered count", async (t) => {
+	// Once the registration exists the row would be a lie: the tree IS followed.
+	clearState(t);
+	const { repo, routes } = await setup(t);
+	const tree = await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
+	register(t, SESSION_ID, tree);
+	const detailed = JSON.parse((await get(routes, `?session=${SESSION_ID}&detail=1`)).text());
+	assert.equal(detailed.worktreeFollowed, true);
+	assert.equal("linkedWorktrees" in detailed, false, "a followed tree is not 'not following'");
+});
+
 
 test("identical concurrent status reads collapse into one git invocation", async (t) => {
 	clearState(t);

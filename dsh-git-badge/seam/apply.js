@@ -47,9 +47,9 @@
  * Usage: npx dsh-git-badge apply | revert | status | checkout <path|--clear>
  *        (equivalently apply.js <verb>; checkout delegates to checkout.js)
  */
-import { copyFileSync, existsSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync } from "node:fs";
 import { MARKER } from "./anchors.js";
-import { backupState, doPatch, doRestore, installPaths, inspect, KNOWN_GOOD_HASH, sha256 } from "./patch.js";
+import { backupState, doPatch, doRestore, installPaths, inspect, KNOWN_GOOD_HASH, revertPlan } from "./patch.js";
 import { installSkill } from "./skill.js";
 import { writeRestartMarker } from "./store.js";
 
@@ -115,6 +115,17 @@ if (verb === "status") {
 		default:
 			console.log(`verdict:    ${r.state.toUpperCase()} — see error above.`);
 	}
+	// Whether `revert` would act or refuse, reported BEFORE anyone needs it. The
+	// refusal can be about a backup that lives in a different store than the one
+	// being inspected, so revert time is the wrong moment to learn about it.
+	const plan = revertPlan(paths);
+	const revertLine =
+		plan.action === "refuse"
+			? `would REFUSE — ${plan.reason}`
+			: plan.action === "noop"
+				? `nothing to do — ${plan.reason}`
+				: `would restore the bytes as found — ${plan.reason}`;
+	console.log(`revert:     ${revertLine}`);
 	process.exit(VERDICT_EXIT_1.has(r.state) ? 1 : 0);
 }
 
@@ -182,40 +193,48 @@ if (verb === "apply") {
 	}
 	console.log(`now install the plugin:  dsh plugin --profile web add dsh-git-badge`);
 } else {
-	// revert
-	if (existsSync(paths.backupClient)) {
-		const r = inspect(paths);
-		const installedHash = r.hash;
-		const backupHash = sha256(readFileSync(paths.backupClient, "utf8"));
-		if (installedHash === backupHash) {
-			// Idempotent re-run: the installed bytes already ARE the backup.
-			console.log("already reverted — installed client.js matches the backup; nothing to do.");
-		} else if (r.state === "ours-current" || r.state === "ours-stale" || r.state === "ours-corrupt") {
-			doRestore(paths);
-			console.log("reverted client.js/index.js to the bytes as found before patching.");
-			// A revert also changes bytes the running bundles were composed from.
-			writeRestartMarker("revert");
-		} else {
-			// Installed file is not ours => upstream replaced it since patching.
-			console.error("REFUSING to revert: the installed client.js is not this repo's");
-			console.error(`artifact (state: ${r.state}), so upstream replaced it since the patch was`);
-			console.error("applied. Restoring the backup would DOWNGRADE the package.");
-			console.error("Nothing was changed. If the downgrade is really what you want, restore");
-			console.error(`${paths.backupClient} by hand.`);
-			process.exit(1);
-		}
+	// revert — ONE decision (revertPlan), shared with the `status` report, so the
+	// refusal a user is warned about is the refusal they actually get.
+	const plan = revertPlan(paths);
+	const r = inspect(paths);
+	const ours = r.state === "ours-current" || r.state === "ours-stale" || r.state === "ours-corrupt";
+	const hasBackup = existsSync(paths.backupClient);
+
+	if (plan.action === "restore") {
+		doRestore(paths);
+		console.log("reverted client.js/index.js to the bytes as found before patching.");
+		// A revert also changes bytes the running bundles were composed from.
+		writeRestartMarker("revert");
+	} else if (plan.action === "noop") {
+		// Idempotent re-run: the installed bytes already ARE the backup.
+		console.log(`already reverted — ${plan.reason}; nothing to do.`);
+	} else if (hasBackup && ours) {
+		// The dangerous case: WE patched this build, but the backup beside it is
+		// from another upstream generation. Restoring it downgrades the package.
+		console.error("REFUSING to revert: the backup in this store is not a build this patch");
+		console.error(`targets — ${plan.reason}.`);
+		console.error("Restoring it would replace the installed build with an older upstream that the");
+		console.error("current anchors cannot re-apply. Nothing was changed.");
+		console.error("Revert from the store that patched this build instead — its `status` prints");
+		console.error("`revert:     would restore ...` — or reinstall the DSH package.");
+		process.exit(1);
+	} else if (hasBackup) {
+		// Installed file is not ours => upstream replaced it since patching.
+		console.error("REFUSING to revert: the installed client.js is not this repo's");
+		console.error(`artifact (state: ${r.state}). Restoring the backup would DOWNGRADE the`);
+		console.error("package. Nothing was changed. If the downgrade is really what you want,");
+		console.error(`restore ${paths.backupClient} by hand.`);
+		process.exit(1);
+	} else if (ours) {
+		console.error("REFUSING: the installed file is patched but no backup exists in");
+		console.error("the seam data dir, so the original bytes are unknown here. Options:");
+		console.error("  1. If you applied from a clone of the plugin's repository, run its");
+		console.error("     wrapper instead — it keeps its own backup:");
+		console.error("       <clone>/seam/apply.sh revert");
+		console.error("  2. Otherwise reinstall the package — pristine files, guaranteed:");
+		console.error("       npm i -g @deepseek-ai/dsh@latest");
+		process.exit(1);
 	} else {
-		const r = inspect(paths);
-		if (r.state === "ours-current" || r.state === "ours-stale" || r.state === "ours-corrupt") {
-			console.error("REFUSING: the installed file is patched but no backup exists in");
-			console.error("the seam data dir, so the original bytes are unknown here. Options:");
-			console.error("  1. If you applied from a clone of the plugin's repository, run its");
-			console.error("     wrapper instead — it keeps its own backup:");
-			console.error("       <clone>/seam/apply.sh revert");
-			console.error("  2. Otherwise reinstall the package — pristine files, guaranteed:");
-			console.error("       npm i -g @deepseek-ai/dsh@latest");
-			process.exit(1);
-		}
 		console.log("no backup present and nothing of ours installed; client.js left untouched.");
 	}
 	// restore the no-op host half if no backup of the original exists

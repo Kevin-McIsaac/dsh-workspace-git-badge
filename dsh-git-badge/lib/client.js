@@ -761,6 +761,24 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * The `worktrees` row: how many LINKED worktrees this repository has while
+		 * the badge follows none of them.
+		 *
+		 * It earns its place on one thing only — the failure it makes visible. A
+		 * registration is written outside the repository, so a file sandbox or a
+		 * read-only home can refuse it. When that happens the badge silently keeps
+		 * describing the session's own checkout, and the agent's work sits in a tree
+		 * the UI never names. That state is indistinguishable from a session with
+		 * nothing to follow, so the card is the only place it can be said. The node
+		 * half computes it under `detail=1` only, so nothing at rest pays for it.
+		 */
+		function linkedWorktreesDetail(info) {
+			const linked = info?.linkedWorktrees;
+			if (typeof linked !== "number" || linked <= 0) return void 0;
+			return linked + " linked \u00B7 none registered \u2014 npx dsh-git-badge checkout <path>";
+		}
+
+		/**
 		 * ONE commit line, shared by the branch hover and the PR token's hover so
 		 * the two cannot drift apart again: a fixed-width monospace hash cell, so
 		 * every description starts on the same column and the list reads as a
@@ -1076,6 +1094,11 @@ window.__ModuleLoader__.load({
 			// WHICH checkout the badge describes, when it is a worktree. The chip shows
 			// the branch alone, so this row is the only place the tree is named.
 			add("worktree", worktreeDetail(data));
+			// The linked-but-unregistered state — the on-screen difference between
+			// "nothing to follow" and "the registration could not be written". Rides
+			// the detail payload, so it appears once the hover has fetched, exactly
+			// like the `checkout` row below it.
+			add("worktrees", linkedWorktreesDetail(data));
 			// The conversation's OWN directory, present only when the badge is
 			// describing a followed worktree — the chip's branch and counts are the
 			// tree's in that case, so this is where the checkout's own state stays
@@ -1870,7 +1893,7 @@ window.__ModuleLoader__.load({
 		// Additive; the host reads apply/inject and ignores the rest. The suite
 		// drives these to assert the REQUEST contract — which surface asks for the
 		// expensive extras — without a browser, a fetch or a network.
-		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, actionToken, ghSkillActions, cleanGate, moveCategory };
+		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, linkedWorktreesDetail, actionToken, ghSkillActions, cleanGate, moveCategory };
 		return module.exports;
 	}
 });

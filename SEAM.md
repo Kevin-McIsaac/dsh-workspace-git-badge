@@ -117,10 +117,17 @@ Safety rails:
 - **Reversible, and downgrade-guarded**: `revert` restores the **bytes as found
   before patching** (`seam/backup-client.js`, taken from the installed file at
   the moment of first patching), so it always puts back exactly what was there.
-  It refuses when the installed file is not our artifact, because after a DSH
-  update that would overwrite a newer upstream file with an older one. `status`
-  flags that in advance under `revert: would REFUSE`. The upstream host half is
-  a no-op stub (`seam/stub-index.js`), and `backup-*.js` is gitignored, so any
+  It refuses in two cases. First, when the installed file is not our artifact,
+  because after a DSH update that would overwrite a newer upstream file with an
+  older one. Second, when the **backup itself** is from another upstream
+  generation — the current anchors do not resolve against it, so restoring it
+  would downgrade the package AND leave a build this patch cannot re-apply. That
+  second case is easy to acquire by accident: `apply` patches whichever
+  `SEAM_DATA_DIR` it is pointed at, so the shipped default
+  (`$DSH_HOME/git-badge-seam`) and this repo's wrapper (`seam/`) each keep their
+  own backup, and applying through one leaves the other's behind. `status` flags
+  either refusal in advance under `revert: would REFUSE`. The upstream host half
+  is a no-op stub (`seam/stub-index.js`), and `backup-*.js` is gitignored, so any
   checkout can apply and revert on its own.
 
 ## Rebuilding after a DSH upgrade

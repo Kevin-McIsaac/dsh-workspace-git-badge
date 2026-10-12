@@ -121,6 +121,45 @@ export function backupState(paths) {
 }
 
 /**
+ * What `revert` WOULD do, without doing it — the ONE decision the `status`
+ * report and the revert branch both read, so they cannot drift apart. They did:
+ * `revert: would REFUSE` was documented in SEAM.md and never implemented, which
+ * is the same shape of bug as the hole this closes.
+ *
+ * A legitimate backup is the bytes as found before patching, so the CURRENT
+ * anchors must still resolve against it (`backupState` is "patchable"). A store
+ * whose backup predates a DSH update satisfies neither condition: it holds an
+ * OLDER upstream, so restoring it would downgrade the package AND leave a build
+ * this patch cannot re-apply.
+ *
+ * That store is easy to acquire by accident, because `apply` patches whichever
+ * store it is pointed at: the shipped patcher defaults to
+ * `$DSH_HOME/git-badge-seam` while this repo's wrapper keeps its own under
+ * `seam/`. Apply through one and the other's backup stays behind.
+ *
+ * @returns {{ action: "restore" | "noop" | "refuse", reason: string }}
+ */
+export function revertPlan(paths) {
+	if (!existsSync(paths.backupClient))
+		return { action: "refuse", reason: "no backup in this store, so the original bytes are unknown" };
+	const r = inspect(paths);
+	if (r.hash === sha256(readText(paths.backupClient)))
+		return { action: "noop", reason: "installed client.js already matches the backup" };
+	if (r.state !== "ours-current" && r.state !== "ours-stale" && r.state !== "ours-corrupt")
+		return {
+			action: "refuse",
+			reason: `the installed client.js is not this repo's artifact (state: ${r.state})`
+		};
+	const bstate = backupState(paths);
+	if (bstate !== "patchable")
+		return {
+			action: "refuse",
+			reason: `the backup is '${bstate}' — a different upstream generation, not a build this patch targets`
+		};
+	return { action: "restore", reason: "the backup is a build this patch targets" };
+}
+
+/**
  * Backup the bytes AS FOUND, patch client.js in place, install the no-op host
  * half, and record the restart marker (`reason` names the actor: apply |
  * postinstall | revert). Callers gate on inspect() first — this writes

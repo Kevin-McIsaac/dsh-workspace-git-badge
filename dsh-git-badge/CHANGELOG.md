@@ -10,6 +10,38 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`revert` refuses a backup from a different upstream generation.** `apply`
+  patches whichever `SEAM_DATA_DIR` it is pointed at, so the shipped default
+  (`$DSH_HOME/git-badge-seam`) and this repo's wrapper (`seam/`) each keep their
+  own backup — and applying through one leaves the other's behind. After a DSH
+  update that stale backup holds an OLDER upstream, and `revert` used to restore
+  it blindly: a silent downgrade of the installed package. `revert` now validates
+  the backup before restoring it — the current anchors must resolve against it —
+  and refuses with a clear message, changing nothing.
+- **`status` reports what `revert` would do**, under a `revert:` line: restore,
+  no-op, or REFUSE and why. SEAM.md had documented that line from the beginning;
+  it was never implemented, so the refusal could arrive as a surprise at the one
+  moment it was least welcome.
+- **A worktree registration that cannot be written now says WHY.** The store
+  swallowed the cause, so `npx dsh-git-badge checkout <path>` reported only
+  "could not write the registration" — no path, no reason, no recovery — and the
+  next reader had to rediscover that a file sandbox or a read-only home can
+  refuse the write. It now names the target file, the real errno, and the three
+  ways out.
+
+### Added
+
+- **The chip's hover card names the linked worktrees a session is NOT
+  following.** That state used to be invisible: a registration the sandbox
+  refused left a badge describing the session's own checkout, which looks exactly
+  like a session with nothing to follow, while the agent's work sat in a tree the
+  UI never mentioned. The card now reads
+  `2 linked · none registered — npx dsh-git-badge checkout <path>`. It rides
+  `detail=1` like the rest of the card's extras, so nothing at rest pays for the
+  extra `git worktree list`.
+
 ## [0.18.0] - 2026-10-12
 
 ### Fixed
