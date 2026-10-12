@@ -85,10 +85,10 @@ test("the session row shows the ACTION and nothing else — silence when there i
 	// tree with nothing pending renders no badge at all.
 	assert.equal(text(client.row({ ...MAIN, dirty: true })), "");
 	assert.equal(text(client.row({ ...WORKTREE, worktreeName: "hotfix-tree", dirty: false })), "");
-	// and when there IS an action the row carries the word alone: no mark, no PR
-	// number, no worktree name, no branch
+	// and when there IS an action the row carries the pill alone: a glyph and the
+	// word — no mark, no PR number, no worktree name, no branch
 	const merge = client.row({ ...WORKTREE, worktreeName: "hotfix-tree", pr: { number: 391, state: "passing", mergeState: "CLEAN" } });
-	assert.equal(text(merge), "merge");
+	assert.equal(text(merge), "\u2713 merge");
 	assert.equal(mark(merge), null, "the row draws no mark");
 	assert.ok(!text(merge).includes("391"), "nor the PR number — the hover line names it");
 });
@@ -119,7 +119,7 @@ test("the action token maps each state to the one thing to do", () => {
 	assert.equal(client.internals.actionToken({ git: false }), "", "nothing to say without a repository");
 });
 
-test("the action floats clear of the time and is coloured by SEVERITY", () => {
+test("the action is a severity-tinted pill that floats clear of the time", () => {
 	const client = createClient();
 	const styleFor = (info) => {
 		const row = client.row({ ...MAIN, ...info });
@@ -131,7 +131,13 @@ test("the action floats clear of the time and is coloured by SEVERITY", () => {
 	const merge = styleFor({ pr: { number: 1, state: "passing", mergeState: "CLEAN" } });
 	assert.equal(merge.marginLeft, "auto", "floated right, so a column of actions lines up");
 	assert.equal(merge.marginRight, "8px", "and never flush against the time label");
-	assert.equal(merge.fontWeight, 500, "heavier than the timestamp it outranks");
+	assert.equal(merge.fontWeight, 600, "heavier than the timestamp it outranks");
+	// the PILL: padding and the app's own small radius, so the token reads as a tag
+	assert.equal(merge.padding, "0 6px", "the word sits inside a pill, not in loose text");
+	assert.match(merge.borderRadius, /radius-sm/, "and the radius is the app's own");
+	// the FILL is the action's own colour at low alpha: a wash, not a shout
+	assert.match(merge.background, /color-mix/, "the pill is tinted rather than solid");
+	assert.match(merge.background, /state-success-primary/, "and the tint is the action's own colour");
 	// colour means how much this needs you, using the same state tokens the mark does
 	assert.match(merge.color, /state-success-primary/, "merge is the all-clear");
 	assert.match(styleFor({ pr: { state: "failing" } }).color, /state-error-primary/, "a broken build is loud");
@@ -141,10 +147,33 @@ test("the action floats clear of the time and is coloured by SEVERITY", () => {
 		/state-warn-primary/,
 		"a requested review is a nudge"
 	);
-	assert.match(styleFor({ behind: 1 }).color, /label-secondary/, "routine sync stays quiet");
-	assert.match(styleFor({ ahead: 1 }).color, /label-secondary/, "and so does push");
+	assert.match(styleFor({ behind: 1 }).color, /state-business-primary/, "routine sync is the quiet end of the ramp");
+	assert.match(styleFor({ ahead: 1 }).color, /state-business-primary/, "and so is push — never below notice again");
 	// the word is still the channel: the colour only reinforces it
-	assert.equal(text(client.row({ ...MAIN, pr: { state: "failing" } })), "fix CI");
+	assert.equal(text(client.row({ ...MAIN, pr: { state: "failing" } })), "\u2717 fix CI");
+});
+
+test("every action carries a glyph, and the glyph is not the accessible name", () => {
+	// The SHAPE channel: a glyph makes the row readable before the word is parsed.
+	// It is DECORATION — `aria-hidden` keeps the accessible name the bare word, so a
+	// screen reader says "push", not "upwards arrow push".
+	const client = createClient();
+	const CASES = [
+		[{ unmergedFiles: 1 }, "!", "resolve"],
+		[{ pr: { state: "failing" } }, "\u2717", "fix CI"],
+		[{ pr: { state: "passing", review: "CHANGES_REQUESTED" } }, "\u25C6", "review"],
+		[{ pr: { number: 1, state: "passing", mergeState: "CLEAN" } }, "\u2713", "merge"],
+		[{ behind: 1 }, "\u2193", "pull"],
+		[{ ahead: 1 }, "\u2191", "push"]
+	];
+	for (const [info, glyph, word] of CASES) {
+		const row = client.row({ ...MAIN, ...info });
+		assert.equal(text(row), `${glyph} ${word}`, `glyph then word for ${word}`);
+		const decoration = elements(row).find((element) => element.props?.["aria-hidden"] === true);
+		assert.ok(decoration !== void 0, `the glyph for ${word} is decoration`);
+		assert.equal(text(decoration), `${glyph} `, "and it holds only the glyph and a space");
+		assert.equal(mark(row), null, "a glyph must never become the status mark's <svg>");
+	}
 });
 
 test("a non-repository session row renders no badge", () => {
