@@ -10,9 +10,9 @@
  *    and the PR/CI token, immediately after the session title. Deliberately shows
  *    NO branch and no worktree name: the row lists conversations, and which
  *    checkout the badge describes is the hover card's business.
- *  - sidebar.workspaces.sessionRow.detail (seam): the hover-card line that names
- *    that checkout, rendered inside the card upstream ALREADY shows for a session
- *    row rather than in a tooltip nested inside it.
+ *  - sidebar.session.row.hover (upstream, no patch): the hover-card line that
+ *    names that checkout, rendered inside the card upstream ALREADY shows for a
+ *    session row rather than in a tooltip nested inside it.
  *  - conversation.input.left (upstream): chip — status mark + branch + a
  *    worktree's name + in-progress operation token + sync/dirty suffix + the
  *    PR/CI token, with a HOVER CARD carrying the breakdown the chip has no room
@@ -625,8 +625,8 @@ window.__ModuleLoader__.load({
 		/**
 		 * Session-row hover-card line — everything the action word cannot say: which
 		 * checkout the row's status describes, and which pull request the action
-		 * refers to. It renders through the sessionRow.detail seam, inside the card
-		 * upstream already opens for a row.
+		 * refers to. It renders through the upstream sidebar.session.row.hover
+		 * seat, inside the card upstream already opens for a row.
 		 *
 		 * This matters MORE now that the row shows only an imperative: `merge` with no
 		 * way to see merge WHAT would be a nag rather than a hint, so the line appears
@@ -1765,11 +1765,13 @@ window.__ModuleLoader__.load({
 				}, SessionGitBadge);
 			});
 			// The row is ALREADY a HoverCard anchor upstream, so a badge that opened
-			// its own tooltip would nest two cards. This additive slot renders the
-			// provenance line inside that card instead — the same pattern the
-			// workspace-row detail slot used. It issues no request of its own.
-			ctx.slots.inject("sidebar.workspaces.sessionRow.detail", () => ctx.slots.register({
-				name: "sidebar.workspaces.sessionRow.detail",
+			// its own tooltip would nest two cards. This renders the provenance line
+			// inside that card instead, through the hover seat upstream declares
+			// itself (sidebar.session.row.hover) — no seam patch and no request of
+			// its own. Upstream 0.2.0-rc.2 threads renderSlot into the card and adds
+			// the seat; before that this needed a patched sessionRow.detail seam.
+			ctx.slots.inject("sidebar.session.row.hover", () => ctx.slots.register({
+				name: "sidebar.session.row.hover",
 				id: "git-badge-row-detail"
 			}, SessionGitDetail));
 			// Input-row chip: upstream additive slot rendered in the input bar's

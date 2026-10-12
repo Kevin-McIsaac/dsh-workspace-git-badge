@@ -1,4 +1,8 @@
 backup-*.js
+# The dev wrapper points SEAM_DATA_DIR at seam/, so the patcher's runtime store
+# files land beside the tracked snapshots. Machine state: never repo content.
+seam/restart-pending.json
+seam/session-checkouts.json
 .npm-cache/
 # local-only reference clone (prior-art study; never publish)
 .reference/

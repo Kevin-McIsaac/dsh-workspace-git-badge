@@ -91,8 +91,8 @@ test("apply refuses a stale artifact whose backup has drifted, before overwritin
 	// the backup is from an older upstream whose anchors no longer resolve:
 	// restoring it would overwrite the installed build with an unpatchable one
 	const drifted = (await pristine()).replace(
-		"function SessionHoverContent({ node, now, t }) {",
-		"function SessionHoverContentV2({ node, now, t }) {"
+		"function SessionNodeItem({ node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, t }) {",
+		"function SessionNodeItemV2({ node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, t }) {"
 	);
 	await writeFile(join(dataDir, "backup-client.js"), drifted);
 	const installedBefore = await readFile(install.client, "utf8");
@@ -123,8 +123,8 @@ test("drift names the anchor that moved", { skip }, async (t) => {
 	// a realistic upstream refactor: one anchored component renamed, everything
 	// else untouched — exactly the case the hash pin used to treat as total drift
 	const renamed = (await pristine()).replace(
-		"function SessionHoverContent({ node, now, t }) {",
-		"function SessionHoverContentV2({ node, now, t }) {"
+		"function SessionNodeItem({ node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, t }) {",
+		"function SessionNodeItemV2({ node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, t }) {"
 	);
 	await writeFile(install.client, renamed);
 	await writeFile(install.index, "// index\n");
@@ -132,10 +132,10 @@ test("drift names the anchor that moved", { skip }, async (t) => {
 	assert.equal(status.code, 1);
 	// status indents the anchor-fail detail line; apply's stderr carries the raw
 	// `anchor_fail=` prefix — either way the MOVED anchor is named
-	assert.match(status.out, /SessionHoverContent header:0/, "the report names the moved anchor and its new count");
+	assert.match(status.out, /SessionNodeItem header \+ seam helpers:0/, "the report names the moved anchor and its new count");
 	const result = await apply(install, "apply", dataDir);
 	assert.equal(result.code, 1);
-	assert.match(result.out, /anchor_fail=SessionHoverContent header:0/);
+	assert.match(result.out, /anchor_fail=SessionNodeItem header \+ seam helpers:0/);
 });
 
 test("apply patches a build the pin has never seen, when the anchors resolve", { skip }, async (t) => {
@@ -292,8 +292,8 @@ test("the postinstall hook acts only on pristine installs and never fails one", 
 	// 3. drifted → skip, file untouched, exit 0
 	const drifted = await mklib("drifted");
 	const driftedText = (await readFile(join(SEAM_REPO, "pristine-client.js"), "utf8")).replace(
-		"function SessionHoverContent({ node, now, t }) {",
-		"function SessionHoverContentV2({ node, now, t }) {"
+		"function SessionNodeItem({ node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, t }) {",
+		"function SessionNodeItemV2({ node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, t }) {"
 	);
 	await writeFile(join(drifted.dir, "client.js"), driftedText);
 	const skipDrift = runHook(drifted.root);
@@ -326,6 +326,22 @@ test("every anchor resolves exactly once on the pinned pristine build", { skip }
 	const text = await pristine();
 	const fail = anchors.firstFailure(text);
 	assert.equal(fail, null, `anchor ${fail?.name} found ${fail?.count} times`);
+});
+
+test("the patch declares exactly the one seam child the plugin consumes", { skip }, async () => {
+	// rev 3 dropped the second seam. DSH 0.2.0-rc.2 threads renderSlot into
+	// SessionHoverContent itself and declares its own sidebar.session.row.hover
+	// seat, so the provenance line rides that upstream seat. What remains is the
+	// ONE seat upstream still lacks: the always-visible row token after the title.
+	// If a future edit reintroduces a seam the plugin does not register on, this
+	// fails instead of shipping a dead slot.
+	const anchors = await import(`${SEAM_SHIPPED}/anchors.js`);
+	const out = anchors.applyPatch(await pristine());
+	const count = (s) => out.split(s).length - 1;
+	assert.equal(count('"sidebar.workspaces.sessionRow": {'), 1, "the row-token seam is declared once");
+	assert.equal(count('"sidebar.workspaces.sessionRow.detail"'), 0, "the retired detail seam is not patched in");
+	assert.equal(count("renderSessionRowSeam"), 2, "defined once and called once, from the row");
+	assert.equal(count("class SeamBoundary"), 1, "one boundary keeps an occupant throw from blanking the sidebar");
 });
 
 test("regenerating the PR-diff artifact is byte-identical to the shipped anchors", { skip }, async () => {

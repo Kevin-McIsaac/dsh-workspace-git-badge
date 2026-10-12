@@ -44,10 +44,12 @@ Then **restart the web process** and refresh the browser:
 After that, every later install/upgrade of the plugin applies the seam itself; only the restart stays manual.
 
 ## Sidebar technical details
-Sidebar session-row tokens need a seam the workspace browser does not declare
-upstream yet (discussion
+The sidebar session-row action token needs a seam the workspace browser does not
+declare upstream yet (discussion
 [#5092](https://github.com/deepseek-ai/deepseek-harness/discussions/5092)). The
-patcher **ships inside the package** — no clone needed:
+hover-card provenance line needs **no** patch: DSH 0.2.0-rc.2 declares its own
+`sidebar.session.row.hover` seat, and the line rides that. The patcher **ships
+inside the package** — no clone needed:
 
 ```bash
 npx dsh-git-badge apply     # patch the installed DSH in place, then restart dsh web
