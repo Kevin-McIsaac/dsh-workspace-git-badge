@@ -77,8 +77,19 @@ if (!paths.includes(path)) {
 	process.exit(1);
 }
 
-if (!writeSessionCheckout(sessionId, path)) {
-	console.error("[dsh-git-badge] could not write the registration; the badge keeps its inferred checkout.");
+const written = writeSessionCheckout(sessionId, path);
+if (written.ok !== true) {
+	// The failure the badge cannot show. Say the CAUSE and the three ways out, so
+	// this never reads as "the worktree has no changes" — which is exactly what a
+	// failed registration looks like from the UI.
+	console.error(`[dsh-git-badge] could not write the registration to ${written.file}`);
+	console.error(`  reason: ${written.error}${written.code === "" ? "" : ` (${written.code})`}`);
+	console.error("  The badge therefore keeps describing THIS session's own checkout, so the");
+	console.error("  worktree's state will not appear. Pick one:");
+	console.error("    1. give this process write access to that directory, then re-run this command;");
+	console.error("    2. run this command from a shell that already has it;");
+	console.error("    3. add the worktree as its own dsh workspace — a session opened there needs no");
+	console.error("       registration at all, because its working directory IS the worktree.");
 	process.exit(1);
 }
 console.log(`[dsh-git-badge] this session's checkout is now ${basename(path)} (${branchOf(path)}).`);

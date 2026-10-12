@@ -1686,6 +1686,17 @@ function apply(ctx) {
 						}
 					}
 				}
+				if (detail && info.git === true && session !== null && effective.worktree === void 0) {
+					// No registration is in effect, so the badge describes the session's OWN
+					// checkout. When this repository also has LINKED worktrees, that is the one
+					// state worth naming: a registration write that failed (a file sandbox, a
+					// read-only home) looks exactly like a session with nothing to follow, and
+					// the agent's work then sits in a tree the badge never mentions. Gated on
+					// detail=1 (a pointer resting on the chip), so nothing at rest pays for the
+					// extra `git worktree list`.
+					const { worktrees } = await worktreesFor(target.path);
+					if (worktrees.length > 1) body.linkedWorktrees = worktrees.length - 1;
+				}
 				// Echo the resolved workspace id. SSE events identify the workspace,
 				// not the session, so a session-targeted client has no other way to
 				// tell whether an event belongs to it — without this the input chip
