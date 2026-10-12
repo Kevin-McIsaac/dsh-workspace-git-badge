@@ -175,12 +175,12 @@ export function createClient({ tooltip = false, hover = false } = {}) {
 		/** Render the sidebar SESSION-row badge (mark + PR token); `props` adds kit. */
 		row(data, props) {
 			feed(data);
-			return capture(() => expand(registered["sidebar.workspaces.sessionRow"]({ sessionId: "s-1", workspaceId: "ws-1", label: "Session 1", ...props })));
+			return capture(() => expand(registered["sidebar.workspaces.sessionRow"]({ sessionId: "s-1", label: "Session 1", ...props })));
 		},
 		/** Render the session row's hover-card detail line (the badge's provenance). */
 		rowDetail(data, props) {
 			feed(data);
-			return capture(() => expand(registered["sidebar.workspaces.sessionRow.detail"]({ sessionId: "s-1", workspaceId: "ws-1", label: "Session 1", ...props })));
+			return capture(() => expand(registered["sidebar.session.row.hover"]({ sessionId: "s-1", ...props })));
 		},
 		/** Render the composer chip. */
 		chip(data, detail) {

@@ -7,9 +7,11 @@ Notes for coding agents working in this repo.
 `dsh-git-badge` — a DeepSeek Harness cordis plugin (npm-published) providing
 git status badges: an input-row chip (`conversation.input.left`, works
 everywhere) and sidebar **session-row** badges via the
-`sidebar.workspaces.sessionRow` seam (a local +74/−5 anchor patch in `seam/`,
+`sidebar.workspaces.sessionRow` seam (a local +48/−0 anchor patch in `seam/`,
 proposed upstream — see `PR.md`). The badge sits on the session row because that
-is the row that knows which checkout the conversation is working in.
+is the row that knows which checkout the conversation is working in; the
+hover-card provenance line needs no patch, because it rides upstream's own
+`sidebar.session.row.hover` seat.
 
 ## Read first
 

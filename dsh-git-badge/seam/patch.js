@@ -22,7 +22,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 
 // sha256 of the upstream build the anchors were last verified against. ADVISORY:
 // status prints it for orientation; apply does NOT require it.
-export const KNOWN_GOOD_HASH = "383b9ef779366c13d818500b6488896328b189f156addbaa480c835e902edd5f";
+export const KNOWN_GOOD_HASH = "e784543780fb8ac7c38c853afd26b9b1713c6907eec2b07eff37461e07bd3be9";
 
 /** Locate the installed DSH package root; null when it cannot be found. */
 export function dshRoot() {

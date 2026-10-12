@@ -10,6 +10,37 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The sidebar seam patch works again on DSH 0.2.0-rc.2.** That release rewrote
+  `dsh-client-ui-workspace/lib/client.js` (2821 → 4425 lines) and moved 8 of the
+  9 anchors the patcher pinned, so `npx dsh-git-badge status` reported `drift`
+  and `apply` refused to write. The anchor set is rewritten for the new upstream:
+  the patch is three anchors and **+48/−0** (was nine anchors and +74/−5).
+
+### Changed
+
+- **The patch is one seam now, not two.** DSH 0.2.0-rc.2 threads `renderSlot`
+  into `SessionNodeItem` and `SessionHoverContent` itself and declares
+  `sidebar.session.row.hover`, so the hover card's provenance line rides that
+  upstream seat. The patched `sidebar.workspaces.sessionRow.detail` seam, the
+  `SessionTree`/`SessionNodeItem` `renderSlot` threading, and the `workspaceId`
+  owner-share field are all retired. The one remaining patched seam is
+  `sidebar.workspaces.sessionRow`: the always-visible row token after the title,
+  which no upstream seat can host (`sidebar.workspaces.session.row.action` is
+  `display:none` until hover, and `sidebar.session.row.leading` is a 16px cell
+  that renders only while the row is idle).
+- **The row token now shows in the flat grouping too.** The old patch passed
+  `workspaceId` from the tree call site only, which kept flat rows bare. Upstream
+  no longer passes a workspace id to `SessionNodeItem`, so the token renders
+  wherever a session row does. Search results are unaffected.
+- **The hover-card provenance line works on an unpatched install.** It no longer
+  depends on this package's seam patch.
+- `PATCH_REV` is now `3`, so an installed rev-2 artifact is recognised as stale
+  rather than skipped. Because the anchors moved with upstream's rewrite, a rev-2
+  install cannot be re-patched in place: `apply` refuses and tells you to
+  reinstall the DSH package first.
+
 ## [0.17.4] - 2026-09-18
 
 ### Fixed

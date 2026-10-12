@@ -1,9 +1,9 @@
 # SEAM.md — the `sidebar.workspaces.sessionRow` seam
 
-The sidebar badge needs two small additive slots in the workspace browser: one on
-each **session** row (the badge) and one in that row's existing hover card (the
-badge's provenance line). This file documents what the patch does, how to apply
-it, and why it is safe.
+The sidebar badge needs one small additive slot in the workspace browser: the
+badge on each **session** row. Its provenance line needs no slot of its own —
+upstream declares one. This file documents what the patch does, how to apply it,
+and why it is safe.
 
 ## Why the session row, not the workspace row
 
@@ -17,38 +17,46 @@ The badge therefore belongs where the identity is.
 
 ## What the patch is
 
-The patch is defined once, in [`seam/anchors.py`](seam/anchors.py), as
+The patch is defined once, in [`seam/anchors.js`](seam/anchors.js), as
 `(name, old, new)` pairs — each `old` must occur **exactly once** in
 `@deepseek-ai/dsh-client-ui-workspace/lib/client.js`, and is replaced by `new`
-(+74/−5 lines):
+(+48/−0 lines):
 
-1. Declares two children on the existing `sidebar.workspaces` slot registration:
+1. Declares one child on the existing `sidebar.workspaces` slot registration:
 
    ```js
-   "sidebar.workspaces.sessionRow":        { kind: "list", scope: "root" },
-   "sidebar.workspaces.sessionRow.detail": { kind: "list", scope: "root" }
+   "sidebar.workspaces.sessionRow": { kind: "list", scope: "root" }
    ```
 
    — the same additive pattern as `conversation.composer.dock`.
 
 2. Renders the badge inside `SessionNodeItem`'s children, immediately after the
    title span, through the props-face `renderSlot` with the row owner share
-   `{ sessionId, workspaceId, label }`. It returns **`null`** — not a fallback
-   element — when no plugin occupies the seam, so a pristine install renders
-   exactly as upstream.
+   `{ sessionId, label }`. It returns **`null`** — not a fallback element — when
+   no plugin occupies the seam, so a pristine install renders exactly as
+   upstream.
 
-3. Renders the detail slot inside `SessionHoverContent`, the card upstream already
-   opens for a session row. A badge that opened its own tooltip there would nest
-   two cards, so the provenance line goes *into* the existing one.
+3. That is the whole change. DSH **0.2.0-rc.2** already threads `renderSlot` into
+   `SessionNodeItem` and `SessionHoverContent` itself, and declares
+   `sidebar.session.row.hover`, so the badge's provenance line rides that
+   upstream seat and needs no patch. Nothing is threaded by hand.
 
-4. Threads `renderSlot` and `workspaceId` into `SessionNodeItem` from the **tree
-   call site only** (`workspaceId: group.workspaceId`). The flat "all sessions"
-   list and the search-result list render the same component without either prop,
-   so `renderSessionRowSeam` returns `null` for them and those lists stay bare
-   without needing a guard of their own.
+Rev 3 of the patch is this one-seam shape. Rev 2 carried a second patched seam
+(`sidebar.workspaces.sessionRow.detail`) and threaded `renderSlot`/`workspaceId`
+into `SessionNodeItem` from the tree call site. Both became unnecessary when
+upstream shipped its own hover seat and its own `renderSlot` threading.
 
 With no plugin registered the rows render byte-identically to upstream. The
 full write-up for maintainers is in [`PR.md`](PR.md).
+
+### What the badge no longer gates on
+
+Rev 2 passed `workspaceId` from the tree call site only, so the badge rendered on
+tree rows and not in the flat "In one list" grouping. Upstream no longer passes a
+workspace id to `SessionNodeItem`, so rev 3 renders the badge wherever a session
+row renders — tree and flat. Search results are unaffected: they use a different
+component with no seam. This is deliberate: the badge is seeded by `sessionId`
+alone, so it is correct in both groupings.
 
 ## Applying it
 
@@ -86,8 +94,8 @@ Safety rails:
 - **Occupant errors cannot cost the sidebar.** The host wraps each registered
   *entry* in an error boundary, but the outlet a row renders is not covered by it:
   a throw in an occupant's render path propagates into the workspace browser, and
-  the shell **abdicates that browser entry** — blanking the whole sidebar. Both
-  seam renders are therefore wrapped in the patch's own boundary, which renders
+  the shell **abdicates that browser entry** — blanking the whole sidebar. The
+  seam render is therefore wrapped in the patch's own boundary, which renders
   `null` and logs `[dsh-git-badge] seam entry failed; badge omitted:`. A broken
   occupant loses its badge, never the region. (Learned the hard way: the first
   session-row patch blanked the sidebar a second after boot, and the revert did
@@ -132,7 +140,7 @@ dsh-git-badge-seam apply     # 2. patch the new build in place
 To re-verify the advisory pin, copy the new upstream `lib/client.js` over
 `seam/pristine-client.js`, run `seam/make-patch.sh` (regenerates
 `patched-client.js` — PR-diff artifact only), and update `KNOWN_GOOD_HASH` in
-`dsh-git-badge/seam/apply.js` to the new file's sha256. The test suite asserts
+`dsh-git-badge/seam/patch.js` to the new file's sha256. The test suite asserts
 the regenerated artifact stays byte-identical to the anchors, so a forgotten
 `make-patch.sh` fails CI rather than shipping a stale diff.
 
@@ -145,8 +153,15 @@ the marker's rev number exists to prevent).
 ## Why it should be upstream
 
 The sidebar has no per-row additive seam today (`sidebar.workspaces` is a single
-slot; its only child is a `single`-kind directory flow). List-kind children on
-`sidebar.workspaces` mirror the proven `conversation.composer.dock` pattern and
-unlock row annotations — git badges being the first — as pure plugins. The
-session row is the one that matters for anything git-related, because a session
-is the unit that knows which checkout it is using.
+slot; its children are a `single`-kind directory flow and list-kind action seats).
+List-kind children on `sidebar.workspaces` mirror the proven
+`conversation.composer.dock` pattern and unlock row annotations — git badges
+being the first — as pure plugins.
+
+Upstream 0.2.0-rc.2 landed most of this shape already: `renderSlot` now reaches
+`SessionNodeItem`, and `sidebar.session.row.hover` is a list seat in the row's
+hover card. What is still missing is one seat in the row's text line for an
+always-visible annotation. The existing action seat
+(`sidebar.workspaces.session.row.action`) is `display:none` until hover, and
+`sidebar.session.row.leading` is a 16px cell that renders only while the row is
+idle, so neither can host it.
