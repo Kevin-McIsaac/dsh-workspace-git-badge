@@ -536,18 +536,35 @@ window.__ModuleLoader__.load({
 		/**
 		 * Action -> colour. Colour here means SEVERITY — how much this needs you —
 		 * rather than identity: a broken build and a conflict are the loud ones, a
-		 * requested review is a nudge, `merge` is the all-clear, and routine sync
-		 * stays quiet so the loud rows keep meaning something. The WORD remains the
-		 * channel (colour only reinforces it), and the tokens are the app's own, so
-		 * both themes work.
+		 * requested review is a nudge, `merge` is the all-clear, and routine sync is
+		 * the quiet end of the same ramp rather than outside it. That last move is
+		 * deliberate: grey put `push` below the threshold of notice, so the one row
+		 * that wanted a decision read as a timestamp. The WORD remains the channel
+		 * (colour only reinforces it), and the tokens are the app's own, so both
+		 * themes work.
 		 */
 		const ACTION_COLOUR = {
 			resolve: "var(--dsw-alias-state-error-primary, #e5484d)",
 			"fix CI": "var(--dsw-alias-state-error-primary, #e5484d)",
 			review: "var(--dsw-alias-state-warn-primary, #d29922)",
 			merge: "var(--dsw-alias-state-success-primary, #30a46c)",
-			pull: "var(--dsw-alias-label-secondary, #5b6570)",
-			push: "var(--dsw-alias-label-secondary, #5b6570)"
+			pull: "var(--dsw-alias-state-business-primary, #3b82f6)",
+			push: "var(--dsw-alias-state-business-primary, #3b82f6)"
+		};
+
+		/**
+		 * Action -> glyph. The SHAPE channel, beside the colour: a glyph makes the
+		 * row readable before the word is parsed, and it survives a monochrome or
+		 * colour-blind view where the tint alone would not. Keys mirror
+		 * ACTION_COLOUR exactly; a missing entry degrades to the bare word.
+		 */
+		const ACTION_GLYPH = {
+			resolve: "!",
+			"fix CI": "\u2717",
+			review: "\u25C6",
+			merge: "\u2713",
+			pull: "\u2193",
+			push: "\u2191"
 		};
 
 		/**
@@ -556,10 +573,21 @@ window.__ModuleLoader__.load({
 		 *    the sidebar — that alignment is what makes the list scannable;
 		 *  - `marginRight` keeps it clear of the relative time beside it (the first cut
 		 *    sat flush and read `merge11m`);
-		 *  - weight 500 rather than the timestamp's own treatment, because an action
-		 *    rendered in tertiary grey reads as metadata.
+		 *  - weight 600 plus a little padding make it a PILL, so the token reads as a
+		 *    tag rather than as loose text the eye can skip;
+		 *  - the radius is the app's own small one, so the pill belongs to the shell.
+		 *
+		 * The FILL is not set here: it is the action's own colour at low alpha, which
+		 * only SessionGitBadge can build.
 		 */
-		const ACTION_STYLE = { flex: "none", marginLeft: "auto", marginRight: "8px", fontWeight: 500 };
+		const ACTION_STYLE = {
+			flex: "none",
+			marginLeft: "auto",
+			marginRight: "8px",
+			fontWeight: 600,
+			padding: "0 6px",
+			borderRadius: "var(--dsw-radius-sm, 4px)"
+		};
 
 		/**
 		 * The row's own run state, from the shell's standard kit.
@@ -598,9 +626,9 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * The action badge: floated, weighted, and coloured by severity — and shown
-		 * only when the session is IDLE. A turn in flight is precisely when a git
-		 * suggestion is noise: the checkout is still moving and the agent has not
+		 * The action badge: a severity-tinted pill carrying a glyph and the word — and
+		 * shown only when the session is IDLE. A turn in flight is precisely when a
+		 * git suggestion is noise: the checkout is still moving and the agent has not
 		 * finished, so the action describes a state that is about to change. Nothing
 		 * about the action itself changes; the gate is the whole feature.
 		 *
@@ -616,9 +644,25 @@ window.__ModuleLoader__.load({
 			const action = actionToken(info);
 			if (action === "") return null;
 			const colour = ACTION_COLOUR[action];
-			return react_jsx_runtime.jsx("span", {
-				style: colour === void 0 ? { ...META_STYLE, ...ACTION_STYLE } : { ...META_STYLE, ...ACTION_STYLE, color: colour },
-				children: action
+			const style = { ...META_STYLE, ...ACTION_STYLE };
+			if (colour !== void 0) {
+				style.color = colour;
+				// The pill's fill is the action's own colour at low alpha, so severity is
+				// a wash a row can carry rather than a shout. color-mix is a current-browser
+				// feature: where it is unsupported the pill keeps its geometry, colour,
+				// glyph and weight, and only the tint is lost.
+				style.background = `color-mix(in srgb, ${colour} 18%, transparent)`;
+			}
+			// The glyph is DECORATION: `aria-hidden` keeps the accessible name the bare
+			// word, and the trailing space in its own text separates the two on screen
+			// without a margin. A missing glyph entry degrades to the word alone.
+			const glyph = ACTION_GLYPH[action];
+			return react_jsx_runtime.jsxs("span", {
+				style,
+				children:
+					glyph === void 0
+						? action
+						: [react_jsx_runtime.jsx("span", { "aria-hidden": true, children: `${glyph} ` }, "glyph"), action]
 			});
 		}
 

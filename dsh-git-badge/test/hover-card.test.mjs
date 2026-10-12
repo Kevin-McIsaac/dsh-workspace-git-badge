@@ -504,7 +504,7 @@ test("the session row shows an ACTION, never a PR token or a branch", () => {
 	// PR number and CI state moved to the row's hover line; the chip keeps both.
 	const client = createClient();
 	const rendered = text(client.row({ branch: "SECRET/BRANCH", dirty: false, pr: { number: 142, state: "failing" } }));
-	assert.equal(rendered, "fix CI", `expected the action alone: ${rendered}`);
+	assert.equal(rendered, "\u2717 fix CI", `expected the action alone: ${rendered}`);
 	assert.ok(!rendered.includes("PR#"), "the token belongs to the chip now");
 	assert.ok(!rendered.includes("SECRET/BRANCH"), `the row must not name the branch: ${rendered}`);
 });
@@ -523,7 +523,7 @@ test("the row's action token hides while the session is running a turn", () => {
 	// exactly when a suggestion is noise: the checkout is still moving.
 	const client = createClient();
 	const idle = client.row(ROW_AHEAD, { useSessions: sessionsWithRunning(false) });
-	assert.equal(text(idle), "push", `expected the token while idle: ${text(idle)}`);
+	assert.equal(text(idle), "\u2191 push", `expected the token while idle: ${text(idle)}`);
 	const busy = client.row(ROW_AHEAD, { useSessions: sessionsWithRunning(true) });
 	assert.equal(text(busy), "", "no token while a turn is running");
 });
@@ -533,7 +533,7 @@ test("without the standard-kit hook the row is unchanged, and the console says s
 	// must keep the badge exactly as it was rather than blanking it.
 	const client = createClient();
 	const rendered = text(client.row(ROW_AHEAD));
-	assert.equal(rendered, "push", `expected the token unchanged: ${rendered}`);
+	assert.equal(rendered, "\u2191 push", `expected the token unchanged: ${rendered}`);
 	assert.ok(
 		client.logs.some((line) => line.includes("session-row idle gate = off")),
 		`expected the off report: ${JSON.stringify(client.logs)}`

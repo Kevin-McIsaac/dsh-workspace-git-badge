@@ -20,6 +20,14 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Changed
 
+- **The session-row action token is a pill now.** It was grey text beside the
+  relative time, which made `push` — the one row that wants a decision — read as
+  metadata. It is now a severity-tinted pill with a leading glyph and a heavier
+  weight: `↑ push`, `↓ pull`, `✓ merge`, `✗ fix CI`, `! resolve`, `◆ review`.
+  Routine sync also moved off grey onto the app's business-blue token, so the
+  severity ramp is four steps (red, amber, green, blue) rather than three plus
+  silence. The glyph is `aria-hidden`, so a screen reader still reads the word
+  alone.
 - **The patch is one seam now, not two.** DSH 0.2.0-rc.2 threads `renderSlot`
   into `SessionNodeItem` and `SessionHoverContent` itself and declares
   `sidebar.session.row.hover`, so the hover card's provenance line rides that
