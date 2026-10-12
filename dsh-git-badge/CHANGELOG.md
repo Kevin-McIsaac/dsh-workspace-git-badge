@@ -10,6 +10,8 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-10-12
+
 ### Fixed
 
 - **The sidebar seam patch works again on DSH 0.2.0-rc.2.** That release rewrote
