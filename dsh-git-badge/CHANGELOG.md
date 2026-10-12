@@ -10,6 +10,8 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-10-12
+
 ### Fixed
 
 - **`revert` refuses a backup from a different upstream generation.** `apply`
