@@ -422,16 +422,19 @@ test("LeadingTokenGlyph falls back to the shared status mark with no token", () 
 	assert.equal(client.leading(void 0), null, "unresolved target, no cell");
 });
 
-test("LeadingTokenGlyph fetches only when the seam is absent", () => {
+test("LeadingTokenGlyph fetches only when the seam is absent, and for PR state too", () => {
 	// The patched install returns null here, so it pays for neither a render nor
 	// a status request.
 	const patched = createClient({ seam: true });
 	assert.equal(patched.leading(withToken("push")), null, "the pill owns the row");
 	assert.equal(patched.requests.filter((key) => typeof key === "string").length, 0, "and fetches nothing");
-	// the unpatched install asks for the session's status (no pr=1: rows stay cheap)
+	// The unpatched install asks the SAME question the row card asks, so the
+	// glyph and the card resolve to one cache entry and one in-flight read.
 	const unpatched = createClient({ seam: false });
 	unpatched.leading(withToken("push"));
-	assert.deepEqual(unpatched.requests, ["session=s-1"], "one session request, nothing else");
+	assert.deepEqual(unpatched.requests, ["session=s-1&pr=1"], "one session+PR request, nothing else");
+	// and the PR token it can now receive is what the card shows
+	assert.equal(text(unpatched.leading({ ...MAIN, rowToken: "merge" })), "\u2713", "a PR token reaches the glyph");
 });
 
 test("LeadingTokenGlyph hides while the session runs a turn", () => {

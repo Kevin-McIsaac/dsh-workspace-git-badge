@@ -677,6 +677,13 @@ window.__ModuleLoader__.load({
 		 * cell. It fetches only when the seam is absent (`seamPresent ? void 0`):
 		 * a patched install returns null here and pays nothing.
 		 *
+		 * It asks for PR state too (`pr: true`), the SAME query the row card and
+		 * the pill use, so the glyph shows the same PR tokens (`merge`, `review`,
+		 * `fix CI`) as the card — not only the local ones. The matching query
+		 * string means the glyph and the card share one cache entry and one
+		 * in-flight read. The price is one forge read per row per TTL on an
+		 * unpatched install; a patched one still pays nothing.
+		 *
 		 * Geometry: the cell is `width:16px; flex:none` and the row has `gap:0`, so
 		 * a word would overflow into the title. Only one glyph is drawn, and no
 		 * wrapper changes the cell's box.
@@ -691,7 +698,7 @@ window.__ModuleLoader__.load({
 		 * hovering the glyph shows exactly what hovering the session line shows.
 		 */
 		function LeadingTokenGlyph({ sessionId, useSessions }) {
-			const info = useGitStatus(seamPresent ? void 0 : sessionId === void 0 ? void 0 : { kind: "session", id: sessionId });
+			const info = useGitStatus(seamPresent ? void 0 : sessionId === void 0 ? void 0 : { kind: "session", id: sessionId }, { pr: true });
 			const running = useSessionRunning(useSessions, sessionId);
 			reportIdleGate(typeof useSessions === "function");
 			if (seamPresent || running) return null;

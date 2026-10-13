@@ -15,10 +15,13 @@ npm. 0.6.0 is the first release recorded here.
 - **An unpatched install now shows the session row's token as a leading
   glyph.** Without the `sidebar.workspaces.sessionRow` seam there is no room
   for the word pill, so the same node-half token renders as a single glyph in
-  the row's 16px leading cell, with the word as its accessible name. With no
-  token (clean and in sync) the cell keeps the shared status mark. The leading
-  seat is upstream's own (`sidebar.session.row.leading`) — no patch, and a
-  patched install returns nothing there and pays no request.
+  the row's 16px leading cell, with the word as its accessible name. The glyph
+  asks the same question the row card does (`pr=1`), so the PR tokens `merge`,
+  `review` and `fix CI` reach it too — not only the local ones — and the two
+  share one cache entry. With no token (clean and in sync) the cell keeps the
+  shared status mark. The leading seat is upstream's own
+  (`sidebar.session.row.leading`) — no patch, and a patched install returns
+  nothing there and pays no request.
 - **The leading glyph explains itself on the row's hover card.** The node half
   attaches the winning rule's reason as `rowTokenWhy`, and the session-row hover
   card now opens with the token's own GLYPH and word, then the reason (for
