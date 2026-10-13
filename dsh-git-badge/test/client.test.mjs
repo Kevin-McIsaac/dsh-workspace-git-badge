@@ -161,19 +161,19 @@ test("the chip NEVER names the worktree — the branch alone", () => {
 });
 
 test("the chip still carries the branch, operation token and counts", () => {
-	// the sync arrows now sit WITH the branch (they are the branch's standing
-	// against upstream), so they render before the operation token
+	// the arrows sit WITH the branch and state its standing against the BASE
+	// (main), so they render before the operation token
 	const client = createClient();
-	const line = text(client.chip({ ...WORKTREE, operation: "rebase", ahead: 0, behind: 2, changedFiles: 3, dirty: true }));
+	const line = text(client.chip({ ...WORKTREE, operation: "rebase", mainAhead: 0, mainBehind: 2, changedFiles: 3, dirty: true }));
 	assert.equal(line, "feat/hotfix ↑0 ↓2 ⚔rebase ✎3");
 });
 
-test("the sync arrows ride the branch's hover and link; the file count does not", () => {
+test("the base arrows ride the branch's hover and link; the file count does not", () => {
 	// hover: true makes the harness serve the lazy detail payload, which is where
 	// compareUrl lives
 	const client = createClient({ tooltip: true, hover: true });
 	// compareUrl rides the lazy detail payload, so it is the second argument
-	const base = { ...WORKTREE, ahead: 1, behind: 2, changedFiles: 3 };
+	const base = { ...WORKTREE, mainAhead: 1, mainBehind: 2, changedFiles: 3 };
 	const chip = client.chip(base, {
 		...base,
 		compareUrl: "https://github.com/owner/repo/compare/main...feat/hotfix"
@@ -181,10 +181,19 @@ test("the sync arrows ride the branch's hover and link; the file count does not"
 	const anchor = elements(chip).find((el) => el.type === "a");
 	assert.ok(anchor !== void 0, "the branch is the anchor when a compare URL is present");
 	assert.equal(text(anchor), "feat/hotfix \u21911 \u21932", "the arrows are inside the branch's link");
-	assert.match(anchor.props["aria-label"], /1 ahead and 2 behind upstream/, "and the accessible name says them");
+	assert.match(anchor.props["aria-label"], /1 ahead and 2 behind main/, "and the accessible name says them");
 	// ✎n answers a different question and stays outside the link
 	assert.ok(!text(anchor).includes("\u270E"), "the file count is not part of the branch link");
 	assert.ok(text(chip).includes("\u270E3"), "it is still on the chip");
+});
+
+test("the chip arrows are the BASE relation, even when the branch is in sync with its remote", () => {
+	// Regression: a branch pushed to its own remote used to show no arrows, so
+	// the ahead/behind against main disappeared from the chip. The arrows now
+	// read mainAhead/mainBehind; upstream 0/0 must not hide them.
+	const client = createClient();
+	const line = text(client.chip({ branch: "feat/x", upstream: "origin/feat/x", ahead: 0, behind: 0, mainAhead: 4, mainBehind: 0, dirty: false }));
+	assert.ok(line.includes("feat/x \u21914 \u21930"), `expected the base arrows: ${line}`);
 });
 
 test("a FOLLOWED worktree is named in the CARD, never on the chip", () => {

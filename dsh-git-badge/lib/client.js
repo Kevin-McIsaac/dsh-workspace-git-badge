@@ -238,27 +238,26 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Sync/dirty suffix — INPUT CHIP ONLY. The sidebar row shows status alone;
+		 * Base/dirty suffix — INPUT CHIP ONLY. The sidebar row shows status alone;
 		 * the chip is the surface that carries the numbers. Rule set:
 		 *  - dirty files render as ✎n (pencil = worktree files, distinct from
-		 *    the ↑/↓ commit-sync axis)
-		 *  - while dirty, BOTH sync counts render including zeros (↑0 ↓2 ✎3),
+		 *    the ↑/↓ commit axis)
+		 *  - while dirty, BOTH counts render including zeros (↑0 ↓2 ✎3),
 		 *    so every number is positionally attributable
 		 *  - clean workspaces stay quiet: arrows only when nonzero, no ✎ at 0
-		 *  - no upstream: arrows omitted entirely
+		 *  - no base known: arrows omitted entirely
 		 */
 		/**
-		 * The upstream sync arrows (" ↑1 ↓2"), or "". Split out from the file
-		 * count so each rides the surface that OWNS it: the arrows belong to the
-		 * branch (they are the branch's standing against its upstream, and the
-		 * branch name's hover and compare link cover them), while ✎n belongs to the
-		 * count's names tooltip.
+		 * The BASE (main) ahead/behind arrows (" ↑4 ↓0"), the branch's standing
+		 * against the branch it will merge into. The branch name's compare link
+		 * covers the same relation. The branch's own remote sync is not a number
+		 * here: the action glyph (`push`, `pull`) carries the actionable part.
 		 */
-		function formatSync(info) {
-			const hasUpstream = info.ahead !== void 0 || info.behind !== void 0;
+		function formatBaseSync(info) {
+			const hasBase = info.mainAhead !== void 0 || info.mainBehind !== void 0;
 			const files = (info.changedFiles || 0) + (info.untrackedFiles || 0);
-			if (!hasUpstream || (files === 0 && !(info.ahead > 0) && !(info.behind > 0))) return "";
-			return " \u2191" + (info.ahead || 0) + " \u2193" + (info.behind || 0);
+			if (!hasBase || (files === 0 && !(info.mainAhead > 0) && !(info.mainBehind > 0))) return "";
+			return " \u2191" + (info.mainAhead || 0) + " \u2193" + (info.mainBehind || 0);
 		}
 
 		/** The ✎n file count (" ✎3"), or "". */
@@ -1218,12 +1217,12 @@ window.__ModuleLoader__.load({
 		 * them. The ✎n count keeps its own surface.
 		 */
 		function chipBranchInner(info, detail, isBranchLink, hoveredLink, setHovered, setHoveredLink) {
-			const sync = formatSync(info);
+			const sync = formatBaseSync(info);
 			const branchLabel = info.branch + sync;
 			if (!isBranchLink) return branchLabel;
 			return chipAnchor({
 				href: detail.compareUrl,
-				ariaLabel: "Compare " + info.branch + " with main on GitHub" + (sync === "" ? "" : ", " + (info.ahead || 0) + " ahead and " + (info.behind || 0) + " behind upstream"),
+				ariaLabel: "Compare " + info.branch + " with main on GitHub" + (sync === "" ? "" : ", " + (info.mainAhead || 0) + " ahead and " + (info.mainBehind || 0) + " behind main"),
 				underline: hoveredLink === "branch",
 				onPointerEnter: () => setHoveredLink("branch"),
 				onPointerLeave: () => setHoveredLink(null),
