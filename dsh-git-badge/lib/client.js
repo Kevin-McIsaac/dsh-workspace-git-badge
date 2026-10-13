@@ -639,6 +639,22 @@ window.__ModuleLoader__.load({
 		const CARD_ROW = { display: "flex", gap: "8px", alignItems: "baseline" };
 		const CARD_LABEL = { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", flex: "none", minWidth: "62px" };
 		const CARD_VALUE = { minWidth: 0, overflowWrap: "anywhere", whiteSpace: "normal" };
+		// The chip card's HEADER: the action sentence as a heading, not a labelled
+		// row. `fontWeight` is also the hook the suite uses to find it.
+		const CHIP_HEADER = { display: "flex", alignItems: "baseline", gap: "6px", fontWeight: 600 };
+		// A section rule between the checkout rows and the branch rows. The label
+		// makes the split explicit instead of leaving `state`/`base` to look like
+		// more checkout detail.
+		const CARD_DIVIDER = {
+			marginTop: "4px",
+			paddingTop: "6px",
+			borderTop: ".5px solid var(--dsw-alias-border-l4, #e4e8eb)",
+			color: "var(--dsw-alias-label-tertiary, #9ea7ad)",
+			fontSize: "10px",
+			lineHeight: "14px",
+			letterSpacing: ".08em",
+			textTransform: "uppercase"
+		};
 
 		/** One label/value row — the shape every hover body shares. */
 		function cardRow(label, value) {
@@ -652,9 +668,10 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * The action row, SHARED by the session-row card and the chip card so the
-		 * two cannot describe the icon differently. Returns the value node for the
-		 * row, or undefined when the checkout has no token.
+		 * The action SENTENCE as a raw value. SHARED by the session-row card
+		 * (actionRow wraps it in the card label/value shape) and the chip card
+		 * (actionHeader wraps it in a heading), so the two cannot describe the icon
+		 * differently. Returns undefined when the checkout has no token.
 		 *
 		 * The glyph is DECORATION here: the word follows it, so `aria-hidden` keeps
 		 * the accessible name the bare action.
@@ -675,6 +692,17 @@ window.__ModuleLoader__.load({
 			}
 			value.push(token + (why === void 0 ? "" : " \u2014 " + why));
 			return value;
+		}
+
+		/**
+		 * The chip card's HEADER: the same sentence actionRow produces, rendered as a
+		 * heading so the checkout's verdict leads the card instead of sitting in a
+		 * labelled row. It calls actionRow, so the two surfaces cannot drift.
+		 */
+		function actionHeader(info) {
+			const value = actionRow(info);
+			if (value === void 0) return void 0;
+			return react_jsx_runtime.jsx("div", { style: CHIP_HEADER, children: value }, "action-header");
 		}
 
 		/**
@@ -943,12 +971,12 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * The branch LINEAGE rows, for the chip's one card — and they ALWAYS
-		 * render once the lazy detail payload has landed. Rows: upstream, sync
-		 * in words, the branch's last 10 commits (WHAT THIS BRANCH HAS, full
-		 * stop — no base-relative filtering, which empties on every push or
-		 * merge). The pull request has no row here — the chip's own PR token
-		 * already carries number, CI state and the link.
+		 * The branch LINEAGE rows, for the chip's one card. The state row always
+		 * renders (the pull-request verdict, or the base-branch note); the base row
+		 * follows when the counts are known; then the branch's last 10 commits
+		 * (WHAT THIS BRANCH HAS, full stop — no base-relative filtering, which
+		 * empties on every push or merge). The pull request has no row here — the
+		 * chip's own PR token already carries number, CI state and the link.
 		 */
 		function lineageRows(info) {
 			const rows = [];
@@ -956,22 +984,21 @@ window.__ModuleLoader__.load({
 				if (value === void 0 || value === null || value === "") return;
 				rows.push(cardRow(label, value));
 			};
-			// ONLY the merge axis, and it ALWAYS renders. The old upstream and sync
-			// rows spoke about the push axis (the branch's own remote), which the
-			// merge row subsumes: "1 ahead, 0 behind main" is the same fact stated
-			// against the branch that matters, in words rather than arrows. A row
-			// that can be absent is a row the reader has to reconstruct.
+			// The STATE row always renders. The old upstream and sync rows spoke
+			// about the push axis (the branch's own remote), which the state row
+			// subsumes: the merge verdict is the fact that matters. The base counts
+			// stay a SEPARATE row below, so a reader never reconstructs either.
 			const pr = info?.pr;
-			const mergeParts = [];
+			const stateParts = [];
 			if (pr !== void 0 && pr !== null && pr.number !== void 0) {
-				if (pr.draft === true) mergeParts.push("blocked: draft");
+				if (pr.draft === true) stateParts.push("blocked: draft");
 				else if (pr.mergeState === "BLOCKED") {
-					mergeParts.push(pr.review === "REVIEW_REQUIRED" ? "blocked: review required"
+					stateParts.push(pr.review === "REVIEW_REQUIRED" ? "blocked: review required"
 						: pr.state === "failing" ? "blocked: checks failing"
 						: "blocked");
-				} else if (pr.state === "failing") mergeParts.push("blocked: checks failing");
-				else if (pr.mergeState === "CLEAN" || (pr.state === "passing" && pr.review === "APPROVED")) mergeParts.push("ready to merge");
-				else if (pr.review === "REVIEW_REQUIRED") mergeParts.push("blocked: review required");
+				} else if (pr.state === "failing") stateParts.push("blocked: checks failing");
+				else if (pr.mergeState === "CLEAN" || (pr.state === "passing" && pr.review === "APPROVED")) stateParts.push("ready to merge");
+				else if (pr.review === "REVIEW_REQUIRED") stateParts.push("blocked: review required");
 			} else if (info?.defaultBranch === true) {
 				// The default branch is the BASE, not a branch with a missing PR:
 				// pull requests merge INTO it and none is ever opened FROM it, so
@@ -979,18 +1006,21 @@ window.__ModuleLoader__.load({
 				// exist. The node half computes `defaultBranch` for exactly this
 				// suppression (see the comment where it is set in lib/index.js);
 				// until now only the action rules consulted it, not this row.
-				mergeParts.push("base branch \u00B7 pull requests merge into this");
+				stateParts.push("base branch \u00B7 pull requests merge into this");
 			} else {
-				mergeParts.push("no pull request");
+				stateParts.push("no pull request");
 			}
-			// The counts are this branch's standing against its BASE, so on the
-			// base itself they are self-referential ("N ahead, M behind main" while
-			// ON main) and the divergence they would state is already the chip's own
-			// \u2191a \u2193b token. Suppress them on the default branch, with or without a PR.
+			// The state row states the PR verdict and nothing else.
+			add("state", stateParts.join(" \u00B7 "));
+			// The counts are this branch's standing against its BASE, so on the base
+			// itself they are self-referential ("N ahead, M behind main" while ON
+			// main) and the divergence they would state is already the chip's own
+			// \u2191a \u2193b token. Suppress them on the default branch, with or without a
+			// PR. A SEPARATE row from state: whether the PR can merge and how far the
+			// branch is from its base are two facts, so neither hides the other.
 			if (info?.defaultBranch !== true && (info?.mainAhead !== void 0 || info?.mainBehind !== void 0)) {
-				mergeParts.push((info.mainAhead || 0) + " ahead, " + (info.mainBehind || 0) + " behind main");
+				add("base", (info.mainAhead || 0) + " ahead, " + (info.mainBehind || 0) + " behind main");
 			}
-			add("merge", mergeParts.join(" \u00B7 "));
 			const commits = info?.branchCommits;
 			if (Array.isArray(commits) && commits.length > 0) {
 				// Full-width block, not the label/value two-column row: commit lines
@@ -1075,10 +1105,12 @@ window.__ModuleLoader__.load({
 				if (value === void 0 || value === null || value === "") return;
 				rows.push(cardRow(label, value));
 			};
-			// The ACTION row, first: the SAME row the session-row card renders, from
-			// the same helper, so the chip card explains the icon the row shows.
-			add("action", actionRow(data));
-			// The "next" row — the SERVER's ranked suggestion, and nothing else. The
+			// The ACTION header, first: the SAME sentence the session-row card renders,
+			// from the same helper, so the chip card explains the icon the row shows.
+			// It is a heading, not a labelled row, so the verdict leads the card.
+			const header = actionHeader(data);
+			if (header !== void 0) rows.push(header);
+			// The "next step" row — the SERVER's ranked suggestion, and nothing else. The
 			// client's extras (secondary picker entries) must never promote
 			// themselves into this line: when the server says there is nothing to do
 			// — clean and synced — the row is omitted, and "no suggestion" stays a
@@ -1087,14 +1119,15 @@ window.__ModuleLoader__.load({
 			const topAction = data.next;
 			if (topAction !== void 0) {
 				// git-comment convention: the invocation, two spaces, then "# "
-				// plus what it does
-				add("next", "/gh " + topAction.args + "  # " + topAction.what);
+				// plus what it does. The marker makes the one actionable line findable
+				// among the detail rows.
+				add("next step", "\u25B8 /gh " + topAction.args + "  # " + topAction.what);
 			}
 			// The branch lineage rows (branch, upstream, sync, pull request) moved
 			// to the branch NAME's hover — the card is the checkout's verdict, not
 			// the branch's CV. The branch name is also the chip's own text, so a
 			// card row for it was pure repetition.
-			add("files", formatFileBreakdown(info));
+			add("changes", formatFileBreakdown(info));
 			add("operation", info.operation === void 0 || info.operation === null ? void 0 : String(info.operation));
 			// WHICH checkout the badge describes, when it is a worktree. The chip shows
 			// the branch alone, so this row is the only place the tree is named.
@@ -1127,9 +1160,15 @@ window.__ModuleLoader__.load({
 		 */
 		function ChipCard({ info, detail }) {
 			const data = detail === void 0 ? info : detail;
+			const rows = statusRows(info, detail);
+			const lineage = lineageRows(data);
 			return react_jsx_runtime.jsx("div", {
 				style: CARD_CONTAINER,
-				children: [...statusRows(info, detail), ...lineageRows(data)]
+				children: [
+					...rows,
+					lineage.length === 0 ? null : react_jsx_runtime.jsx("div", { style: CARD_DIVIDER, children: "branch" }, "branch-divider"),
+					...lineage
+				]
 			});
 		}
 

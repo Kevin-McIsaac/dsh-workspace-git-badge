@@ -219,9 +219,9 @@ test("a clean tree says so rather than rendering an empty breakdown", () => {
 	assert.ok(body.includes("clean"), `expected an explicit clean: ${body}`);
 });
 
-test("a branch with no pull request says so on the merge row", () => {
+test("a branch with no pull request says so on the state row", () => {
 	const rendered = client_labels(createClient({ tooltip: true, hover: true }), { branch: "feat/x", dirty: false });
-	assert.ok(rendered.includes("no pull request"), `the merge row states the fact: ${rendered}`);
+	assert.ok(rendered.includes("no pull request"), `the state row states the fact: ${rendered}`);
 });
 
 test("the default branch is named as the base, never as a branch with no PR", () => {
@@ -285,6 +285,22 @@ test("the card merges the checkout verdict and the branch lineage, without the c
 	assert.ok(body.includes("def5678"), "and the branch's commits are now ON the card");
 });
 
+test("the chip card splits the merge verdict from the base counts", () => {
+	const client = createClient({ tooltip: true, hover: true });
+	const data = {
+		...BASE,
+		pr: { number: 7, state: "passing", mergeState: "CLEAN", review: "APPROVED", open: true },
+		mainAhead: 3,
+		mainBehind: 1
+	};
+	const body = cardBody(client, data);
+	const parsed = rows(body);
+	assert.ok(parsed.some((row) => row.label === "state" && row.value.includes("ready to merge")), "the state row carries the verdict");
+	assert.ok(parsed.some((row) => row.label === "base" && row.value.includes("3 ahead, 1 behind main")), "the base row carries the counts");
+	// the divider names the branch section it introduces
+	assert.ok(text(body).includes("branch"), "a labelled divider separates the sections");
+});
+
 test("a tokenless chip STILL opens the card from its leading cluster", () => {
 	// The retired mark was the card's ONLY anchor. A clean checkout has no token,
 	// so without this the whole card would be unreachable. The cluster — the glyph
@@ -324,25 +340,26 @@ test("the leading card carries the branch's lineage, including its commits", () 
 	const labels = elements(expand(rendered)).filter((el) => el.type === "Tooltip").map((el) => text(expand(el.props.label())));
 	const leading = labels.find((l) => l.includes("abc1234"));
 	assert.ok(leading !== void 0, `expected the lineage label: ${JSON.stringify(labels)}`);
-	// the merge axis is the ONLY lineage row now, and it always renders
-	assert.ok(leading.includes("merge"), "the merge row");
+	// the state row is the only lineage row for this fixture (no base counts),
+	// and it always renders
+	assert.ok(leading.includes("state"), "the state row");
 	assert.ok(!leading.includes("origin/main"), "upstream row is gone — redundant with merge");
 	assert.ok(!leading.includes("\u2191"), "sync arrows are gone — same fact, said in words");
 	assert.ok(leading.includes("abc1234"), "the branch's commits, no heading — the lines are the label");
 });
 
-test("the chip card's next row is the SERVER's verdict, and its action row mirrors the icon", () => {
+test("the chip card leads with the action header, and the server's verdict is the next step", () => {
 	// clean feature branch, pushed, no PR: the picker offers /gh pr (an extra),
 	// but the server's next is null — so the card must stay quiet rather than
-	// promoting that extra into its next line. No rowToken either, so no action row.
+	// promoting that extra into its next line. No rowToken either, so no header.
 	const client = createClient({ tooltip: true, hover: true });
 	const clean = { branch: "feat/x", upstream: "origin/feat/x", ahead: 0, behind: 0, dirty: false };
-	const body = card(client, clean);
-	assert.ok(!body.includes("action"), `no action row without a token: ${body}`);
-	assert.ok(!body.includes("next"), `no next row when the server suggests nothing: ${body}`);
-	// When the server DOES suggest, the `next` row is its suggestion — `next` is
+	const cleanBody = card(client, clean);
+	assert.ok(!cleanBody.includes("action"), `no header without a token: ${cleanBody}`);
+	assert.ok(!cleanBody.includes("next"), `no next step when the server suggests nothing: ${cleanBody}`);
+	// When the server DOES suggest, the next step is its suggestion — `next` is
 	// the whole contract, so the fixture supplies it the way the response does.
-	// The `action` row comes from the SAME node rule as the icon.
+	// The action header comes from the SAME node rule as the icon.
 	const dirty = {
 		...clean,
 		dirty: true,
@@ -351,10 +368,15 @@ test("the chip card's next row is the SERVER's verdict, and its action row mirro
 		rowTokenWhy: "work to commit: 2 staged",
 		next: { args: "commit", why: "work to commit: 2 staged", what: "commit the staged changes" }
 	};
-	const parsed = rows(cardBody(client, dirty));
-	assert.equal(parsed[0]?.label, "action", "the action row leads");
-	assert.equal(parsed[0]?.value, "\u271A commit \u2014 work to commit: 2 staged", "and mirrors the icon's word and reason");
-	assert.ok(parsed.some((row) => row.label === "next" && row.value.includes("/gh commit")), "the server's suggestion is the next row");
+	const body = cardBody(client, dirty);
+	// the action sentence is the HEADER now, not a labelled row
+	const header = elements(body).find((el) => el.props?.style?.fontWeight === 600);
+	assert.ok(header !== void 0, "the action header leads the card");
+	assert.match(text(header), /commit \u2014 work to commit: 2 staged/, "and mirrors the icon's word and reason");
+	const parsed = rows(body);
+	assert.ok(parsed.some((row) => row.label === "next step" && row.value.includes("/gh commit")), "the server's suggestion is the next step row");
+	// and the action sentence moved out of the row list
+	assert.ok(!parsed.some((row) => row.label === "action"), "the action moved out of the row list");
 });
 
 test("the PR token's hover lists only the commits in that PR", () => {
@@ -375,7 +397,7 @@ test("the PR token's hover lists only the commits in that PR", () => {
 	assert.ok(prLabel !== void 0, `expected a commits label on the token: ${JSON.stringify(labels)}`);
 	assert.ok(prLabel.includes("first in the PR") && prLabel.includes("second in the PR"), "only this PR's commits");
 	assert.match(prLabel, /\u2026 and 2 more/, "4 total - 2 shown = 2 more");
-	assert.ok(!prLabel.includes("merge"), "nothing else rides the token's hover");
+	assert.ok(!prLabel.includes("state"), "nothing else rides the token's hover");
 	assert.ok(!prLabel.includes("files"), "no card content bleeds in");
 	// the token itself is still rendered
 	assert.ok(text(expand(client.chip(base, detail))).includes("PR#47"));
@@ -583,11 +605,11 @@ test("the idle gate reports ON when the shell supplies the hook", () => {
 
 //#endregion
 
-test("the lineage always states the merge axis, even with no pull request", () => {
+test("the lineage always states the state row, even with no pull request", () => {
 	// the row can no longer be silent: a branch with no PR says so, and one with
 	// counts speaks against the base branch in words rather than arrows
 	const noPr = client_labels(createClient({ tooltip: true, hover: true }), { branch: "feat/x", dirty: false });
-	const mergeRow = noPr.split(" | ").find((l) => l.includes("merge"));
+	const mergeRow = noPr.split(" | ").find((l) => l.includes("state"));
 	assert.ok(mergeRow !== void 0, `the merge row always renders: ${noPr}`);
 	assert.ok(mergeRow.includes("no pull request"));
 	// ahead/behind main joins the same row when the counts are known
@@ -597,12 +619,12 @@ test("the lineage always states the merge axis, even with no pull request", () =
 		mainAhead: 3,
 		mainBehind: 1
 	});
-	const row = withCounts.split(" | ").find((l) => l.includes("merge"));
+	const row = withCounts.split(" | ").find((l) => l.includes("state"));
 	assert.ok(row.includes("3 ahead, 1 behind main"), `counts in words: ${row}`);
 	assert.ok(row.includes("ready to merge"), `and the state: ${row}`);
 });
 
-test("the lineage phrases the merge blocker", () => {
+test("the lineage phrases the state blocker", () => {
 	// BLOCKED must say why — a dead-end word names the next action instead.
 	// Draft outranks: fixing checks on a draft is wasted work until it is
 	// marked ready.
@@ -611,7 +633,7 @@ test("the lineage phrases the merge blocker", () => {
 		pr: { number: 142, state: "failing", draft: true, review: "REVIEW_REQUIRED", open: true },
 		draft: true
 	});
-	const mergeRow = lineage.split(" | ").find((l) => l.includes("merge"));
+	const mergeRow = lineage.split(" | ").find((l) => l.includes("state"));
 	assert.ok(mergeRow !== void 0, `expected a merge row: ${lineage}`);
 	assert.ok(mergeRow.includes("blocked: draft"), `draft outranks: ${mergeRow}`);
 
@@ -619,7 +641,7 @@ test("the lineage phrases the merge blocker", () => {
 		...BASE,
 		pr: { number: 142, state: "passing", mergeState: "BLOCKED", review: "REVIEW_REQUIRED", open: true }
 	});
-	const mergeRow2 = reviewBlocked.split(" | ").find((l) => l.includes("merge"));
+	const mergeRow2 = reviewBlocked.split(" | ").find((l) => l.includes("state"));
 	assert.ok(mergeRow2 !== void 0 && mergeRow2.includes("blocked: review required"), `review required: ${mergeRow2}`);
 
 	// CLEAN is stated, not silent: the merge row always renders and says so
@@ -627,7 +649,7 @@ test("the lineage phrases the merge blocker", () => {
 		...BASE,
 		pr: { number: 142, state: "passing", mergeState: "CLEAN", review: "APPROVED", open: true }
 	});
-	const cleanRow = clean.split(" | ").find((l) => l.includes("merge"));
+	const cleanRow = clean.split(" | ").find((l) => l.includes("state"));
 	assert.ok(cleanRow !== void 0 && cleanRow.includes("ready to merge"), `ready: ${clean}`);
 });
 
