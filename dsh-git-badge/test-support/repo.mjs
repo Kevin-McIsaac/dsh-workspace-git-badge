@@ -180,3 +180,14 @@ export async function makeRepo(t, { userName = "Test User", userEmail = "test@ex
 	};
 	return api;
 }
+
+/**
+ * A throwaway repository whose `origin` looks like GitHub, with no upstream
+ * (so no fetch) — the fixture the PR region's tests build on.
+ */
+export async function githubRepo(t) {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	await repo.git(["remote", "add", "origin", "git@github.com:owner/repo.git"]);
+	return repo;
+}

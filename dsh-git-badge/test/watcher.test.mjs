@@ -9,7 +9,6 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-	changeListeners,
 	config,
 	outerGitDir,
 	syncWatchers,
@@ -17,18 +16,8 @@ import {
 	watchWorkspace,
 	watchers
 } from "../lib/index.js";
-import { fakeCtx, waitFor } from "../test-support/harness.mjs";
+import { fakeCtx, spyOn, waitFor } from "../test-support/harness.mjs";
 import { makeRepo, makeTempDir, runGit } from "../test-support/repo.mjs";
-
-/** Subscribe a spy to change notifications; released with the test. */
-function spyOn(t) {
-	const seen = [];
-	// notifications carry a payload: { path, workspace }
-	const spy = (payload) => seen.push(payload);
-	changeListeners.add(spy);
-	t.after(() => changeListeners.delete(spy));
-	return seen;
-}
 
 /** Release every watcher this test may have created. */
 function releaseWatchers(t) {

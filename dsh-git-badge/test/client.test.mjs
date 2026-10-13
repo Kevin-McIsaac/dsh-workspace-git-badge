@@ -9,7 +9,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createClient, elements, expand, rows, text } from "../test-support/client.mjs";
+import { createClient, elements, expand, rows, sessionsWithRunning, text } from "../test-support/client.mjs";
 
 /** A main checkout and a linked worktree, differing only in that one field. */
 const MAIN = { branch: "main", isWorktree: false, worktreeName: "repo" };
@@ -318,9 +318,6 @@ test("a non-repository, and an unresolved workspace, render no mark", () => {
 // ---------------------------------------------------------------------------
 // the leading-cell token glyph — upstream's own seat, on every install
 // ---------------------------------------------------------------------------
-
-/** A stand-in for the shell's standard kit: a selector hook over the sessions store. */
-const sessionsWithRunning = (running) => (select) => select({ byId: { "s-1": { running } } });
 
 test("LeadingTokenGlyph renders the token as one icon with the token colour and name", () => {
 	const client = createClient();

@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { apply } from "../lib/index.js";
-import { fakeCtx, fakeReq, fakeStream } from "../test-support/harness.mjs";
+import { fakeCtx, get } from "../test-support/harness.mjs";
 import { makeRepo } from "../test-support/repo.mjs";
 
 const WORKSPACE_ID = "ws-alpha";
@@ -30,13 +30,6 @@ async function setup(t, { register, sessions = {}, resolveByPath = true } = {}) 
 	apply(ctx);
 	t.after(() => disposeAll());
 	return { repo, routes, entities };
-}
-
-async function get(routes, query) {
-	const req = fakeReq({ url: `/api/git-badge${query}` });
-	const res = fakeStream();
-	await routes.get("/api/git-badge").handler(req, res);
-	return res;
 }
 
 test("both routes are registered", async (t) => {

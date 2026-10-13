@@ -15,7 +15,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createClient, elements, expand, rows, text } from "../test-support/client.mjs";
+import { createClient, elements, expand, rows, sessionsWithRunning, text } from "../test-support/client.mjs";
 
 /**
  * The ORDINARY status response — everything a plain (no `detail=1`) fetch
@@ -567,9 +567,6 @@ test("the session row shows a GLYPH, never a PR token or a branch", () => {
 
 /** One commit ahead of upstream, which the node half turns into the token `push`. */
 const ROW_AHEAD = { branch: "feat/x", ahead: 1, rowToken: "push", rowSeverity: "business" };
-
-/** A stand-in for the shell's standard kit: a selector hook over the sessions store. */
-const sessionsWithRunning = (running) => (select) => select({ byId: { "s-1": { running } } });
 
 test("the row's token glyph hides while the session is running a turn", () => {
 	// The shell hands every slot entry the sessions store as a selector hook, which

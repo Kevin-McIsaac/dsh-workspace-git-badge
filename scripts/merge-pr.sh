@@ -71,9 +71,9 @@ CURRENT_BRANCH="$(git branch --show-current)"
 say "Reading PR #$PR"
 PR_JSON="$(gh pr view "$PR" --json state,headRefName,title,mergeCommit 2>/dev/null)" \
 	|| die "cannot read PR #$PR (wrong number, or gh cannot reach the remote)"
-STATE="$(printf '%s' "$PR_JSON" | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).state")"
-HEAD_REF="$(printf '%s' "$PR_JSON" | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).headRefName")"
-TITLE="$(printf '%s' "$PR_JSON" | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).title")"
+# One node call prints state, headRefName and title tab-separated; `read` splits them.
+PR_FIELDS="$(printf '%s' "$PR_JSON" | node -e 'const p=JSON.parse(require("fs").readFileSync(0,"utf8"));process.stdout.write([p.state,p.headRefName,p.title].join("\t"))')"
+IFS=$'\t' read -r STATE HEAD_REF TITLE <<< "$PR_FIELDS"
 say "#$PR \"$TITLE\" is $STATE (branch: $HEAD_REF)"
 
 # ---- 1. merge through the API (never touches local refs) --------------------

@@ -82,6 +82,9 @@ export function rows(node) {
 		});
 }
 
+/** A stand-in for the shell's standard kit: a selector hook over the sessions store. */
+export const sessionsWithRunning = (running) => (select) => select({ byId: { "s-1": { running } } });
+
 /**
  * Load the real client bundle and return a renderer per registered surface.
  * `apply()` is driven with a fake slots service that captures each registration

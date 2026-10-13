@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 /** The stable store directory — SEAM_DATA_DIR overrides. */
-export function dataDir() {
+function dataDir() {
 	if (process.env.SEAM_DATA_DIR) return process.env.SEAM_DATA_DIR;
 	return join(process.env.DSH_HOME || join(process.env.HOME || "", ".dsh"), "git-badge-seam");
 }
@@ -22,6 +22,13 @@ export const SESSION_CHECKOUT_TTL_MS = 24 * 60 * 60 * 1000;
 
 function sessionCheckoutsPath() {
 	return join(dataDir(), "session-checkouts.json");
+}
+
+const SCHEMA = "dsh-git-badge/session-checkout/v1";
+
+/** Write the whole store in one place — the schema lives beside this call. */
+function persist(sessions) {
+	writeFileSync(sessionCheckoutsPath(), JSON.stringify({ schema: SCHEMA, sessions }), "utf8");
 }
 
 /** Every registration, `{ sessionId: { path, at } }`. Never throws.
@@ -58,7 +65,7 @@ export function writeSessionCheckout(sessionId, path) {
 		mkdirSync(dataDir(), { recursive: true });
 		const sessions = readSessionCheckouts();
 		sessions[sessionId] = { path, at: new Date().toISOString() };
-		writeFileSync(file, JSON.stringify({ schema: "dsh-git-badge/session-checkout/v1", sessions }), "utf8");
+		persist(sessions);
 		return { ok: true, file };
 	} catch (error) {
 		return { ok: false, file, error: String(error?.message ?? error), code: String(error?.code ?? "") };
@@ -69,15 +76,10 @@ export function writeSessionCheckout(sessionId, path) {
 export function clearSessionCheckout(sessionId) {
 	try {
 		const sessions = readSessionCheckouts();
-		if (!(sessionId in sessions)) return true;
+		if (!(sessionId in sessions)) return;
 		delete sessions[sessionId];
-		writeFileSync(
-			sessionCheckoutsPath(),
-			JSON.stringify({ schema: "dsh-git-badge/session-checkout/v1", sessions }),
-			"utf8",
-		);
-		return true;
+		persist(sessions);
 	} catch {
-		return false;
+		// forgetting is best-effort: the registration expires on its own
 	}
 }
