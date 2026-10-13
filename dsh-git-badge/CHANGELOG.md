@@ -10,6 +10,8 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-10-13
+
 ### Added
 
 - **The session row shows its token as a leading glyph.** The node-half token
