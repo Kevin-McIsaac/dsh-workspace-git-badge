@@ -36,6 +36,15 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Changed
 
+- **The chip's hover card leads with the action and splits the merge row.** The
+  checkout verdict is now a heading (the token glyph, the word and the reason)
+  instead of an `action` label/value row, the server's suggestion is named
+  `next step` with a `▸` marker, `files` is renamed `changes`, and the merge row
+  is split into `state` (the pull-request verdict) and `base` (the ahead/behind
+  counts). A labelled `branch` divider separates the checkout rows from the
+  branch rows. The session-row card is unchanged; both cards still share one
+  action sentence.
+
 - **The node half is the single authority for the row's word.** `nextActions`
   now returns `rowToken` alongside `actions` and `next`, and the route attaches
   it to every status response. The client row reads that token instead of

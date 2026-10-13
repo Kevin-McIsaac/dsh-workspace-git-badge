@@ -452,9 +452,11 @@ test("the row card FILLS the hover card, so its values wrap instead of overflowi
 	assert.equal(value.props.style.whiteSpace, "normal", "and is allowed to wrap");
 });
 
-test("the chip card and the row card render the SAME action row", () => {
+test("the chip card and the row card render the SAME action sentence", () => {
 	// The acceptance criterion for the shared helper: one checkout, one action
-	// sentence, whichever card renders it. Byte equality, not two lookalikes.
+	// sentence, whichever card renders it. The chip card shows it as a heading
+	// (actionHeader) and the row card as an action row (actionRow); both call the
+	// same actionRow producer, so byte equality must hold.
 	const client = createClient({ tooltip: true });
 	const info = {
 		...MAIN,
@@ -464,10 +466,11 @@ test("the chip card and the row card render the SAME action row", () => {
 	};
 	const tooltip = elements(expand(client.rawChip(info))).find((element) => element.type === "Tooltip");
 	assert.ok(tooltip !== void 0, "the chip card is wrapped in the Tooltip primitive");
-	const chipAction = rows(expand(tooltip.props.label())).find((row) => row.label === "action");
+	const body = expand(tooltip.props.label());
+	const header = elements(body).find((element) => element.props?.style?.fontWeight === 600);
 	const rowAction = rows(client.rowDetail(info)).find((row) => row.label === "action");
-	assert.ok(chipAction !== void 0 && rowAction !== void 0, "both cards render an action row");
-	assert.equal(chipAction.value, rowAction.value, "one action sentence, two cards");
+	assert.ok(header !== void 0 && rowAction !== void 0, "both cards render the action sentence");
+	assert.equal(text(header).trim(), rowAction.value.trim(), "one action sentence, two cards");
 });
 
 test("LeadingTokenGlyph renders nothing with no token — the mark is retired", () => {
