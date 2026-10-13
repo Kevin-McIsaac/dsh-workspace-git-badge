@@ -56,6 +56,22 @@ npm. 0.6.0 is the first release recorded here.
   `currentColor`, because `↑ ↓ ⇄ ↻` are hairline strokes in the shell's font and no
   weight makes them as solid as `✚ ✓ ✗ ◆`. The six text glyphs sit at 13px, and the
   card's action-row glyph is bold for every token.
+- **A session is never iconless: the `in sync` disc.** With no rule at all, the
+  node half returns `rowToken: "in sync"` plus a reason and a colour role, so the
+  chip and the row draw a disc and the card explains it. The colour carries the
+  merge fact: `success` (green) when no commit is ahead of the base, `warn` (amber)
+  when some are — so a clean but unmerged feature branch no longer reads as all
+  clear. Only a non-repository still returns null.
+- **The idle disc's colour matches on every surface.** `mainAhead`/`mainBehind`
+  were detail-only, so the chip and the session row read a GREEN disc while the
+  chip's hover card read AMBER for the same checkout. The branch-vs-base relation
+  is cached (like the default branch) and attached to every response. The first
+  read may answer without it; the next one carries it.
+- **The merge icon is Remix Icon `git-merge-line`.** `merge` no longer renders
+  the text check `✓`, which read as "done" rather than "merge". Unicode has no
+  merge glyph, so the icon is Remix Icon's artwork, vendored verbatim as inline
+  SVG and rendered at 16px — the branch-into-a-trunk shape that GitHub, VS Code,
+  Font Awesome and Material all use. No icon font is involved.
 - **The chip card is ONE card.** The retired mark was the card's only anchor, so
   the checkout's verdict rows and the branch's lineage rows merged into one card
   on the leading cluster (glyph and branch together). Hovering either opens it,

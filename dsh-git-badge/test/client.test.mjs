@@ -16,29 +16,30 @@ const MAIN = { branch: "main", isWorktree: false, worktreeName: "repo" };
 const WORKTREE = { branch: "feat/hotfix", isWorktree: true, worktreeName: "hotfix-tree" };
 
 /**
- * Every token the node half can attach as `rowToken`, with its glyph and the
- * severity colour it maps to. The row renders the token it is GIVEN; the
- * derivation itself is the node half's and is tested there.
+ * Every token the node half can attach as `rowToken`, with its text glyph and the
+ * severity colour it maps to. `null` in the glyph column means the icon is DRAWN
+ * (see DRAWN below), so no text character exists for it. The row renders the token
+ * it is GIVEN; the derivation itself is the node half's and is tested there.
  */
 const TOKENS = [
 	["resume", "\u23F5", "error"],
 	["resolve", "!", "error"],
 	["fix CI", "\u2717", "error"],
 	["review", "\u25C6", "warn"],
-	["merge", "\u2713", "success"],
-	["sync", "\u21C4", "business"],
-	["pull", "\u2193", "business"],
-	["update", "\u21BB", "business"],
-	["push", "\u2191", "business"],
-	["push", "\u2191", "business"],
-	["commit", "\u271A", "business"]
+	["commit", "\u271A", "business"],
+	["merge", null, "success"],
+	["sync", null, "business"],
+	["pull", null, "business"],
+	["update", null, "business"],
+	["push", null, "business"],
+	["in sync", null, "success"]
 ];
 
 /** token -> severity, from the table above, so a fixture and its colour agree. */
 const SEVERITY = Object.fromEntries(TOKENS.map(([token, , severity]) => [token, severity]));
 
-/** The four tokens whose hairline arrows are DRAWN, not typed. */
-const DRAWN = new Set(["push", "pull", "sync", "update"]);
+/** The tokens whose icons are DRAWN, not typed: the arrows, the idle disc and merge. */
+const DRAWN = new Set(["push", "pull", "sync", "update", "in sync", "merge"]);
 
 /** True when any node in the tree is an <svg>. */
 const hasSvg = (node) => elements(node).some((element) => element.type === "svg");
@@ -65,10 +66,10 @@ test("the chip shows the action icon, and NO icon when there is no token", () =>
 });
 
 test("no surface draws the retired disc/tree mark", () => {
-	// The mark is gone. Four tokens now draw an ARROW, so this uses a SOLID token,
-	// whose icon is still a text glyph.
+	// The mark is gone. Several tokens draw an SVG, so this uses one whose icon is
+	// still a text glyph.
 	const client = createClient();
-	for (const node of [client.chip(withToken("merge")), client.leading(withToken("merge"))]) {
+	for (const node of [client.chip(withToken("commit")), client.leading(withToken("commit"))]) {
 		assert.equal(hasSvg(node), false, "the mark is gone");
 	}
 });
@@ -92,8 +93,10 @@ test("the leading cell shows the token glyph, and NOTHING when there is none", (
 	// no token: the cell renders nothing at all — no mark, no text
 	assert.equal(client.leading({ ...MAIN, dirty: false }), null, "a checkout with no action draws nothing");
 	// a token: the glyph alone — no word, no mark, no PR number
+	const commit = client.leading({ ...WORKTREE, worktreeName: "hotfix-tree", rowToken: "commit", rowSeverity: "business" });
+	assert.equal(text(commit), "\u271A");
 	const merge = client.leading({ ...WORKTREE, worktreeName: "hotfix-tree", rowToken: "merge", rowSeverity: "success" });
-	assert.equal(text(merge), "\u2713");
+	assert.equal(hasSvg(merge), true, "merge is drawn now");
 	assert.ok(!text(merge).includes("391"), "and the cell never carries the PR number");
 });
 
@@ -238,18 +241,67 @@ test("the card names linked worktrees it is NOT following — the failure made v
 	assert.equal(client.internals.linkedWorktreesDetail(void 0), void 0);
 });
 
-test("the retired status mark is gone; the only shapes are the four drawn arrows", () => {
-	// The disc and the tree are deleted. The shape used to carry worktree-ness; the
-	// card's `worktree` row carries it now. The only svg left is a hairline ARROW.
+test("the idle verdict draws a disc: green when merged, amber when work is unmerged", () => {
+	// The node emits `in sync` when no rule fires, so the row is never iconless. The
+	// COLOUR carries the branch fact: green = nothing outstanding, amber = commits
+	// that its base does not have.
+	const client = createClient();
+	const discOf = (severity, why) => {
+		const info = { ...MAIN, rowToken: "in sync", rowSeverity: severity, rowTokenWhy: why };
+		const icon = elements(client.leading(info)).find((el) => el.props?.["aria-label"] === "git action: in sync");
+		assert.ok(icon !== void 0, "the idle row still has an icon");
+		const svg = elements(icon).find((el) => el.type === "svg");
+		assert.equal(svg.props.viewBox, "0 0 12 12", "on the shared grid");
+		const circle = elements(svg).find((el) => el.type === "circle");
+		assert.ok(circle !== void 0, "a disc, not an arrow");
+		assert.equal(circle.props.cx, 6);
+		assert.equal(circle.props.cy, 6);
+		assert.equal(circle.props.r, 5, "a 10px disc, the arrows' size");
+		return { icon, info };
+	};
+	const merged = discOf("success", "clean and matching the remote");
+	assert.match(merged.icon.props.style.color, /state-success-primary/, "green when nothing is outstanding");
+	assert.deepEqual(rows(client.rowDetail(merged.info)), [{ label: "action", value: " in sync \u2014 clean and matching the remote" }]);
+	const unmerged = discOf("warn", "2 commits not merged");
+	assert.match(unmerged.icon.props.style.color, /state-warn-primary/, "amber when work is unmerged");
+	assert.deepEqual(rows(client.rowDetail(unmerged.info)), [{ label: "action", value: " in sync \u2014 2 commits not merged" }]);
+});
+
+test("the merge icon is Remix Icon git-merge-line, vendored as SVG at 16", () => {
+	// Unicode has no merge glyph, so every tool draws the branch-into-a-trunk shape.
+	// We vendor Remix Icon's `git-merge-line` verbatim and render it as inline SVG at
+	// 16px: its ink is inset (about 16 of its 24 units), so it lands at the arrows'
+	// weight and fills the row's 16px leading cell. No icon font is involved.
+	const client = createClient();
+	const icon = elements(client.leading({ ...MAIN, rowToken: "merge", rowSeverity: "success" }))
+		.find((el) => el.props?.["aria-label"] === "git action: merge");
+	assert.ok(icon !== void 0, "the row draws the merge icon");
+	const svg = elements(icon).find((el) => el.type === "svg");
+	assert.equal(svg.props.viewBox, "0 0 24 24", "Remix Icon's own grid");
+	assert.equal(svg.props.width, 16, "rendered at the row cell's 16px");
+	assert.equal(svg.props.height, 16);
+	const paths = elements(svg).filter((el) => el.type === "path");
+	assert.equal(paths.length, 1, "Remix Icon is one filled path");
+	assert.ok(paths[0].props.d.startsWith("M7.10508 8.78991"), "vendored verbatim, not redrawn");
+	assert.equal(elements(svg).some((el) => el.type === "circle"), false, "no hand-drawn shapes left");
+	assert.equal(text(icon), "", "and no text glyph is left");
+	assert.match(icon.props.style.color, /state-success-primary/, "still the success colour");
+});
+
+test("the retired status mark is gone; the only shapes are the drawn icons", () => {
+	// The status disc and the worktree tree are deleted. Worktree-ness is named in
+	// the card's `worktree` row now. The only svg left is a drawn icon: an arrow,
+	// or the idle disc — and none of them is the old status mark.
 	const client = createClient();
 	assert.equal(hasSvg(client.chip({ ...MAIN, dirty: true })), false, "no mark on a tokenless chip");
-	assert.equal(hasSvg(client.chip(withToken("merge"))), false, "no mark beside a text glyph");
-	assert.equal(hasSvg(client.leading(withToken("merge"))), false, "and none in the row cell");
+	assert.equal(hasSvg(client.chip(withToken("commit"))), false, "no mark beside a text glyph");
+	assert.equal(hasSvg(client.leading(withToken("commit"))), false, "and none in the row cell");
 	for (const token of DRAWN) {
-		const arrow = elements(client.leading(withToken(token))).find((el) => el.type === "svg");
-		assert.ok(arrow !== void 0, `${token}: the arrow is drawn`);
-		assert.equal(arrow.props.viewBox, "0 0 12 12", `${token}: on the shared 12x12 grid`);
-		assert.equal(arrow.props["aria-hidden"], true, `${token}: decoration — the span names it`);
+		const icon = elements(client.leading(withToken(token))).find((el) => el.type === "svg");
+		assert.ok(icon !== void 0, `${token}: the icon is drawn`);
+		// merge is Remix Icon's 24-grid; the rest live on our 12-grid
+		assert.equal(icon.props.viewBox, token === "merge" ? "0 0 24 24" : "0 0 12 12", `${token}: its own grid`);
+		assert.equal(icon.props["aria-hidden"], true, `${token}: decoration — the span names it`);
 	}
 });
 
@@ -300,7 +352,7 @@ test("LeadingTokenGlyph renders the token as one icon with the token colour and 
 
 test("the chip icon uses the same size and colour rule as the row icon", () => {
 	const client = createClient();
-	for (const token of ["push", "merge"]) {
+	for (const token of ["push", "commit"]) {
 		const icon = elements(client.chip(withToken(token)))
 			.find((el) => el.props?.["aria-label"] === "git action: " + token);
 		assert.ok(icon !== void 0, `${token}: the chip draws an icon`);
@@ -355,11 +407,11 @@ test("the row's hover card explains the glyph, using the row's own hover", () =>
 	assert.ok(glyph !== void 0, "the icon is decoration; the word follows it");
 	assert.equal(hasSvg(glyph), true, "a hairline token is drawn");
 	assert.match(glyph.props.style.color, /state-business-primary/, "painted in the token's own colour");
-	// a SOLID token keeps its text glyph
-	const merge = client.rowDetail({ ...MAIN, rowToken: "merge", rowSeverity: "success", rowTokenWhy: "ready" });
-	const mergeGlyph = elements(merge).find((element) => element.props?.["aria-hidden"] === true);
-	assert.equal(text(mergeGlyph), "\u2713", "the solid glyph is text");
-	assert.deepEqual(rows(merge), [{ label: "action", value: "\u2713 merge \u2014 ready" }]);
+	// a TEXT token keeps its text glyph
+	const commit = client.rowDetail({ ...MAIN, rowToken: "commit", rowSeverity: "business", rowTokenWhy: "ready" });
+	const commitGlyph = elements(commit).find((element) => element.props?.["aria-hidden"] === true);
+	assert.equal(text(commitGlyph), "\u271A", "the text glyph is text");
+	assert.deepEqual(rows(commit), [{ label: "action", value: "\u271A commit \u2014 ready" }]);
 	// no reason from the node half still names the action
 	assert.deepEqual(rows(client.rowDetail({ ...MAIN, rowToken: "push", rowSeverity: "business" })), [{ label: "action", value: " push" }]);
 	// action first, then the checkout; and nothing at all when the row has neither
@@ -370,7 +422,7 @@ test("the row's hover card explains the glyph, using the row's own hover", () =>
 			rowToken: "merge", rowSeverity: "success", rowTokenWhy: "pull request 9 is ready to merge"
 		})),
 		[
-			{ label: "action", value: "\u2713 merge \u2014 pull request 9 is ready to merge" },
+			{ label: "action", value: " merge \u2014 pull request 9 is ready to merge" },
 			{ label: "checkout", value: "hotfix-tree on feat/x" }
 		]
 	);
@@ -434,7 +486,7 @@ test("LeadingTokenGlyph asks for session AND PR state, once", () => {
 	client.leading(withToken("push"));
 	assert.deepEqual(client.requests, ["session=s-1&pr=1"], "one session+PR request, nothing else");
 	// and the PR token it receives is what the card shows
-	assert.equal(text(client.leading({ ...MAIN, rowToken: "merge", rowSeverity: "success" })), "\u2713", "a PR token reaches the glyph");
+	assert.equal(text(client.leading({ ...MAIN, rowToken: "commit", rowSeverity: "business" })), "\u271A", "a text token reaches the glyph");
 });
 
 test("LeadingTokenGlyph hides while the session runs a turn", () => {

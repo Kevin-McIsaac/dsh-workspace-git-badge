@@ -443,62 +443,100 @@ window.__ModuleLoader__.load({
 		};
 
 		/**
-		 * Action -> glyph. The SHAPE channel, beside the colour: a glyph makes the
-		 * row readable before the word is parsed, and it survives a monochrome or
-		 * colour-blind view where the tint alone would not. Keys are the row tokens;
-		 * a missing entry degrades to the bare word.
+		 * Action -> TEXT glyph. The SHAPE channel for the five tokens whose icon is a
+		 * character. The other six are DRAWN (see DRAWN_ICONS) and deliberately have
+		 * NO entry here: a leftover text fallback would be a second, unreachable
+		 * rendering of the same icon — and for `merge` it was exactly the check mark
+		 * the drawn Octicon replaced.
+		 *
+		 * A missing entry degrades to the bare word.
 		 */
 		const ACTION_GLYPH = {
 			resume: "\u23F5",
 			resolve: "!",
 			"fix CI": "\u2717",
 			review: "\u25C6",
-			merge: "\u2713",
-			sync: "\u21C4",
-			pull: "\u2193",
-			update: "\u21BB",
-			push: "\u2191",
 			commit: "\u271A"
 		};
 
 		/**
-		 * The hairline tokens, DRAWN rather than typed. `↑ ↓ ⇄ ↻` are hairline
-		 * strokes in the shell's font, and no weight or size makes them as solid as
-		 * the filled glyphs (`✚ ✓ ✗ ◆`). These four are paths on a 12x12 grid, painted
-		 * with `currentColor`, so each arrow matches the text's weight and centres on
-		 * it. The other six stay text: their glyphs already read well.
+		 * The icons DRAWN rather than typed, each with its own grid and render size.
+		 *
+		 * `↑ ↓ ⇄ ↻` are hairline strokes in the shell's font, and no weight or size
+		 * makes them as solid as the filled glyphs; these four are paths on a 12x12
+		 * grid, painted with `currentColor`, so each arrow matches the text's weight
+		 * and centres on it. `in sync` is drawn for the same reason: the idle disc
+		 * must be exactly round, not a font's idea of a circle.
+		 *
+		 * `merge` is Remix Icon's `git-merge-line` (24x24), vendored VERBATIM rather
+		 * than redrawn, and rendered at 16px to fill the row's 16px leading cell.
+		 * Unicode has no merge glyph at all, so every tool draws this shape family.
+		 * Its ink is inset (about 16 of its 24 units), so at 16px it puts down
+		 * ~10.7px — the arrows' weight, which a 12px render would miss.
+		 *
+		 * The other five tokens stay text.
 		 */
-		const ARROW_PATHS = {
-			push: [{ d: "M6 1 L10.6 6.6 H7.5 V11 H4.5 V6.6 H1.4 Z" }],
-			pull: [{ d: "M6 11 L1.4 5.4 H4.5 V1 H7.5 V5.4 H10.6 Z" }],
-			sync: [
-				{ d: "M1.5 3.4 H8.4 V2 L11 4 L8.4 6 V4.6 H1.5 Z" },
-				{ d: "M10.5 8.6 H3.6 V10 L1 8 L3.6 6 V7.4 H10.5 Z" }
-			],
-			update: [
-				{ d: "M6 1.9 A4.1 4.1 0 1 1 1.9 6", stroke: true },
-				{ d: "M4.3 0.4 L8.3 1.9 L4.3 3.4 Z" }
-			]
+		const DRAWN_ICONS = {
+			push: { size: 12, viewBox: "0 0 12 12", shapes: [{ d: "M6 1 L10.6 6.6 H7.5 V11 H4.5 V6.6 H1.4 Z" }] },
+			pull: { size: 12, viewBox: "0 0 12 12", shapes: [{ d: "M6 11 L1.4 5.4 H4.5 V1 H7.5 V5.4 H10.6 Z" }] },
+			sync: {
+				size: 12,
+				viewBox: "0 0 12 12",
+				shapes: [
+					{ d: "M1.5 3.4 H8.4 V2 L11 4 L8.4 6 V4.6 H1.5 Z" },
+					{ d: "M10.5 8.6 H3.6 V10 L1 8 L3.6 6 V7.4 H10.5 Z" }
+				]
+			},
+			update: {
+				size: 12,
+				viewBox: "0 0 12 12",
+				shapes: [
+					{ d: "M6 1.9 A4.1 4.1 0 1 1 1.9 6", stroke: true },
+					{ d: "M4.3 0.4 L8.3 1.9 L4.3 3.4 Z" }
+				]
+			},
+			"in sync": { size: 12, viewBox: "0 0 12 12", shapes: [{ circle: true }] },
+			// Remix Icon `git-merge-line` (24x24), vendored verbatim from
+			// https://github.com/Remix-Design/RemixIcon/blob/master/icons/Development/git-merge-line.svg
+			// EXP-1: this is an experiment. Swapping back to GitHub's Octicon
+			// `git-merge` is this one entry — a 16x16 grid, same shape family.
+			merge: {
+				size: 16,
+				viewBox: "0 0 24 24",
+				shapes: [{ d: "M7.10508 8.78991C7.45179 10.0635 8.61653 11 10 11H14C16.4703 11 18.5222 12.7915 18.9274 15.1461C20.1303 15.5367 21 16.6668 21 18C21 19.6569 19.6569 21 18 21C16.3431 21 15 19.6569 15 18C15 16.7334 15.7849 15.6501 16.8949 15.2101C16.5482 13.9365 15.3835 13 14 13H10C8.87439 13 7.83566 12.6281 7 12.0004V15.1707C8.16519 15.5825 9 16.6938 9 18C9 19.6569 7.65685 21 6 21C4.34315 21 3 19.6569 3 18C3 16.6938 3.83481 15.5825 5 15.1707V8.82929C3.83481 8.41746 3 7.30622 3 6C3 4.34315 4.34315 3 6 3C7.65685 3 9 4.34315 9 6C9 7.26661 8.21506 8.34988 7.10508 8.78991ZM6 7C6.55228 7 7 6.55228 7 6C7 5.44772 6.55228 5 6 5C5.44772 5 5 5.44772 5 6C5 6.55228 5.44772 7 6 7ZM6 19C6.55228 19 7 18.5523 7 18C7 17.4477 6.55228 17 6 17C5.44772 17 5 17.4477 5 18C5 18.5523 5.44772 19 6 19ZM18 19C18.5523 19 19 18.5523 19 18C19 17.4477 18.5523 17 18 17C17.4477 17 17 17.4477 17 18C17 18.5523 17.4477 19 18 19Z" }]
+			}
 		};
 
+		/** True when a token has an icon at all — drawn or typed. */
+		function hasIcon(token) {
+			return DRAWN_ICONS[token] !== void 0 || ACTION_GLYPH[token] !== void 0;
+		}
+
 		/**
-		 * The icon NODE: a drawn arrow for the four hairline tokens, a text glyph for
-		 * the rest. The parent span carries the accessible name, so the drawn arrow is
+		 * The icon NODE: a drawn shape for the six drawn tokens, a text glyph for the
+		 * rest. The parent span carries the accessible name, so the drawing is
 		 * decoration (`aria-hidden`).
 		 */
 		function actionGlyphNode(token) {
-			const paths = ARROW_PATHS[token];
-			if (paths === void 0) return ACTION_GLYPH[token] ?? token;
+			const icon = DRAWN_ICONS[token];
+			if (icon === void 0) return ACTION_GLYPH[token] ?? token;
 			return react_jsx_runtime.jsx("svg", {
-				viewBox: "0 0 12 12",
-				width: 12,
-				height: 12,
+				viewBox: icon.viewBox,
+				width: icon.size,
+				height: icon.size,
 				"aria-hidden": true,
 				focusable: "false",
 				style: { display: "block", flex: "none", color: "inherit" },
-				children: paths.map((path, index) => react_jsx_runtime.jsx("path", path.stroke === true
-					? { d: path.d, fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }
-					: { d: path.d, fill: "currentColor" }, "arrow-" + index))
+				children: icon.shapes.map((shape, index) => shape.circle === true
+					? react_jsx_runtime.jsx("circle", {
+						cx: shape.cx ?? 6,
+						cy: shape.cy ?? 6,
+						r: shape.r ?? 5,
+						fill: "currentColor"
+					}, "shape-" + index)
+					: react_jsx_runtime.jsx("path", shape.stroke === true
+						? { d: shape.d, fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }
+						: { d: shape.d, fill: "currentColor" }, "shape-" + index))
 			});
 		}
 
@@ -626,9 +664,8 @@ window.__ModuleLoader__.load({
 			if (typeof token !== "string" || token === "") return void 0;
 			const why = typeof info.rowTokenWhy === "string" && info.rowTokenWhy !== "" ? info.rowTokenWhy : void 0;
 			const colour = SEVERITY_FILL[info.rowSeverity];
-			const glyph = ACTION_GLYPH[token];
 			const value = [];
-			if (glyph !== void 0) {
+			if (hasIcon(token)) {
 				value.push(react_jsx_runtime.jsx("span", {
 					"aria-hidden": true,
 					style: { color: colour === void 0 ? META_STYLE.color : colour, fontWeight: 700, display: "inline-flex", alignItems: "center" },

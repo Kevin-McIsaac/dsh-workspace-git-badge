@@ -286,9 +286,46 @@ function defaultBranchFor(toplevel, notify) {
 	});
 }
 
+/**
+ * toplevel+branch -> { ahead, behind } against the branch's BASE (origin/main,
+ * then origin/master). Cached and refreshed out of band, like the default branch.
+ *
+ * The branch's relation to its base used to be detail-only (`detail=1`, the chip's
+ * hover card). The IDLE icon's colour needs it on EVERY response: green when no
+ * commit is ahead of the base, amber when some are. Reading it in only one path
+ * made the chip and the row say green while the card said amber — the same
+ * checkout, two answers. A rev-list per refresh is too expensive on the hot path,
+ * so the first read may answer without the relation and the next one carries it.
+ */
+const baseRelationState = new Map();
+
+/** The cached branch-vs-base relation, kicking a refresh when stale. Never throws. */
+function baseRelationFor(toplevel, branch, notify) {
+	return singleFlight(baseRelationState, toplevel + "\u0000" + branch, {
+		ttlMs: config.defaultBranchTtlMs,
+		keepValue: true,
+		serve: (state) => state.value
+	}, async (record) => {
+		let base = null;
+		for (const candidate of ["main", "master"]) {
+			const probe = await runGit(toplevel, ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/" + candidate]);
+			if (probe.stdout !== null && probe.stdout.trim() !== "") {
+				base = "origin/" + candidate;
+				break;
+			}
+		}
+		if (base === null) return void 0;
+		const out = await runGit(toplevel, ["rev-list", "--count", "--left-right", base + "...HEAD"]);
+		const [behind, ahead] = (out.stdout ?? "").trim().split("\t").map((v) => Number.parseInt(v, 10));
+		if (!Number.isFinite(ahead) || !Number.isFinite(behind)) return void 0;
+		const value = { ahead, behind };
+		if (record.value?.ahead !== value.ahead || record.value?.behind !== value.behind) notify?.();
+		return value;
+	});
+}
+
 /** lastFetchAt per toplevel; in-flight promise per toplevel collapses races. */
 const fetchState = new Map();
-
 /**
  * Refresh the remote-tracking refs for toplevel, bounded by TTL. Resolves
  * true only when a fetch actually ran and succeeded; every failure mode
@@ -933,6 +970,9 @@ function nextStepRules(info) {
  * only real actions. `rowWhy` is that same rule's reason, so a surface with no
  * room for the word (the leading glyph) can say WHY on hover. `rowSeverity` is
  * the same rule's colour role, so every surface paints the icon the same way.
+ * With NO rule at all the three become the idle verdict: the token `in sync`,
+ * a reason, and a severity that is `success` when no commit is ahead of the base
+ * and `warn` when some are. Only a non-repository returns null.
  *
  * @returns {{ actions: Array<{args, why, what, command?, danger?, primary?}>, next: object|null, rowToken: string|null, rowWhy: string|null, rowSeverity: string|null }}
  */
@@ -957,12 +997,23 @@ function nextActions(info) {
 	// The winning row rule supplies the token, its reason AND its severity, so the
 	// three can never describe different rules.
 	const rowRule = ranked.find((rule) => rule.token !== null && rule.token !== void 0) ?? null;
+	// NO rule fired: the checkout is clean and nothing local needs doing. The WORD
+	// says only what is known — "in sync" — and the COLOUR says whether work is
+	// still unmerged. `mainAhead` counts commits on this branch that its base does
+	// not have, so an amber disc means "clean, pushed, and not merged"; green means
+	// the branch is the default branch, or its work is already in the base. This is
+	// NOT a ranked rule and NOT a picker entry: no `/gh` verb covers it. A
+	// non-repository still returns null (see above).
+	const notMerged = info.mainAhead || 0;
+	const idle = notMerged > 0
+		? { why: notMerged + " commit" + (notMerged === 1 ? "" : "s") + " not merged", severity: "warn" }
+		: { why: "clean and matching the remote", severity: "success" };
 	return {
 		actions,
 		next: primary,
-		rowToken: rowRule?.token ?? null,
-		rowWhy: rowRule?.why ?? null,
-		rowSeverity: rowRule?.severity ?? null
+		rowToken: rowRule?.token ?? "in sync",
+		rowWhy: rowRule?.why ?? idle.why,
+		rowSeverity: rowRule?.severity ?? idle.severity
 	};
 }
 
@@ -1072,6 +1123,16 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 	// band: the flag may be absent on the very first read, present on the next.
 	const defaultBranch = defaultBranchFor(toplevel, notifyChange);
 	if (defaultBranch !== void 0 && defaultBranch === parsed.branch) info.defaultBranch = true;
+	// The branch-vs-base relation rides EVERY response, because the IDLE icon's
+	// COLOUR depends on it: green when no commit is ahead of the base, amber when
+	// some are. It used to be detail-only, so the chip and the row said green while
+	// the hover card said amber. Cached like the default branch, so no refresh pays
+	// for a rev-list on the hot path; the first read may answer without it.
+	const relation = baseRelationFor(toplevel, parsed.branch, notifyChange);
+	if (relation !== void 0 && (relation.ahead > 0 || relation.behind > 0)) {
+		info.mainAhead = relation.ahead;
+		info.mainBehind = relation.behind;
+	}
 	// Resolved inside the detail block; the PR-token hover below reuses it, so it
 	// is declared here rather than scoped to that block.
 	let baseRef = null;
