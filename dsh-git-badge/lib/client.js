@@ -738,15 +738,22 @@ window.__ModuleLoader__.load({
 				if (value === void 0 || value === null || value === "") return;
 				rows.push(cardRow(label, value));
 			};
-			// The SAME row the chip card renders, from the same helper, so the two
-			// cards cannot describe the icon differently.
-			add("action", actionRow(info));
+			// The HEADER, the shape the chip card leads with: the same sentence from
+			// the same actionRow, so the two cards cannot describe the icon
+			// differently, and the sentence gains the 62px label column's width.
+			const header = actionHeader(info);
+			if (header !== void 0) rows.push(header);
 			if (info.isWorktree === true) {
 				// WHICH tree, not just that there is one: the row's glyph cannot say
 				// it, and the branch is ordinary for a main checkout.
 				const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
 				add("checkout", name === "" ? String(info.branch) : name + " on " + info.branch);
 			}
+			// The dirty breakdown, so a higher-ranked token cannot hide uncommitted
+			// work. formatFileBreakdown says "clean" when there is none; a clean row
+			// keeps its short card.
+			const changes = formatFileBreakdown(info);
+			if (changes !== "clean") add("changes", changes);
 			add("pull request", formatPrDetail(info.pr));
 			if (rows.length === 0) return null;
 			// The row's hover card is upstream's FIXED-WIDTH box: HoverCard.module.css
