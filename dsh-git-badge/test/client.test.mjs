@@ -261,10 +261,11 @@ test("the idle verdict draws a disc: green when merged, amber when work is unmer
 	};
 	const merged = discOf("success", "clean and matching the remote");
 	assert.match(merged.icon.props.style.color, /state-success-primary/, "green when nothing is outstanding");
-	assert.deepEqual(rows(client.rowDetail(merged.info)), [{ label: "action", value: " in sync \u2014 clean and matching the remote" }]);
+	const headerOf = (info) => elements(client.rowDetail(info)).find((el) => el.props?.style?.fontWeight === 600);
+	assert.equal(text(headerOf(merged.info)), " in sync \u2014 clean and matching the remote");
 	const unmerged = discOf("warn", "2 commits not merged");
 	assert.match(unmerged.icon.props.style.color, /state-warn-primary/, "amber when work is unmerged");
-	assert.deepEqual(rows(client.rowDetail(unmerged.info)), [{ label: "action", value: " in sync \u2014 2 commits not merged" }]);
+	assert.equal(text(headerOf(unmerged.info)), " in sync \u2014 2 commits not merged");
 });
 
 test("the merge icon is Remix Icon git-merge-line, vendored as SVG at 16", () => {
@@ -401,8 +402,10 @@ test("the row's hover card explains the glyph, using the row's own hover", () =>
 	// action row leads with the token GLYPH in the token's colour.
 	const client = createClient();
 	const withGlyph = client.rowDetail({ ...MAIN, rowToken: "push", rowSeverity: "business", rowTokenWhy: "no upstream configured" });
-	// the drawn arrow contributes no TEXT, so the value starts at the separator space
-	assert.deepEqual(rows(withGlyph), [{ label: "action", value: " push \u2014 no upstream configured" }]);
+	const headerOf = (card) => elements(card).find((element) => element.props?.style?.fontWeight === 600);
+	// the drawn arrow contributes no TEXT, so the header starts at the separator space
+	assert.equal(text(headerOf(withGlyph)), " push \u2014 no upstream configured");
+	assert.equal(rows(withGlyph).length, 0, "the action is a header, not a labelled row");
 	const glyph = elements(withGlyph).find((element) => element.props?.["aria-hidden"] === true);
 	assert.ok(glyph !== void 0, "the icon is decoration; the word follows it");
 	assert.equal(hasSvg(glyph), true, "a hairline token is drawn");
@@ -411,21 +414,17 @@ test("the row's hover card explains the glyph, using the row's own hover", () =>
 	const commit = client.rowDetail({ ...MAIN, rowToken: "commit", rowSeverity: "business", rowTokenWhy: "ready" });
 	const commitGlyph = elements(commit).find((element) => element.props?.["aria-hidden"] === true);
 	assert.equal(text(commitGlyph), "\u271A", "the text glyph is text");
-	assert.deepEqual(rows(commit), [{ label: "action", value: "\u271A commit \u2014 ready" }]);
+	assert.equal(text(headerOf(commit)), "\u271A commit \u2014 ready");
 	// no reason from the node half still names the action
-	assert.deepEqual(rows(client.rowDetail({ ...MAIN, rowToken: "push", rowSeverity: "business" })), [{ label: "action", value: " push" }]);
-	// action first, then the checkout; and nothing at all when the row has neither
+	assert.equal(text(headerOf(client.rowDetail({ ...MAIN, rowToken: "push", rowSeverity: "business" }))), " push");
+	// the header, then the checkout; and nothing at all when the row has neither
 	// a token nor anything else to name
-	assert.deepEqual(
-		rows(client.rowDetail({
-			branch: "feat/x", isWorktree: true, worktreeName: "hotfix-tree",
-			rowToken: "merge", rowSeverity: "success", rowTokenWhy: "pull request 9 is ready to merge"
-		})),
-		[
-			{ label: "action", value: " merge \u2014 pull request 9 is ready to merge" },
-			{ label: "checkout", value: "hotfix-tree on feat/x" }
-		]
-	);
+	const worktree = client.rowDetail({
+		branch: "feat/x", isWorktree: true, worktreeName: "hotfix-tree",
+		rowToken: "merge", rowSeverity: "success", rowTokenWhy: "pull request 9 is ready to merge"
+	});
+	assert.equal(text(headerOf(worktree)), " merge \u2014 pull request 9 is ready to merge");
+	assert.deepEqual(rows(worktree), [{ label: "checkout", value: "hotfix-tree on feat/x" }]);
 	assert.equal(client.rowDetail({ ...MAIN }), null);
 });
 
@@ -445,11 +444,28 @@ test("the row card FILLS the hover card, so its values wrap instead of overflowi
 	assert.equal(card.props.style.width, "100%", "the stack fills the hover card");
 	assert.equal(card.props.style.maxWidth, "100%", "and never exceeds it");
 	const parsed = rows(card);
-	assert.deepEqual(parsed.map((row) => row.label), ["action", "checkout", "pull request"]);
+	assert.deepEqual(parsed.map((row) => row.label), ["checkout", "pull request"]);
 	for (const row of parsed) assert.ok(row.value.length > 0, `row ${row.label} has a value`);
 	const value = elements(card).find((element) => element.props?.style?.overflowWrap === "anywhere");
 	assert.ok(value !== void 0, "the value cell breaks a long unbroken name");
 	assert.equal(value.props.style.whiteSpace, "normal", "and is allowed to wrap");
+});
+
+test("the row card names uncommitted work even when a higher-ranked token wins", () => {
+	// `publish` outranks `commit`, so a branch that is ahead AND dirty gets the
+	// `push` token. Without a `changes` row the staged work would be invisible on
+	// the row's card, while the chip card shows it.
+	const client = createClient();
+	const dirty = client.rowDetail({
+		branch: "feat/x", upstream: "origin/feat/x", ahead: 1,
+		stagedFiles: 2, changedFiles: 2,
+		rowToken: "push", rowSeverity: "business", rowTokenWhy: "1 ahead of origin/feat/x"
+	});
+	const parsed = rows(dirty);
+	assert.ok(parsed.some((row) => row.label === "changes" && row.value.includes("2 staged")), `dirty work is named: ${JSON.stringify(parsed)}`);
+	// a clean checkout keeps the row card short
+	const clean = client.rowDetail({ branch: "feat/x", upstream: "origin/feat/x", ahead: 1, rowToken: "push", rowSeverity: "business" });
+	assert.ok(!rows(clean).some((row) => row.label === "changes"), "no changes row when clean");
 });
 
 test("the chip card and the row card render the SAME action sentence", () => {
@@ -467,10 +483,10 @@ test("the chip card and the row card render the SAME action sentence", () => {
 	const tooltip = elements(expand(client.rawChip(info))).find((element) => element.type === "Tooltip");
 	assert.ok(tooltip !== void 0, "the chip card is wrapped in the Tooltip primitive");
 	const body = expand(tooltip.props.label());
-	const header = elements(body).find((element) => element.props?.style?.fontWeight === 600);
-	const rowAction = rows(client.rowDetail(info)).find((row) => row.label === "action");
-	assert.ok(header !== void 0 && rowAction !== void 0, "both cards render the action sentence");
-	assert.equal(text(header).trim(), rowAction.value.trim(), "one action sentence, two cards");
+	const chipHeader = elements(body).find((element) => element.props?.style?.fontWeight === 600);
+	const rowHeader = elements(client.rowDetail(info)).find((element) => element.props?.style?.fontWeight === 600);
+	assert.ok(chipHeader !== void 0 && rowHeader !== void 0, "both cards render the action header");
+	assert.equal(text(chipHeader), text(rowHeader), "one action sentence, two cards");
 });
 
 test("LeadingTokenGlyph renders nothing with no token — the mark is retired", () => {
