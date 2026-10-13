@@ -1217,18 +1217,18 @@ window.__ModuleLoader__.load({
 		 * standing against its upstream, so the same hover and the same link cover
 		 * them. The ✎n count keeps its own surface.
 		 */
-		function chipBranchInner(info, detail, isBranchLink, branchLinkHover, setHovered, setBranchLinkHover) {
+		function chipBranchInner(info, detail, isBranchLink, hoveredLink, setHovered, setHoveredLink) {
 			const sync = formatSync(info);
 			const branchLabel = info.branch + sync;
 			if (!isBranchLink) return branchLabel;
 			return chipAnchor({
 				href: detail.compareUrl,
 				ariaLabel: "Compare " + info.branch + " with main on GitHub" + (sync === "" ? "" : ", " + (info.ahead || 0) + " ahead and " + (info.behind || 0) + " behind upstream"),
-				underline: branchLinkHover,
-				onPointerEnter: () => setBranchLinkHover(true),
-				onPointerLeave: () => setBranchLinkHover(false),
-				onFocus: () => { setHovered(true); setBranchLinkHover(true); },
-				onBlur: () => setBranchLinkHover(false),
+				underline: hoveredLink === "branch",
+				onPointerEnter: () => setHoveredLink("branch"),
+				onPointerLeave: () => setHoveredLink(null),
+				onFocus: () => { setHovered(true); setHoveredLink("branch"); },
+				onBlur: () => setHoveredLink(null),
 				children: branchLabel
 			});
 		}
@@ -1272,7 +1272,7 @@ window.__ModuleLoader__.load({
 		 * fetch the mark and the branch do. ONE element, split so the STATE GLYPH can
 		 * take the CI colour while the number keeps the chip's muted colour.
 		 */
-		function chipPrTokenHover(info, detail, linkHover, setHovered, setLinkHover) {
+		function chipPrTokenHover(info, detail, hoveredLink, setHovered, setHoveredLink) {
 			const prParts = prTokenParts(info);
 			const prToken = prParts === null ? null : [
 				prParts.number,
@@ -1295,11 +1295,11 @@ window.__ModuleLoader__.load({
 				: chipAnchor({
 					href: prUrl,
 					ariaLabel: prTokenLabel(info) + ", opens on GitHub in a new tab",
-					underline: linkHover,
-					onPointerEnter: () => { setHovered(true); setLinkHover(true); },
-					onPointerLeave: () => setLinkHover(false),
-					onFocus: () => { setHovered(true); setLinkHover(true); },
-					onBlur: () => setLinkHover(false),
+					underline: hoveredLink === "pr",
+					onPointerEnter: () => { setHovered(true); setHoveredLink("pr"); },
+					onPointerLeave: () => setHoveredLink(null),
+					onFocus: () => { setHovered(true); setHoveredLink("pr"); },
+					onBlur: () => setHoveredLink(null),
 					children: prToken
 				});
 			const pending = detail === void 0 || detail === null;
@@ -1353,11 +1353,10 @@ window.__ModuleLoader__.load({
 			// only once a pointer actually RESTS on the chip. A refresh fires on every
 			// file edit, so eagerly asking would add both invocations to every refresh.
 			const [hovered, setHovered] = react.useState(false);
-			// the PR token's own hover/focus state: it underlines on hover (and focus)
-			const [linkHover, setLinkHover] = react.useState(false);
-			// the branch link's hover underline — its OWN state, not the PR token's:
-			// two links sharing one flag would underline both when either is hovered.
-			const [branchLinkHover, setBranchLinkHover] = react.useState(false);
+			// Which of the chip's two links is hovered/focused — ONE enum, not two
+			// booleans: "branch" | "pr" | null. The anchor underlines only when its
+			// own value matches, so hovering one link never underlines the other.
+			const [hoveredLink, setHoveredLink] = react.useState(null);
 			const detail = useGitStatus(target, { pr: true, detail: true, enabled: hovered });
 			if (info === void 0 || info.git !== true) return null;
 
@@ -1365,13 +1364,13 @@ window.__ModuleLoader__.load({
 			// The branch name links to the compare view (base...branch). Vouched http(s)
 			// only; new tab, never navigating the conversation away.
 			const isBranchLink = typeof detail?.compareUrl === "string" && detail.compareUrl.startsWith("https://");
-			const branchInner = chipBranchInner(info, detail, isBranchLink, branchLinkHover, setHovered, setBranchLinkHover);
+			const branchInner = chipBranchInner(info, detail, isBranchLink, hoveredLink, setHovered, setHoveredLink);
 			// The Tooltip's CHILD must not change element type once the detail payload
 			// lands, so the cluster span is the stable hover surface. ALWAYS wrapped.
 			const leadingHover = chipLeadingHover(info, detail, tokenGlyph, branchInner, isBranchLink, setHovered);
 			const text = formatOperationToken(info);
 			const countHover = chipCountHover(info, detail, setHovered);
-			const prTokenHover = chipPrTokenHover(info, detail, linkHover, setHovered, setLinkHover);
+			const prTokenHover = chipPrTokenHover(info, detail, hoveredLink, setHovered, setHoveredLink);
 			const chip = chipAssemble(leadingHover, text, countHover, prTokenHover);
 			// No Tooltip primitive (a shell that does not seed it): the leading cluster
 			// renders bare and the badge still works — the card is an enhancement.

@@ -113,7 +113,11 @@ export function createClient({ tooltip = false, hover = false } = {}) {
 			// ordinary local state and keeps its initial value — the payload would be
 			// nonsense as a `hovered` boolean.
 			const isStatusSlot = initial !== null && typeof initial === "object" && "key" in initial;
-			if (!isStatusSlot) return [hover && initial === false ? true : initial, () => {}];
+			if (!isStatusSlot) {
+				if (initial === false && hover) return [true, () => {}];
+				if (initial === null && hover) return [typeof hover === "string" ? hover : "pr", () => {}];
+				return [initial, () => {}];
+			}
 			requests.push(initial.key);
 			// The slot's own query string identifies it, which is what lets the
 			// harness model LAZINESS honestly: a detail slot holds nothing until a
