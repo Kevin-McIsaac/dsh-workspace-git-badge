@@ -49,6 +49,14 @@ test("/gh order and /gh next name the new row-only categories", () => {
 	assert.match(FLAT, /do not invent a command for it/, "and says there is no verb");
 });
 
+test("/gh push handles an upstream that names a different branch", () => {
+	// A feature branch created from origin/main tracks origin/main, and a bare
+	// push is refused under push.default=simple. The skill must name the refusal
+	// and the command that repairs it.
+	assert.match(FLAT, /push\.default=simple/, "it names the git refusal");
+	assert.match(FLAT, /upstream names a different branch/, "it names the case");
+});
+
 // ---------------------------------------------------------------------------
 // the menu entry (client half): /gh clean appears only with untracked files,
 // last, and carrying the host's risk gate

@@ -874,8 +874,20 @@ function nextStepRules(info) {
 	} else if (behind > 0) {
 		add("sync", "pull", `${behind} behind ${info.upstream ?? "upstream"}`, "update this branch from upstream", "git pull --ff-only", "pull", "business");
 	}
+	// The upstream is `<remote>/<branch>`. A branch created from `origin/main`
+	// tracks origin/main, and a bare `git push` is refused there under the default
+	// `push.default=simple`, because the upstream branch name does not match the
+	// local branch name. Treat that as "publish under its own name", which pushes
+	// AND repairs the tracking in one step.
+	const upstreamSlash = typeof info.upstream === "string" ? info.upstream.indexOf("/") : -1;
+	const upstreamRemote = upstreamSlash > 0 ? info.upstream.slice(0, upstreamSlash) : "origin";
+	const upstreamBranch = upstreamSlash > 0 ? info.upstream.slice(upstreamSlash + 1) : void 0;
+	const upstreamNamesOtherBranch = typeof info.branch === "string" && info.branch !== ""
+		&& upstreamBranch !== void 0 && upstreamBranch !== info.branch;
 	if (info.upstream === void 0 && dirty > 0) {
 		add("publish", "push", "no upstream configured", `publish ${info.branch} for the first time`, `git push -u origin ${info.branch}`, "push", "business");
+	} else if (ahead > 0 && upstreamNamesOtherBranch) {
+		add("publish", "push", `${ahead} ahead of ${info.upstream} (tracks a different branch)`, `publish ${info.branch} under its own name and set its upstream`, `git push -u ${upstreamRemote} ${info.branch}`, "push", "business");
 	} else if (ahead > 0) {
 		add("publish", "push", `${ahead} ahead of ${info.upstream ?? "upstream"}`, "push local commits to the remote", "git push", "push", "business");
 	}
