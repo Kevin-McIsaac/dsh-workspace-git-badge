@@ -6,10 +6,15 @@
  * identically wherever they appear.
  *
  * Surfaces:
- *  - sidebar.workspaces.sessionRow (seam): session-row badge — the status mark
- *    and the PR/CI token, immediately after the session title. Deliberately shows
- *    NO branch and no worktree name: the row lists conversations, and which
- *    checkout the badge describes is the hover card's business.
+ *  - sidebar.workspaces.sessionRow (seam): session-row badge — the ACTION word
+ *    pill, from the node half's `rowToken`, immediately after the session title.
+ *    Deliberately shows NO branch and no worktree name: the row lists
+ *    conversations, and which checkout the badge describes is the hover card's
+ *    business.
+ *  - sidebar.session.row.leading (upstream, no patch): the SAME token as a
+ *    single glyph in the row's 16px leading cell — the fallback an install
+ *    without the seam patch gets. Silent when the seam is present, because the
+ *    pill already carries the word there.
  *  - sidebar.session.row.hover (upstream, no patch): the hover-card line that
  *    names that checkout, rendered inside the card upstream ALREADY shows for a
  *    session row rather than in a tooltip nested inside it.
@@ -479,35 +484,11 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * The ONE thing this conversation needs from you, or "" when it needs
-		 * nothing.
-		 *
-		 * A session row's job is TRIAGE — "does this need me?" — so this is not the
-		 * chip's status restated: it is a short imperative, present only when an
-		 * action is genuinely warranted, first match wins. Silence is the common and
-		 * correct answer: uncommitted work is a state rather than a chore, and DRAFT,
-		 * BLOCKED, BEHIND, UNSTABLE and UNKNOWN are things to wait for, not to do.
-		 *
-		 * `merge` keys on GitHub's OWN verdict (`mergeStateStatus === "CLEAN"`) rather
-		 * than a checks-plus-reviews judgement assembled here: mergeability depends on
-		 * branch protection and required reviews, which is the forge's business. A PR
-		 * read that could not answer has no `mergeState`, so it stays silent.
+		 * The row's verdict comes from the NODE half now: `info.rowToken`, the
+		 * first ranked rule with a token. The client used to re-derive it here
+		 * (unmerged → resolve, failing → fix CI, …) and the two copies drifted.
+		 * One authority, one list, no reconciliation.
 		 */
-		function actionToken(info) {
-			if (info === void 0 || info === null || info.git !== true) return "";
-			if ((info.unmergedFiles || 0) > 0) return "resolve";
-			const pr = info.pr === void 0 || info.pr === null ? void 0 : info.pr;
-			if (pr !== void 0) {
-				if (pr.state === "failing") return "fix CI";
-				if (pr.review === "CHANGES_REQUESTED") return "review";
-				if (pr.mergeState === "CLEAN") return "merge";
-			}
-			// diverged counts as behind: reconciling is the action either way
-			if ((info.behind || 0) > 0) return "pull";
-			if ((info.ahead || 0) > 0) return "push";
-			return "";
-		}
-
 		/**
 		 * Session-row badge — the ACTION, and nothing else:
 		 *   Session title…                                        merge
@@ -544,12 +525,17 @@ window.__ModuleLoader__.load({
 		 * themes work.
 		 */
 		const ACTION_COLOUR = {
+			resume: "var(--dsw-alias-state-error-primary, #e5484d)",
 			resolve: "var(--dsw-alias-state-error-primary, #e5484d)",
 			"fix CI": "var(--dsw-alias-state-error-primary, #e5484d)",
 			review: "var(--dsw-alias-state-warn-primary, #d29922)",
 			merge: "var(--dsw-alias-state-success-primary, #30a46c)",
+			sync: "var(--dsw-alias-state-business-primary, #3b82f6)",
 			pull: "var(--dsw-alias-state-business-primary, #3b82f6)",
-			push: "var(--dsw-alias-state-business-primary, #3b82f6)"
+			update: "var(--dsw-alias-state-business-primary, #3b82f6)",
+			publish: "var(--dsw-alias-state-business-primary, #3b82f6)",
+			push: "var(--dsw-alias-state-business-primary, #3b82f6)",
+			commit: "var(--dsw-alias-state-business-primary, #3b82f6)"
 		};
 
 		/**
@@ -559,12 +545,17 @@ window.__ModuleLoader__.load({
 		 * ACTION_COLOUR exactly; a missing entry degrades to the bare word.
 		 */
 		const ACTION_GLYPH = {
+			resume: "\u23F5",
 			resolve: "!",
 			"fix CI": "\u2717",
 			review: "\u25C6",
 			merge: "\u2713",
+			sync: "\u21C4",
 			pull: "\u2193",
-			push: "\u2191"
+			update: "\u21BB",
+			publish: "\u2191",
+			push: "\u2191",
+			commit: "\u271A"
 		};
 
 		/**
@@ -626,6 +617,16 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * True once the sidebar seam's inject callback fires. A patched install
+		 * sets it; an unpatched one never does, because the callback only runs
+		 * when the seam is declared. The leading cell reads it to choose between
+		 * the pill's surface and its own glyph fallback. Module-scoped for the
+		 * same reason the boot-race handling below is: the callback can fire after
+		 * the first render.
+		 */
+		let seamPresent = false;
+
+		/**
 		 * The action badge: a severity-tinted pill carrying a glyph and the word — and
 		 * shown only when the session is IDLE. A turn in flight is precisely when a
 		 * git suggestion is noise: the checkout is still moving and the agent has not
@@ -641,8 +642,10 @@ window.__ModuleLoader__.load({
 			reportIdleGate(typeof useSessions === "function");
 			if (running) return null;
 			if (sessionId === void 0 || info === void 0 || info.git !== true) return null;
-			const action = actionToken(info);
-			if (action === "") return null;
+			// The node half's token, not a client re-derivation: a missing
+			// rowToken (clean checkout, no repository, no rule) renders nothing.
+			const action = info.rowToken;
+			if (typeof action !== "string" || action === "") return null;
 			const colour = ACTION_COLOUR[action];
 			const style = { ...META_STYLE, ...ACTION_STYLE };
 			if (colour !== void 0) {
@@ -667,6 +670,47 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * The leading-cell fallback — an UNPATCHED install's compact signal.
+		 *
+		 * With no `sidebar.workspaces.sessionRow` seam there is no room for a word,
+		 * so the same node-half token renders as a single glyph in the leading
+		 * cell. It fetches only when the seam is absent (`seamPresent ? void 0`):
+		 * a patched install returns null here and pays nothing.
+		 *
+		 * Geometry: the cell is `width:16px; flex:none` and the row has `gap:0`, so
+		 * a word would overflow into the title. Only one glyph is drawn, and no
+		 * wrapper changes the cell's box.
+		 *
+		 * The glyph is NOT `aria-hidden` here: with no word beside it, it is the
+		 * accessible name. (The pill's glyph stays hidden because the word is
+		 * present there.) With nothing to say it falls back to the shared
+		 * `StatusMark`, so a clean checkout still shows the green status dot.
+		 *
+		 * It carries NO hover of its own. The row is already a HoverCard anchor,
+		 * and the explanation rides the row's own card (SessionGitDetail) — so
+		 * hovering the glyph shows exactly what hovering the session line shows.
+		 */
+		function LeadingTokenGlyph({ sessionId, useSessions }) {
+			const info = useGitStatus(seamPresent ? void 0 : sessionId === void 0 ? void 0 : { kind: "session", id: sessionId });
+			const running = useSessionRunning(useSessions, sessionId);
+			reportIdleGate(typeof useSessions === "function");
+			if (seamPresent || running) return null;
+			if (sessionId === void 0 || info === void 0 || info.git !== true) return null;
+			const token = info.rowToken;
+			if (typeof token === "string" && token !== "") {
+				const colour = ACTION_COLOUR[token];
+				const glyph = ACTION_GLYPH[token];
+				return react_jsx_runtime.jsx("span", {
+					role: "img",
+					"aria-label": "git action: " + token,
+					style: colour === void 0 ? META_STYLE : { ...META_STYLE, color: colour },
+					children: glyph === void 0 ? token : glyph
+				});
+			}
+			return react_jsx_runtime.jsx(StatusMark, { info });
+		}
+
+		/**
 		 * Session-row hover-card line — everything the action word cannot say: which
 		 * checkout the row's status describes, and which pull request the action
 		 * refers to. It renders through the upstream sidebar.session.row.hover
@@ -674,7 +718,12 @@ window.__ModuleLoader__.load({
 		 *
 		 * This matters MORE now that the row shows only an imperative: `merge` with no
 		 * way to see merge WHAT would be a nag rather than a hint, so the line appears
-		 * whenever there is something to name — a worktree, a pull request, or both.
+		 * whenever there is something to name — the row's action, a worktree, a pull
+		 * request, or any combination.
+		 *
+		 * The action sentence is what the leading GLYPH cannot say. An unpatched
+		 * install shows one glyph in the front cell; this card is its explanation,
+		 * and it uses the SAME hover the session line already has.
 		 *
 		 * It makes no request of its own: the same `{ pr: true }` query as the badge
 		 * above resolves to the same cache key, so a card that mounts for every row
@@ -688,7 +737,37 @@ window.__ModuleLoader__.load({
 		function SessionGitDetail({ sessionId }) {
 			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId }, { pr: true });
 			if (info === void 0 || info.git !== true) return null;
+			// Nodes, not a string: the action bit carries the token GLYPH in the
+			// token's colour, so the card names the icon the row shows instead of
+			// the literal word "action". Bits are still joined with a middle dot.
 			const bits = [];
+			// The row's own token comes FIRST. When the row shows a single glyph
+			// (an unpatched install) this line is the ONLY place that says what the
+			// glyph means and why — and it rides the row's existing hover card, so
+			// hovering the glyph shows the same thing as hovering the session line.
+			// Word and reason come from the same node-half rule.
+			if (typeof info.rowToken === "string" && info.rowToken !== "") {
+				const why = typeof info.rowTokenWhy === "string" && info.rowTokenWhy !== "" ? info.rowTokenWhy : void 0;
+				const colour = ACTION_COLOUR[info.rowToken];
+				const glyph = ACTION_GLYPH[info.rowToken];
+				// ONE bit: glyph then word, so the middle-dot separator never lands
+				// between the icon and the word it labels.
+				const action = [];
+				if (glyph !== void 0) {
+					// Decoration here: the word follows it, so the glyph is hidden
+					// from the accessible name rather than read as a stray symbol.
+					action.push(react_jsx_runtime.jsx("span", {
+						"aria-hidden": true,
+						style: {
+							color: colour === void 0 ? META_STYLE.color : colour,
+							fontWeight: 600
+						},
+						children: glyph + " "
+					}, "action-glyph"));
+				}
+				action.push(info.rowToken + (why === void 0 ? "" : " \u2014 " + why));
+				bits.push(action);
+			}
 			if (info.isWorktree === true) {
 				const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
 				const checkout = [name === "" ? String(info.branch) : name + " on " + info.branch];
@@ -699,7 +778,20 @@ window.__ModuleLoader__.load({
 			}
 			const pr = formatPrDetail(info.pr);
 			if (pr !== void 0) bits.push("pull request " + pr);
-			return bits.length === 0 ? null : react_jsx_runtime.jsx("span", { style: META_STYLE, children: bits.join(" \u00B7 ") });
+			if (bits.length === 0) return null;
+			const children = [];
+			bits.forEach((bit, index) => {
+				if (index > 0) children.push(" \u00B7 ");
+				children.push(bit);
+			});
+			// WRAP inside the card. META_STYLE is `nowrap` (the right choice for the
+			// chip, which must never wrap), but this line can name a long worktree,
+			// a branch and a pull request — in `.dotfiles` it overran the card. So
+			// the card overrides the one property that blocked wrapping.
+			return react_jsx_runtime.jsx("span", {
+				style: { ...META_STYLE, whiteSpace: "normal", overflowWrap: "anywhere" },
+				children
+			});
 		}
 
 		/**
@@ -1435,7 +1527,7 @@ window.__ModuleLoader__.load({
 		// node half resolves the workspace, so the client never needs a service
 		// lookup. Fewer declared services also means fewer ways to fail to load.
 		/** The built-in ranking order — what "Reset to default" restores. */
-		const DEFAULT_ORDER = ["operation", "unmerged", "sync", "publish", "merge", "commit", "checks"];
+		const DEFAULT_ORDER = ["operation", "unmerged", "conflict", "review", "sync", "publish", "merge", "commit", "checks"];
 
 		/**
 		 * Move one category within the ranking order — the card's only reorder
@@ -1455,6 +1547,8 @@ window.__ModuleLoader__.load({
 		const CATEGORY_LABELS = {
 			operation: ["operation", "resume a paused merge/rebase"],
 			unmerged: ["unmerged", "resolve conflict markers"],
+			conflict: ["conflict", "a pull request that conflicts with its base"],
+			review: ["review", "a review to address, or a review to wait for"],
 			sync: ["sync", "pull, or rebase + confirmed force-push"],
 			publish: ["publish", "push local commits"],
 			merge: ["merge", "a merge-ready pull request"],
@@ -1822,6 +1916,9 @@ window.__ModuleLoader__.load({
 			// = off" while five row badges were rendering.
 			let rowsReported = false;
 			ctx.slots.inject("sidebar.workspaces.sessionRow", () => {
+				// The seam exists: the word pill owns the row, so the leading
+				// glyph stays off (and fetches nothing).
+				seamPresent = true;
 				if (!rowsReported) {
 					rowsReported = true;
 					console.info("[dsh-git-badge] surfaces: sidebar session rows = on (seam present).");
@@ -1831,6 +1928,14 @@ window.__ModuleLoader__.load({
 					id: "git-badge-row"
 				}, SessionGitBadge);
 			});
+			// The leading-cell fallback: upstream's own seat, present on every
+			// install. It renders the token glyph only when the seam is ABSENT, so
+			// a patched install shows the word pill and an unpatched one shows the
+			// same token as a glyph.
+			ctx.slots.inject("sidebar.session.row.leading", () => ctx.slots.register({
+				name: "sidebar.session.row.leading",
+				id: "git-badge-row-leading"
+			}, LeadingTokenGlyph));
 			// The row is ALREADY a HoverCard anchor upstream, so a badge that opened
 			// its own tooltip would nest two cards. This renders the provenance line
 			// inside that card instead, through the hover seat upstream declares
@@ -1893,7 +1998,7 @@ window.__ModuleLoader__.load({
 		// Additive; the host reads apply/inject and ignores the rest. The suite
 		// drives these to assert the REQUEST contract — which surface asks for the
 		// expensive extras — without a browser, a fetch or a network.
-		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, linkedWorktreesDetail, actionToken, ghSkillActions, cleanGate, moveCategory };
+		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, linkedWorktreesDetail, ghSkillActions, cleanGate, moveCategory };
 		return module.exports;
 	}
 });

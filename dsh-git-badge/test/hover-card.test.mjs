@@ -519,7 +519,7 @@ test("the session row shows an ACTION, never a PR token or a branch", () => {
 	// PR token; now the row's job is triage, so it carries the imperative alone. The
 	// PR number and CI state moved to the row's hover line; the chip keeps both.
 	const client = createClient();
-	const rendered = text(client.row({ branch: "SECRET/BRANCH", dirty: false, pr: { number: 142, state: "failing" } }));
+	const rendered = text(client.row({ branch: "SECRET/BRANCH", dirty: false, rowToken: "fix CI", pr: { number: 142, state: "failing" } }));
 	assert.equal(rendered, "\u2717 fix CI", `expected the action alone: ${rendered}`);
 	assert.ok(!rendered.includes("PR#"), "the token belongs to the chip now");
 	assert.ok(!rendered.includes("SECRET/BRANCH"), `the row must not name the branch: ${rendered}`);
@@ -527,8 +527,8 @@ test("the session row shows an ACTION, never a PR token or a branch", () => {
 
 //#region the row's idle gate
 
-/** One commit ahead of upstream, which the row turns into the word `push`. */
-const ROW_AHEAD = { branch: "feat/x", ahead: 1 };
+/** One commit ahead of upstream, which the node half turns into the token `push`. */
+const ROW_AHEAD = { branch: "feat/x", ahead: 1, rowToken: "push" };
 
 /** A stand-in for the shell's standard kit: a selector hook over the sessions store. */
 const sessionsWithRunning = (running) => (select) => select({ byId: { "s-1": { running } } });

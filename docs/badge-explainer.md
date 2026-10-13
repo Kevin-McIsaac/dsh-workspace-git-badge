@@ -5,7 +5,8 @@ The badge shows a **status mark**, your **branch name**, and sometimes
 
 The mark is a small filled **circle** — or a **tree** when the folder is a linked
 `git worktree` — and its colour is the status. It belongs to the input box; a
-sidebar row shows an **action word** instead (`merge`, `fix CI`, `review`, …) —
+sidebar row shows an **action word** instead (`merge`, `fix CI`, `review`, …),
+or that word's **glyph** in its leading cell when the seam patch is absent —
 the README's *action token* section explains that. In this guide `●` stands for the circle and `🌳` for the tree,
 and the coloured circles stand for the mark's fill colour.
 
@@ -66,8 +67,30 @@ is still mid-operation and waiting for you to continue or undo it
 (`git rebase --continue`, `git rebase --abort`, …).
 
 Only the chip in the input box shows the token. A sidebar row shows the one
-**action** that conversation needs — `merge`, `fix CI`, `review`, `resolve`,
-`pull`, `push` — or nothing at all, and never the branch.
+**action** that conversation needs — `resume`, `resolve`, `sync`, `pull`,
+`update`, `publish`, `push`, `merge`, `commit`, `review`, `fix CI` — or nothing
+at all, and never the branch. Each word has a glyph too:
+
+| Word | Glyph | When it appears |
+|------|-------|-----------------|
+| `resume` | ⏵ | a merge, rebase, cherry-pick, revert, squash or bisect is paused |
+| `resolve` | ! | unmerged files, or a pull request that conflicts with its base |
+| `review` | ◆ | review changes requested, or a review still required |
+| `sync` | ⇄ | you are both ahead of and behind the remote |
+| `pull` | ↓ | you are behind the remote |
+| `update` | ↻ | the pull request is behind its base branch |
+| `publish` | ↑ | the branch has no upstream yet |
+| `push` | ↑ | you have commits the remote does not |
+| `merge` | ✓ | GitHub reports the pull request ready to merge |
+| `commit` | ✚ | uncommitted work (staged, unstaged or untracked) |
+| `fix CI` | ✗ | the pull request's checks are failing |
+
+On a **patched** install the row shows the word, as a pill. Without the seam
+patch the row has no room for a word, so the same token appears as its glyph in
+the row's leading cell, with the word as its accessible name. Rest the pointer
+on that row and its usual hover card opens with the glyph, the word and the
+reason (`↑ publish — no upstream configured`). When there is no token — clean and
+in sync — that cell falls back to the status mark above.
 
 ## A worked example
 
