@@ -88,4 +88,17 @@ there is no `apply`, `status` or `revert`, and no anchor patch anywhere.
    `MERGE_METHOD="squash"` accordingly. The squash commit is never an ancestor
    of the PR branch, so local branch cleanup after a merge needs
    `git branch -D`, not `-d`.
+11. **One feature, one branch, one PR.** Add follow-up commits to the open PR; do
+   not open a new PR for each change. When a stack is unavoidable, retarget every
+   child PR to `main` **before** merging the parent (`gh pr edit <n> --base main`),
+   and rebase the child onto the new `main` after (`git rebase --onto main
+   <old-parent-tip>` then `git push --force-with-lease`). GitHub closes a child
+   when its base branch is deleted, and it will not reopen a PR whose base is
+   gone. `scripts/merge-pr.sh` refuses to delete a branch that is the base of an
+   open PR.
+12. **Create branches with `--no-track`.** `git switch -c feat/x --no-track
+   origin/main` leaves no upstream, so a bare `git push` cannot be refused for a
+   name mismatch and the badge cannot nag `push` forever. If the branch already
+   tracks `origin/main`, run `git push origin HEAD` then
+   `git branch --set-upstream-to=origin/feat/x`.
 

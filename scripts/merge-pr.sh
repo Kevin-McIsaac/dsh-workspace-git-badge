@@ -95,10 +95,19 @@ fi
 # unattended. A branch already gone (a re-run, or `deleteBranchOnMerge`) is fine.
 if [ "$HEAD_REF" = "$BRANCH" ]; then
 	say "Head branch IS '$BRANCH' — not deleting it."
-elif gh api -X DELETE "repos/{owner}/{repo}/git/refs/heads/$HEAD_REF" >/dev/null 2>&1; then
-	say "Deleted remote branch '$HEAD_REF'."
 else
-	say "Remote branch '$HEAD_REF' already gone (or protected) — continuing."
+	# A branch that is the BASE of another open PR must not be deleted: GitHub
+	# closes the child, and a PR whose base is gone cannot be reopened. Name the
+	# children and leave the branch in place.
+	CHILDREN="$(gh pr list --state open --base "$HEAD_REF" --json number -q '.[].number' 2>/dev/null | tr '\n' ' ')"
+	if [ -n "$CHILDREN" ]; then
+		say "NOT deleting remote '$HEAD_REF': open PR(s) target it as base: $CHILDREN"
+		say "Retarget them first: gh pr edit <n> --base $BRANCH"
+	elif gh api -X DELETE "repos/{owner}/{repo}/git/refs/heads/$HEAD_REF" >/dev/null 2>&1; then
+		say "Deleted remote branch '$HEAD_REF'."
+	else
+		say "Remote branch '$HEAD_REF' already gone (or protected) — continuing."
+	fi
 fi
 
 # ---- 3. fetch, fast-forward, and PROVE local main caught up ----------------
