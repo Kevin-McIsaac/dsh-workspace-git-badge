@@ -1187,6 +1187,31 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * The shared anchor for the chip's two links — the branch compare link and
+		 * the PR token. Both were near-identical `<a>` elements; this is the one
+		 * copy of target, rel, cursor and handler wiring, so they cannot drift.
+		 * `underline` is the hover/focus state and `children` is the label.
+		 */
+		function chipAnchor(props) {
+			return react_jsx_runtime.jsx("a", {
+				href: props.href,
+				target: "_blank",
+				rel: "noopener noreferrer",
+				"aria-label": props.ariaLabel,
+				onPointerEnter: props.onPointerEnter,
+				onPointerLeave: props.onPointerLeave,
+				onFocus: props.onFocus,
+				onBlur: props.onBlur,
+				style: {
+					color: "inherit",
+					textDecoration: props.underline ? "underline" : "none",
+					cursor: "pointer"
+				},
+				children: props.children
+			});
+		}
+
+		/**
 		 * The branch name, as a compare anchor when the detail payload vouches an
 		 * http(s) URL. The sync arrows ride WITH the branch: they are the branch's
 		 * standing against its upstream, so the same hover and the same link cover
@@ -1196,20 +1221,14 @@ window.__ModuleLoader__.load({
 			const sync = formatSync(info);
 			const branchLabel = info.branch + sync;
 			if (!isBranchLink) return branchLabel;
-			return react_jsx_runtime.jsx("a", {
+			return chipAnchor({
 				href: detail.compareUrl,
-				target: "_blank",
-				rel: "noopener noreferrer",
-				"aria-label": "Compare " + info.branch + " with main on GitHub" + (sync === "" ? "" : ", " + (info.ahead || 0) + " ahead and " + (info.behind || 0) + " behind upstream"),
+				ariaLabel: "Compare " + info.branch + " with main on GitHub" + (sync === "" ? "" : ", " + (info.ahead || 0) + " ahead and " + (info.behind || 0) + " behind upstream"),
+				underline: branchLinkHover,
 				onPointerEnter: () => setBranchLinkHover(true),
 				onPointerLeave: () => setBranchLinkHover(false),
 				onFocus: () => { setHovered(true); setBranchLinkHover(true); },
 				onBlur: () => setBranchLinkHover(false),
-				style: {
-					color: "inherit",
-					textDecoration: branchLinkHover ? "underline" : "none",
-					cursor: "pointer"
-				},
 				children: branchLabel
 			});
 		}
@@ -1273,16 +1292,10 @@ window.__ModuleLoader__.load({
 					style: { cursor: "default" },
 					children: prToken
 				})
-				: react_jsx_runtime.jsx("a", {
+				: chipAnchor({
 					href: prUrl,
-					target: "_blank",
-					rel: "noopener noreferrer",
-					"aria-label": prTokenLabel(info) + ", opens on GitHub in a new tab",
-					style: {
-						color: "inherit",
-						textDecoration: linkHover ? "underline" : "none",
-						cursor: "pointer"
-					},
+					ariaLabel: prTokenLabel(info) + ", opens on GitHub in a new tab",
+					underline: linkHover,
 					onPointerEnter: () => { setHovered(true); setLinkHover(true); },
 					onPointerLeave: () => setLinkHover(false),
 					onFocus: () => { setHovered(true); setLinkHover(true); },
