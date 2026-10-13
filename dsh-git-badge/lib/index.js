@@ -1015,6 +1015,65 @@ function nextActions(info) {
 }
 
 /**
+ * The ✎n NAMES — the one part of the count the numbers cannot answer ("what are
+ * these?"). Hover-gated with the rest of detail=1, so no refresh pays for it.
+ * Posture: RELATIVE names only (git's own output, never absolute — AGENTS.md
+ * rule 7 is relaxed by an inch, not a mile), shortened to the last two path
+ * segments, capped at 20 with the total carried separately so the client can
+ * say "… and k more" honestly. Staged and unstaged names are TRACKED files: the
+ * collapsed untracked retry never affects them, so they ride regardless of
+ * untrackedMode.
+ */
+function attachDetail(info, parsed, untrackedMode) {
+	const capped = (names) => names.slice(0, 20).map(shortenPath);
+	if (untrackedMode === "all" && parsed.untrackedNames.length > 0) {
+		info.untrackedNames = capped(parsed.untrackedNames);
+		info.untrackedNamesTotal = parsed.untrackedNames.length;
+	}
+	if (parsed.unstagedNames.length > 0) {
+		info.unstagedNames = capped(parsed.unstagedNames);
+		info.unstagedNamesTotal = parsed.unstagedNames.length;
+	}
+	if (parsed.stagedNames.length > 0) {
+		info.stagedNames = capped(parsed.stagedNames);
+		info.stagedNamesTotal = parsed.stagedNames.length;
+	}
+}
+
+/**
+ * The signed commit list: mixed newest-first from base...HEAD, each entry signed
+ * "+" (only on this branch - the PR's content) or "−" (only on main - what a
+ * rebase/merge brings in), git's own left-right verdict mapped onto the diff
+ * convention. Capped at 10 with the total from the same base so "... and k more"
+ * counts both sides. Called only when a base ref resolved; without one the
+ * caller serves the plain HEAD log instead.
+ */
+async function attachBranchCommits(info, toplevel, baseRef, logHead) {
+	if (baseRef !== null) {
+		const signedOut = await runGit(toplevel, ["log", "--left-right", "-10", "--format=%m%x09%h%x09%s%x09%cr", baseRef + "...HEAD"]);
+		if (signedOut.stdout !== null && signedOut.stdout.trim() !== "") {
+			info.branchCommits = signedOut.stdout.trim().split("\n").map((line) => {
+				const [marker, hash, subject, when] = line.split("\t");
+				return {
+					sign: marker === ">" ? "+" : marker === "<" ? "−" : void 0,
+					hash,
+					subject: subject ?? "",
+					when: when ?? ""
+				};
+			}).filter((c) => c.hash !== void 0);
+			const totalOut = await runGit(toplevel, ["rev-list", "--count", baseRef + "...HEAD"]);
+			const total = Number.parseInt((totalOut.stdout ?? "").trim(), 10);
+			if (Number.isFinite(total)) info.branchCommitsTotal = total;
+		}
+	} else {
+		// already fetched in the batch above — no second invocation
+		if (logHead.stdout !== null && logHead.stdout.trim() !== "") {
+			info.branchCommits = parseCommitLines(logHead.stdout);
+		}
+	}
+}
+
+/**
  * Git status for dir; { git: false } when dir is not a repository,
  * GIT_DEGRADED on transient git failure.
  *
@@ -1134,27 +1193,7 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 	// is declared here rather than scoped to that block.
 	let baseRef = null;
 	if (wantDetail) {
-		// The ✎n NAMES — the one part of the count the numbers cannot answer
-		// ("what are these?"). Hover-gated with the rest of detail=1, so no
-		// refresh pays for it. Posture: RELATIVE names only (git's own output,
-		// never absolute — AGENTS.md rule 7 is relaxed by an inch, not a mile),
-		// shortened to the last two path segments, capped at 20 with the total
-		// carried separately so the client can say "… and k more" honestly.
-		// Staged and unstaged names are TRACKED files: the collapsed untracked
-		// retry never affects them, so they ride regardless of untrackedMode.
-		const capped = (names) => names.slice(0, 20).map(shortenPath);
-		if (untrackedMode === "all" && parsed.untrackedNames.length > 0) {
-			info.untrackedNames = capped(parsed.untrackedNames);
-			info.untrackedNamesTotal = parsed.untrackedNames.length;
-		}
-		if (parsed.unstagedNames.length > 0) {
-			info.unstagedNames = capped(parsed.unstagedNames);
-			info.unstagedNamesTotal = parsed.unstagedNames.length;
-		}
-		if (parsed.stagedNames.length > 0) {
-			info.stagedNames = capped(parsed.stagedNames);
-			info.stagedNamesTotal = parsed.stagedNames.length;
-		}
+		attachDetail(info, parsed, untrackedMode);
 		// The signed commit list and the counts-vs-main row: ahead/behind against origin/main (then
 		// origin/master) is the merge-state line — "3 ahead, 0 behind" reads as
 		// "this is the PR's content"; "0 ahead, 5 behind" as "stale, rebase
@@ -1201,34 +1240,7 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 				info.mainBehind = mBehind;
 			}
 		}
-		if (baseRef !== null) {
-			// The signed commit list: mixed newest-first from base...HEAD, each
-			// entry signed "+" (only on this branch - the PR's content) or "−"
-			// (only on main - what a rebase/merge brings in), git's own left-right
-			// verdict mapped onto the diff convention. Capped at 10 with the total
-			// from the same base so "... and k more" counts both sides. Without a
-			// default branch the list degrades to the plain last 10 on HEAD.
-			const signedOut = await runGit(toplevel, ["log", "--left-right", "-10", "--format=%m%x09%h%x09%s%x09%cr", baseRef + "...HEAD"]);
-			if (signedOut.stdout !== null && signedOut.stdout.trim() !== "") {
-				info.branchCommits = signedOut.stdout.trim().split("\n").map((line) => {
-					const [marker, hash, subject, when] = line.split("\t");
-					return {
-						sign: marker === ">" ? "+" : marker === "<" ? "−" : void 0,
-						hash,
-						subject: subject ?? "",
-						when: when ?? ""
-					};
-				}).filter((c) => c.hash !== void 0);
-				const totalOut = await runGit(toplevel, ["rev-list", "--count", baseRef + "...HEAD"]);
-				const total = Number.parseInt((totalOut.stdout ?? "").trim(), 10);
-				if (Number.isFinite(total)) info.branchCommitsTotal = total;
-			}
-		} else {
-			// already fetched in the batch above — no second invocation
-			if (logHead.stdout !== null && logHead.stdout.trim() !== "") {
-				info.branchCommits = parseCommitLines(logHead.stdout);
-			}
-		}
+		await attachBranchCommits(info, toplevel, baseRef, logHead);
 		if (stashOut.stdout !== null) {
 			const count = stashOut.stdout.split("\n").filter((l) => l.trim() !== "").length;
 			if (count > 0) info.stashCount = count;
