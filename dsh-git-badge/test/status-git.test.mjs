@@ -399,31 +399,35 @@ test("a clean repository response carries no next field", async (t) => {
 
 const ROW_BASE = { git: true, branch: "feat/x", upstream: "origin/feat/x", ahead: 0, behind: 0, dirty: false, stagedFiles: 0, unstagedFiles: 0, untrackedFiles: 0 };
 
-test("rowToken: every state in the token table derives its word", () => {
+test("rowToken: every state in the token table derives its word AND its severity", () => {
 	const cases = [
-		[{ operation: "rebase" }, "resume"],
-		[{ unmergedFiles: 1 }, "resolve"],
-		[{ pr: { number: 7, state: "passing", mergeState: "DIRTY", open: true } }, "resolve"],
-		[{ pr: { number: 7, state: "passing", review: "CHANGES_REQUESTED", open: true } }, "review"],
-		[{ pr: { number: 7, state: "passing", review: "REVIEW_REQUIRED", open: true } }, "review"],
-		[{ ahead: 1, behind: 2 }, "sync"],
-		[{ behind: 2 }, "pull"],
-		[{ pr: { number: 7, state: "passing", mergeState: "BEHIND", open: true } }, "update"],
-		[{ upstream: void 0, stagedFiles: 1 }, "push"],
-		[{ ahead: 2 }, "push"],
-		[{ pr: { number: 7, state: "passing", mergeState: "CLEAN", open: true } }, "merge"],
-		[{ stagedFiles: 1 }, "commit"],
-		[{ pr: { number: 7, state: "failing", open: true } }, "fix CI"]
+		[{ operation: "rebase" }, "resume", "error"],
+		[{ unmergedFiles: 1 }, "resolve", "error"],
+		[{ pr: { number: 7, state: "passing", mergeState: "DIRTY", open: true } }, "resolve", "error"],
+		[{ pr: { number: 7, state: "passing", review: "CHANGES_REQUESTED", open: true } }, "review", "warn"],
+		[{ pr: { number: 7, state: "passing", review: "REVIEW_REQUIRED", open: true } }, "review", "warn"],
+		[{ ahead: 1, behind: 2 }, "sync", "business"],
+		[{ behind: 2 }, "pull", "business"],
+		[{ pr: { number: 7, state: "passing", mergeState: "BEHIND", open: true } }, "update", "business"],
+		[{ upstream: void 0, stagedFiles: 1 }, "push", "business"],
+		[{ ahead: 2 }, "push", "business"],
+		[{ pr: { number: 7, state: "passing", mergeState: "CLEAN", open: true } }, "merge", "success"],
+		[{ stagedFiles: 1 }, "commit", "business"],
+		[{ pr: { number: 7, state: "failing", open: true } }, "fix CI", "error"]
 	];
-	for (const [extra, token] of cases) {
-		assert.equal(nextActions({ ...ROW_BASE, ...extra }).rowToken, token, JSON.stringify(extra));
+	for (const [extra, token, severity] of cases) {
+		const result = nextActions({ ...ROW_BASE, ...extra });
+		assert.equal(result.rowToken, token, JSON.stringify(extra));
+		assert.equal(result.rowSeverity, severity, `severity for ${JSON.stringify(extra)}`);
 	}
 });
 
-test("rowToken: a clean checkout and a non-repository derive no token", () => {
-	assert.equal(nextActions(ROW_BASE).rowToken, null, "clean and synced");
-	assert.equal(nextActions(void 0).rowToken, null, "no input");
-	assert.equal(nextActions({ git: false }).rowToken, null, "not a repository");
+test("rowToken: a clean checkout and a non-repository derive no token and no severity", () => {
+	for (const [info, label] of [[ROW_BASE, "clean and synced"], [void 0, "no input"], [{ git: false }, "not a repository"]]) {
+		const result = nextActions(info);
+		assert.equal(result.rowToken, null, label);
+		assert.equal(result.rowSeverity, null, label);
+	}
 });
 
 test("row-only rules never enter actions or next, but still set rowToken", () => {

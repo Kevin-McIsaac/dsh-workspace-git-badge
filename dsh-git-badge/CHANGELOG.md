@@ -42,6 +42,12 @@ npm. 0.6.0 is the first release recorded here.
   re-deriving the rules, so the chip, the picker and the row cannot drift.
   A stored order that predates the two new categories keeps its ranking, with
   them appended (they rank last until reordered in Settings).
+- **The node half is also the single authority for the icon's COLOUR.**
+  `nextActions` returns `rowSeverity` (`error`, `warn`, `success` or `business`)
+  with the token, and the route attaches it to every token-bearing response. The
+  client holds one severity-to-colour map instead of a token-to-colour map, so
+  the chip and the row agree about how loud a state is. No pixel changes: the
+  severity of each token keeps the colour that token had.
 - **The install has one step again.** The session row no longer uses a patched
   seat, so there is no `npx dsh-git-badge apply` and no `postinstall` hook. The
   leading glyph and the hover card are upstream's own seats.
