@@ -17,7 +17,7 @@
  *           npx dsh-git-badge checkout --clear    forget this session
  *
  *   (npx can only reach the bin named after the package; the checkout verb
- *   dispatches to this file from apply.js. The legacy bin name
+ *   dispatches to this file from cli.js. The legacy bin name
  *   dsh-git-badge-checkout still works when invoked directly.)
  *
  * The path is validated as a real worktree of its repository before it is

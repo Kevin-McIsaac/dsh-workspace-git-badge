@@ -136,8 +136,6 @@ The feature has three independently testable layers:
    served to a browser is left to a refresh.
 3. **Published plugin** (`dsh-git-badge` from npm) — the customer experience;
    test in a **clean profile**.
-4. **Legacy patch removal** (`seam/apply.sh revert`) — only for an install an
-   older version patched. The plugin needs no patch.
 
 ## Clean-profile test (customer simulation)
 
@@ -215,50 +213,6 @@ per-process, so it cannot be recovered from the boot log after the fact.
 
 Clean up: stop the server and delete the profile directory; `test-profile.sh`
 prints both commands with the real paths.
-
-## Legacy patch removal
-
-An older version patched the installed DSH package. The plugin no longer uses
-that seam, so the only action left is to undo the patch once:
-
-```bash
-seam/apply.sh status    # patched / out of date / patchable / upstream-landed / drift
-seam/apply.sh revert    # restore the bytes as found before patching
-```
-
-`seam/apply.sh` is a dev wrapper around the SHIPPED patcher
-(`dsh-git-badge/seam/apply.js`), so a market install runs
-`npx dsh-git-badge revert` with no clone. The patch is **anchor-based**:
-`seam/anchors.js` defines each change as a `[name, old, new]` triple, and the
-patcher locates each `old` block in the installed `client.js` (it must occur
-exactly once) and replaces it in place. `revert` restores the **bytes as found
-before patching** (`backup-client.js` in `SEAM_DATA_DIR`, default the patcher's
-own directory), guarded against downgrading a build upstream replaced after the
-patch. Never run `apply`: the plugin does not need the seam.
-
-**The two stores are independent, and that is the trap.** A patch applied
-through the shipped default (`$DSH_HOME/git-badge-seam`) and one applied through
-this repo's wrapper (`seam/`) each keep their own backup. Revert through the
-store that patched the build. `status` reports only the store it was given, so
-when two checkouts disagree, check `SEAM_DATA_DIR` first.
-
-`status` names the outcome in advance, so read the `revert:` line before you
-need it:
-
-```text
-revert:     would restore the bytes as found — the backup is a build this patch targets
-revert:     would REFUSE — the backup is 'drift' — a different upstream generation, …
-revert:     would REFUSE — no backup in this store, so the original bytes are unknown
-```
-
-Recover from a refused revert by reverting from the store that patched the
-build, or by reinstalling the DSH package.
-
-After a revert, **restart the dsh web process** — the workspace bundle URL
-carries a `?rev=` hash that only changes at boot, so a browser refresh alone
-can keep serving stale JS. If the UI looks stale: restart, THEN hard-refresh.
-DevTools console confirms which code is live via the
-`[dsh-git-badge] surfaces:` line.
 
 ## Row surfaces (no patch)
 

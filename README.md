@@ -44,8 +44,8 @@ upstream's own `sidebar.session.row.hover` seat as well.
 
 ## Testing
 
-See [`TESTING.md`](TESTING.md) — clean-profile boot (customer simulation), the
-legacy patch-removal procedure, and the gotchas list. `cd dsh-git-badge && npm test`
+See [`TESTING.md`](TESTING.md) — clean-profile boot (customer simulation) and the
+gotchas list. `cd dsh-git-badge && npm test`
 runs the whole suite (parser, real temp repositories, resolution, SSE, the
 watcher, every `gh` degradation path and the rendered surfaces) with no DSH, no
 network and no restart.

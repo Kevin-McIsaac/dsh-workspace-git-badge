@@ -25,7 +25,10 @@ dsh plugin --profile web add dsh-git-badge
 
 Restart the web process, refresh the browser. Requires Node ≥ 20 and `git` on PATH. `gh`, on PATH and authenticated, is optional — it only enables the PR/CI token.
 
-**No seam patch.** Every surface rides an upstream slot, so there is nothing to apply. If an older version patched your DSH install, run `npx dsh-git-badge revert` once to restore it.
+**No seam patch.** Every surface rides an upstream slot, so there is nothing to
+apply and no patcher in the package. `npx dsh-git-badge checkout <path>` (or the
+`dsh-git-badge-checkout` bin) is the only CLI verb: it registers the checkout a
+session is working in, so the badge follows a linked worktree.
 
 ## Sidebar technical details
 

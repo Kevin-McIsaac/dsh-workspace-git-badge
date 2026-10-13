@@ -11,18 +11,17 @@ seats. The glyph sits on the session row because that is the row that knows
 which checkout the conversation is working in; the hover-card line rides
 upstream's own `sidebar.session.row.hover` seat.
 
-**No patch is needed.** Older versions carried a `sidebar.workspaces.sessionRow`
-seam patch (retired — see `SEAM.md` / `PR.md`). The patcher still ships for one
-release so an install it already patched can run `npx dsh-git-badge revert`; it
-retires in a follow-up. Do not extend it.
+**No patch is needed, and the patcher is gone.** Every surface rides an upstream
+seat. The package's only CLI verb is `checkout` (the worktree registration);
+there is no `apply`, `status` or `revert`, and no anchor patch anywhere.
 
 ## Read first
 
 - **Testing any change**: `TESTING.md` — run the node suite first
   (`cd dsh-git-badge && npm test`; no DSH, no restart), then clean-profile boot,
   and the gotchas list. Don't rediscover them.
-- **Architecture**: `README.md` (user view). `SEAM.md` (retired patch rails) and
-  `PR.md` (the upstream proposal for the retired seam) are historical.
+- **Architecture**: `README.md` (user view). The retired seam and its upstream
+  proposal are in git history only.
 - **READMEs**: the repo-root `README.md` is **AUTHORITATIVE**. `dsh-git-badge/README.md`
   is the npm page and mirrors the claims a user acts on: the install command, the
   seat names, the hover example, the no-patch statement and the row token list.
@@ -40,13 +39,13 @@ retires in a follow-up. Do not extend it.
    which ends your session; tell the user to restart and report back. Client-half
    changes usually need only a browser refresh, but any patch/bundle-graph change
    requires a restart before refreshing (bundle URLs are rev-pinned at boot).
-2. **The seam patch is RETIRED — do not extend it, and do not re-apply it.** The
-   plugin uses only upstream seats now. The patcher survives for one release so
-   an install an older version patched can undo it:
-   `npx dsh-git-badge status` (or `seam/apply.sh status`) reports the installed
-   DSH file's state, and `revert` restores the bytes as found. The target is
-   `…/node_modules/@deepseek-ai/dsh-client-ui-workspace/lib/client.js`; the
-   installed DSH lives at
+2. **There is no seam patch — do not add one.** The plugin uses only upstream
+   seats. The retired `sidebar.workspaces.sessionRow` patch and its patcher
+   (`anchors.js`, `patch.js`, `stub-index.js`, `apply.js`, the old `postinstall`)
+   were deleted. What remains under `seam/` is the checkout CLI, the skill
+   installer and the session-checkout store. If an installed DSH package still
+   carries the old patch, reinstall DSH to restore pristine bytes:
+   `npm i -g @deepseek-ai/dsh@latest`. The installed DSH lives at
    `~/.config/nvm/versions/node/v22.23.2/lib/node_modules/@deepseek-ai/dsh`.
 3. The user's instance runs the **unpatched** setup. A clean-profile customer
    simulation is `TESTING.md` § "Clean-profile test".

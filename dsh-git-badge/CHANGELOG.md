@@ -49,6 +49,12 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Removed
 
+- **The seam patcher.** `seam/anchors.js`, `seam/patch.js`, `seam/stub-index.js`
+  and the patch half of `seam/apply.js` are gone, together with the repo's
+  `seam/` snapshots and its `apply.sh` / `make-patch.sh` wrappers. The package's
+  only CLI verb is `checkout` (`seam/cli.js` + `seam/checkout.js`): there is no
+  `apply`, `status` or `revert` to run.
+- **The `dsh-git-badge-seam` bin.** No patcher answers to that name.
 - **The `sidebar.workspaces.sessionRow` word pill.** It was the patch's only
   consumer. The row now shows the token glyph in its leading cell on every
   install, so there is no second surface and no seam to maintain.
@@ -58,12 +64,11 @@ npm. 0.6.0 is the first release recorded here.
 - **The `postinstall` script.** It applied the patch at install time; with no
   patch needed it would only churn the user's DSH package.
 
-### Deprecated
+### Migration
 
-- **`npx dsh-git-badge apply` and `status`.** Kept for one release so an install
-  that an older version patched can undo it with `npx dsh-git-badge revert`. The
-  patcher (`apply`, `status`, `seam/anchors.js`, `seam/patch.js`,
-  `seam/stub-index.js`) retires in a follow-up release.
+- An install that an older version patched still works. To restore pristine
+  bytes, reinstall DSH (`npm i -g @deepseek-ai/dsh@latest`); the plugin has no
+  command for it any more. Nothing in the plugin needs the patch.
 
 ## [0.19.0] - 2026-10-12
 
