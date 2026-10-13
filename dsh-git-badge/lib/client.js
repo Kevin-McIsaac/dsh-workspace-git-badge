@@ -247,17 +247,23 @@ window.__ModuleLoader__.load({
 		 *  - clean workspaces stay quiet: arrows only when nonzero, no ✎ at 0
 		 *  - no base known: arrows omitted entirely
 		 */
+		/** The base branch's name, for the arrows and the card's base row. */
+		function baseNameFor(info) {
+			return typeof info?.mainBranch === "string" && info.mainBranch !== "" ? info.mainBranch : "main";
+		}
+
 		/**
-		 * The BASE (main) ahead/behind arrows (" ↑4 ↓0"), the branch's standing
-		 * against the branch it will merge into. The branch name's compare link
-		 * covers the same relation. The branch's own remote sync is not a number
-		 * here: the action glyph (`push`, `pull`) carries the actionable part.
+		 * The BASE ahead/behind arrows and the base's name (" ↑4 ↓0 main"), the
+		 * branch's standing against the branch it will merge into. Naming the base
+		 * stops the arrows from reading as the git-native upstream count. The
+		 * branch's own remote sync is not a number here: the action glyph (`push`,
+		 * `pull`) carries the actionable part.
 		 */
 		function formatBaseSync(info) {
 			const hasBase = info.mainAhead !== void 0 || info.mainBehind !== void 0;
 			const files = (info.changedFiles || 0) + (info.untrackedFiles || 0);
 			if (!hasBase || (files === 0 && !(info.mainAhead > 0) && !(info.mainBehind > 0))) return "";
-			return " \u2191" + (info.mainAhead || 0) + " \u2193" + (info.mainBehind || 0);
+			return " \u2191" + (info.mainAhead || 0) + " \u2193" + (info.mainBehind || 0) + " " + baseNameFor(info);
 		}
 
 		/** The ✎n file count (" ✎3"), or "". */
@@ -966,7 +972,7 @@ window.__ModuleLoader__.load({
 			// PR. A SEPARATE row from state: whether the PR can merge and how far the
 			// branch is from its base are two facts, so neither hides the other.
 			if (info?.defaultBranch !== true && (info?.mainAhead !== void 0 || info?.mainBehind !== void 0)) {
-				add("base", (info.mainAhead || 0) + " ahead, " + (info.mainBehind || 0) + " behind main");
+				add("base", (info.mainAhead || 0) + " ahead, " + (info.mainBehind || 0) + " behind " + baseNameFor(info));
 			}
 			const commits = info?.branchCommits;
 			if (Array.isArray(commits) && commits.length > 0) {
@@ -1190,7 +1196,7 @@ window.__ModuleLoader__.load({
 			if (!isBranchLink) return branchLabel;
 			return chipAnchor({
 				href: detail.compareUrl,
-				ariaLabel: "Compare " + info.branch + " with main on GitHub" + (sync === "" ? "" : ", " + (info.mainAhead || 0) + " ahead and " + (info.mainBehind || 0) + " behind main"),
+				ariaLabel: "Compare " + info.branch + " with " + baseNameFor(info) + " on GitHub" + (sync === "" ? "" : ", " + (info.mainAhead || 0) + " ahead and " + (info.mainBehind || 0) + " behind " + baseNameFor(info)),
 				underline: hoveredLink === "branch",
 				onPointerEnter: () => setHoveredLink("branch"),
 				onPointerLeave: () => setHoveredLink(null),

@@ -165,7 +165,7 @@ test("the chip still carries the branch, operation token and counts", () => {
 	// (main), so they render before the operation token
 	const client = createClient();
 	const line = text(client.chip({ ...WORKTREE, operation: "rebase", mainAhead: 0, mainBehind: 2, changedFiles: 3, dirty: true }));
-	assert.equal(line, "feat/hotfix ↑0 ↓2 ⚔rebase ✎3");
+	assert.equal(line, "feat/hotfix ↑0 ↓2 main ⚔rebase ✎3");
 });
 
 test("the base arrows ride the branch's hover and link; the file count does not", () => {
@@ -180,7 +180,7 @@ test("the base arrows ride the branch's hover and link; the file count does not"
 	});
 	const anchor = elements(chip).find((el) => el.type === "a");
 	assert.ok(anchor !== void 0, "the branch is the anchor when a compare URL is present");
-	assert.equal(text(anchor), "feat/hotfix \u21911 \u21932", "the arrows are inside the branch's link");
+	assert.equal(text(anchor), "feat/hotfix \u21911 \u21932 main", "the arrows and the base name are inside the branch's link");
 	assert.match(anchor.props["aria-label"], /1 ahead and 2 behind main/, "and the accessible name says them");
 	// ✎n answers a different question and stays outside the link
 	assert.ok(!text(anchor).includes("\u270E"), "the file count is not part of the branch link");
@@ -192,8 +192,8 @@ test("the chip arrows are the BASE relation, even when the branch is in sync wit
 	// the ahead/behind against main disappeared from the chip. The arrows now
 	// read mainAhead/mainBehind; upstream 0/0 must not hide them.
 	const client = createClient();
-	const line = text(client.chip({ branch: "feat/x", upstream: "origin/feat/x", ahead: 0, behind: 0, mainAhead: 4, mainBehind: 0, dirty: false }));
-	assert.ok(line.includes("feat/x \u21914 \u21930"), `expected the base arrows: ${line}`);
+	const line = text(client.chip({ branch: "feat/x", upstream: "origin/feat/x", ahead: 0, behind: 0, mainAhead: 4, mainBehind: 0, mainBranch: "develop", dirty: false }));
+	assert.ok(line.includes("feat/x \u21914 \u21930 develop"), `expected the base arrows and base name: ${line}`);
 });
 
 test("a FOLLOWED worktree is named in the CARD, never on the chip", () => {
