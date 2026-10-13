@@ -1169,6 +1169,170 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
+		 * The chip's leading action glyph, or null when the checkout needs none.
+		 * The SAME token the sidebar row draws, in the node half's severity colour.
+		 * No token means NO GLYPH: a clean, synced checkout has no action to triage,
+		 * so it shows no icon rather than a decorative dot.
+		 */
+		function chipGlyphNode(info) {
+			const token = info.rowToken;
+			if (typeof token !== "string" || token === "") return null;
+			return react_jsx_runtime.jsx("span", {
+				key: "glyph",
+				role: "img",
+				"aria-label": "git action: " + token,
+				style: { color: SEVERITY_FILL[info.rowSeverity] ?? META_STYLE.color, flex: "none", ...GLYPH_TEXT, display: "inline-flex", alignItems: "center" },
+				children: actionGlyphNode(token)
+			});
+		}
+
+		/**
+		 * The shared anchor for the chip's two links — the branch compare link and
+		 * the PR token. Both were near-identical `<a>` elements; this is the one
+		 * copy of target, rel, cursor and handler wiring, so they cannot drift.
+		 * `underline` is the hover/focus state and `children` is the label.
+		 */
+		function chipAnchor(props) {
+			return react_jsx_runtime.jsx("a", {
+				href: props.href,
+				target: "_blank",
+				rel: "noopener noreferrer",
+				"aria-label": props.ariaLabel,
+				onPointerEnter: props.onPointerEnter,
+				onPointerLeave: props.onPointerLeave,
+				onFocus: props.onFocus,
+				onBlur: props.onBlur,
+				style: {
+					color: "inherit",
+					textDecoration: props.underline ? "underline" : "none",
+					cursor: "pointer"
+				},
+				children: props.children
+			});
+		}
+
+		/**
+		 * The branch name, as a compare anchor when the detail payload vouches an
+		 * http(s) URL. The sync arrows ride WITH the branch: they are the branch's
+		 * standing against its upstream, so the same hover and the same link cover
+		 * them. The ✎n count keeps its own surface.
+		 */
+		function chipBranchInner(info, detail, isBranchLink, hoveredLink, setHovered, setHoveredLink) {
+			const sync = formatSync(info);
+			const branchLabel = info.branch + sync;
+			if (!isBranchLink) return branchLabel;
+			return chipAnchor({
+				href: detail.compareUrl,
+				ariaLabel: "Compare " + info.branch + " with main on GitHub" + (sync === "" ? "" : ", " + (info.ahead || 0) + " ahead and " + (info.behind || 0) + " behind upstream"),
+				underline: hoveredLink === "branch",
+				onPointerEnter: () => setHoveredLink("branch"),
+				onPointerLeave: () => setHoveredLink(null),
+				onFocus: () => { setHovered(true); setHoveredLink("branch"); },
+				onBlur: () => setHoveredLink(null),
+				children: branchLabel
+			});
+		}
+
+		/**
+		 * The LEADING CLUSTER — the action glyph (when the checkout needs one) and
+		 * the branch name — wrapped in the one hover card. It is the chip card's ONLY
+		 * anchor: pointer rest here enables the detail=1 fetch.
+		 */
+		function chipLeadingHover(info, detail, tokenGlyph, branchInner, isBranchLink, setHovered) {
+			return withTooltip(
+				react_jsx_runtime.jsx("span", {
+					onPointerEnter: () => setHovered(true),
+					style: { display: "inline-flex", alignItems: "center", gap: "6px", flex: "none", cursor: isBranchLink ? "pointer" : "default" },
+					children: [tokenGlyph, react_jsx_runtime.jsx("span", { key: "branch", children: branchInner })]
+				}),
+				() => react_jsx_runtime.jsx(ChipCard, { info, detail }),
+				600
+			);
+		}
+
+		/**
+		 * The ✎n count as its OWN hover surface: a names-only tooltip. It shares
+		 * the mark's lazy detail fetch and degrades to a plain count without the
+		 * Tooltip primitive.
+		 */
+		function chipCountHover(info, detail, setHovered) {
+			const countText = formatFileCount(info);
+			const count = react_jsx_runtime.jsx("span", {
+				onPointerEnter: () => setHovered(true),
+				style: { cursor: "default" },
+				children: countText
+			});
+			const pending = detail === void 0 || detail === null;
+			return withTooltip(count, () => react_jsx_runtime.jsx(CountNames, { info: detail ?? info, pending }), 480);
+		}
+
+		/**
+		 * The PR token, with its own hover: the commits IN THIS PR. The token is its
+		 * OWN detail gate: resting on it (or focusing it) enables the same `detail=1`
+		 * fetch the mark and the branch do. ONE element, split so the STATE GLYPH can
+		 * take the CI colour while the number keeps the chip's muted colour.
+		 */
+		function chipPrTokenHover(info, detail, hoveredLink, setHovered, setHoveredLink) {
+			const prParts = prTokenParts(info);
+			const prToken = prParts === null ? null : [
+				prParts.number,
+				prParts.glyph === "" ? null : react_jsx_runtime.jsx("span", {
+					key: "pr-state",
+					style: { color: prParts.colour },
+					children: " " + prParts.glyph
+				}),
+				prParts.draft
+			];
+			const prUrl = prLinkUrl(info);
+			const token = prUrl === void 0
+				? react_jsx_runtime.jsx("span", {
+					// the glyph is not the only channel: the token says what the CI state IS
+					"aria-label": prTokenLabel(info),
+					onPointerEnter: () => setHovered(true),
+					style: { cursor: "default" },
+					children: prToken
+				})
+				: chipAnchor({
+					href: prUrl,
+					ariaLabel: prTokenLabel(info) + ", opens on GitHub in a new tab",
+					underline: hoveredLink === "pr",
+					onPointerEnter: () => { setHovered(true); setHoveredLink("pr"); },
+					onPointerLeave: () => setHoveredLink(null),
+					onFocus: () => { setHovered(true); setHoveredLink("pr"); },
+					onBlur: () => setHoveredLink(null),
+					children: prToken
+				});
+			const pending = detail === void 0 || detail === null;
+			return withTooltip(token, () => react_jsx_runtime.jsx(PrCommitsList, { info: detail ?? info, pending }), 480);
+		}
+
+		/** The chip row itself: leading cluster, operation text, count and PR token. */
+		function chipAssemble(leadingHover, text, countHover, prTokenHover) {
+			return react_jsx_runtime.jsxs("span", {
+				style: {
+					display: "inline-flex",
+					alignItems: "center",
+					flex: "none",
+					// 6px, not 4px: the PR token leads with a space, and CSS drops leading
+					// whitespace at the start of a flex item, so 4px read as no separation
+					// at all between the branch and `PR#…`
+					gap: "6px",
+					color: "var(--dsw-alias-label-secondary, #5b6570)",
+					fontSize: "12px",
+					lineHeight: "24px",
+					whiteSpace: "nowrap",
+					cursor: "default"
+				},
+				children: [
+					leadingHover,
+					react_jsx_runtime.jsx("span", { key: "text", children: text }),
+					countHover,
+					prTokenHover
+				]
+			});
+		}
+
+		/**
 		 * Chip line in the input row: git state of the workspace the CURRENT
 		 * conversation is attached to. It targets the session id and lets the node
 		 * half resolve the workspace, so this surface needs no `workspaces`
@@ -1185,203 +1349,31 @@ window.__ModuleLoader__.load({
 			const target = sessionId === void 0 ? void 0 : { kind: "session", id: sessionId };
 			// the PR/CI token is always on the chip, so its fetch is not gated
 			const info = useGitStatus(target, { pr: true });
-			// The card's extras cost a `log -10` plus a stash list, so they are
-			// fetched only once a pointer actually RESTS on the chip, then kept
-			// fresh by the same SSE path. Eagerly asking would add both invocations
-			// to every refresh — and a refresh fires on every file edit.
+			// The card's extras cost a `log -10` plus a stash list, so they are fetched
+			// only once a pointer actually RESTS on the chip. A refresh fires on every
+			// file edit, so eagerly asking would add both invocations to every refresh.
 			const [hovered, setHovered] = react.useState(false);
-			// the PR token's own hover/focus state: it underlines on hover (and on
-			// focus) rather than at rest, and that underline is applied inline below
-			const [linkHover, setLinkHover] = react.useState(false);
-			// the branch link's hover underline — the PR token's pattern: the
-			// affordance appears on hover/focus, never at rest. Its OWN state, not
-			// the PR token's linkHover: two links sharing one flag would
-			// underline both when either is hovered.
-			const [branchLinkHover, setBranchLinkHover] = react.useState(false);
+			// Which of the chip's two links is hovered/focused — ONE enum, not two
+			// booleans: "branch" | "pr" | null. The anchor underlines only when its
+			// own value matches, so hovering one link never underlines the other.
+			const [hoveredLink, setHoveredLink] = react.useState(null);
 			const detail = useGitStatus(target, { pr: true, detail: true, enabled: hovered });
 			if (info === void 0 || info.git !== true) return null;
 
-			// The LEADING CLUSTER — the action glyph (when the checkout needs one)
-			// and the branch name — is the chip card's ONLY anchor. Pointer rest here
-			// (and only here) enables the detail=1 fetch, so the extras are paid for
-			// exactly when the card that renders them is about to open. Defined inside
-			// the component: it closes over the `hovered` state that gates the fetch.
-			//
-			// The glyph is the SAME token the sidebar row shows, in the node half's
-			// severity colour. No token means NO GLYPH: a clean, synced checkout has
-			// no action to triage, so it shows no icon rather than a decorative dot.
-			const tokenGlyph = (() => {
-				const token = info.rowToken;
-				if (typeof token !== "string" || token === "") return null;
-				return react_jsx_runtime.jsx("span", {
-					key: "glyph",
-					role: "img",
-					"aria-label": "git action: " + token,
-					style: { color: SEVERITY_FILL[info.rowSeverity] ?? META_STYLE.color, flex: "none", ...GLYPH_TEXT, display: "inline-flex", alignItems: "center" },
-					children: actionGlyphNode(token)
-				});
-			})();
-			// The branch name links to the compare view (base...branch) — the web page
-			// of exactly what the card's lineage rows list. Vouched http(s) only (the
-			// node half rebuilt the URL from parsed parts); new tab, never navigating
-			// the conversation away. The sync arrows ride WITH the branch: they are the
-			// branch's standing against its upstream, so the same hover and the same
-			// link cover them. The ✎n count keeps its own surface.
+			const tokenGlyph = chipGlyphNode(info);
+			// The branch name links to the compare view (base...branch). Vouched http(s)
+			// only; new tab, never navigating the conversation away.
 			const isBranchLink = typeof detail?.compareUrl === "string" && detail.compareUrl.startsWith("https://");
-			const sync = formatSync(info);
-			const branchLabel = info.branch + sync;
+			const branchInner = chipBranchInner(info, detail, isBranchLink, hoveredLink, setHovered, setHoveredLink);
 			// The Tooltip's CHILD must not change element type once the detail payload
-			// lands: the primitive opens on the child's mouseenter and has no `open`
-			// prop, so a node replaced under the pointer may never be re-entered. The
-			// cluster span below is the stable hover surface; only this inner node
-			// swaps (plain text -> anchor) as the compare URL arrives.
-			const branchInner = isBranchLink
-				? react_jsx_runtime.jsx("a", {
-					href: detail.compareUrl,
-					target: "_blank",
-					rel: "noopener noreferrer",
-					"aria-label": "Compare " + info.branch + " with main on GitHub" + (sync === "" ? "" : ", " + (info.ahead || 0) + " ahead and " + (info.behind || 0) + " behind upstream"),
-					onPointerEnter: () => setBranchLinkHover(true),
-					onPointerLeave: () => setBranchLinkHover(false),
-					// focus joins hover: a keyboard user needs the same underline, and
-					// focus (unlike a pointer) must also start the detail fetch
-					onFocus: () => { setHovered(true); setBranchLinkHover(true); },
-					onBlur: () => setBranchLinkHover(false),
-					style: {
-						color: "inherit",
-						textDecoration: branchLinkHover ? "underline" : "none",
-						cursor: "pointer"
-					},
-					children: branchLabel
-				})
-				: branchLabel;
-			// ALWAYS wrapped. A wrapper mounted only once the lazy detail arrives
-			// cannot open for the visit that fetched it (see the child-stability note
-			// above); until the payload lands the card degrades to the base response.
-			const leadingHover = withTooltip(
-				react_jsx_runtime.jsx("span", {
-					onPointerEnter: () => setHovered(true),
-					style: { display: "inline-flex", alignItems: "center", gap: "6px", flex: "none", cursor: isBranchLink ? "pointer" : "default" },
-					children: [tokenGlyph, react_jsx_runtime.jsx("span", { key: "branch", children: branchInner })]
-				}),
-				// a function label keeps the card's element tree out of every render
-				// until the tooltip actually opens
-				() => react_jsx_runtime.jsx(ChipCard, { info, detail }),
-				600 // matches the body cap: the tooltip must never be the clamp
-			);
+			// lands, so the cluster span is the stable hover surface. ALWAYS wrapped.
+			const leadingHover = chipLeadingHover(info, detail, tokenGlyph, branchInner, isBranchLink, setHovered);
 			const text = formatOperationToken(info);
-			// The ✎n count is its OWN hover surface: a names-only tooltip (see
-			// UntrackedList). It shares the mark's lazy detail fetch — resting on
-			// either triggers it once — and degrades to a plain count on a shell
-			// without the Tooltip primitive.
-			const countHover = (() => {
-				// ✎n only: the sync arrows moved to the branch's surface above
-				const countText = formatFileCount(info);
-				const count = react_jsx_runtime.jsx("span", {
-					onPointerEnter: () => setHovered(true),
-					style: { cursor: "default" },
-					children: countText
-				});
-				// always wrapped, for the same reason as the branch: the primitive
-				// opens on the child's mouseenter, so a wrapper added after the
-				// pointer arrives never opens. While the names are in flight the label
-				// restates the breakdown the base response already carries.
-				const pending = detail === void 0 || detail === null;
-				return withTooltip(count, () => react_jsx_runtime.jsx(CountNames, { info: detail ?? info, pending }), 480);
-			})();
-			// ONE element, split so the STATE GLYPH can take the CI colour while the
-			// number keeps the chip's muted colour: the leading space rides inside the
-			// glyph span, so the text and the layout are unchanged.
-			const prParts = prTokenParts(info);
-			const prToken = prParts === null ? null : [
-				prParts.number,
-				prParts.glyph === "" ? null : react_jsx_runtime.jsx("span", {
-					key: "pr-state",
-					style: { color: prParts.colour },
-					children: " " + prParts.glyph
-				}),
-				prParts.draft
-			];
-			const prUrl = prLinkUrl(info);
-			// The PR token, with its own hover: the commits IN THIS PR (see
-			// PrCommitsList). Built here so the link/plain cases and the tooltip
-			// compose once instead of nesting a third conditional in the children.
-			// The token is its OWN detail gate: resting on it (or focusing it)
-			// enables the same `detail=1` fetch the mark and the branch do. Without
-			// that, a pointer going straight to the token had rested on nothing that
-			// fetches, so `prCommits` was never requested and this hover could not
-			// open at all — the data it renders is detail-only.
-			const prTokenHover = (() => {
-				const token = prUrl === void 0
-					? react_jsx_runtime.jsx("span", {
-						// the glyph is not the only channel: the token says what the
-						// CI state IS, for anyone who cannot see it
-						"aria-label": prTokenLabel(info),
-						onPointerEnter: () => setHovered(true),
-						style: { cursor: "default" },
-						children: prToken
-					})
-					: react_jsx_runtime.jsx("a", {
-						href: prUrl,
-						// a new tab, because navigating THIS one away from the app
-						// would lose the conversation; noopener/noreferrer keep the
-						// opened tab from getting a handle on it
-						target: "_blank",
-						rel: "noopener noreferrer",
-						"aria-label": prTokenLabel(info) + ", opens on GitHub in a new tab",
-						// the chip's own colour rather than the browser's link blue /
-						// visited purple, so the token still reads as one row. The
-						// affordance is the pointer cursor plus an underline on hover
-						// or focus, set HERE rather than left to the host stylesheet:
-						// a shell that resets anchors would otherwise drop it silently.
-						style: {
-							color: "inherit",
-							textDecoration: linkHover ? "underline" : "none",
-							cursor: "pointer"
-						},
-						// focus joins hover — the token is keyboard-reachable now, and a
-						// keyboard user needs the same "this is a link" signal
-						onPointerEnter: () => { setHovered(true); setLinkHover(true); },
-						onPointerLeave: () => setLinkHover(false),
-						onFocus: () => { setHovered(true); setLinkHover(true); },
-						onBlur: () => setLinkHover(false),
-						children: prToken
-					});
-				// always wrapped (see the branch): while the commits are in flight the
-				// label names the PR state the base response already carries
-				const pending = detail === void 0 || detail === null;
-				return withTooltip(token, () => react_jsx_runtime.jsx(PrCommitsList, { info: detail ?? info, pending }), 480);
-			})();
-			const chip = react_jsx_runtime.jsxs("span", {
-				style: {
-					display: "inline-flex",
-					alignItems: "center",
-					flex: "none",
-					// 6px, not 4px: the PR token leads with a space, and CSS drops
-					// leading whitespace at the start of a flex item, so 4px read as no
-					// separation at all between the branch and `PR#…`
-					gap: "6px",
-					color: "var(--dsw-alias-label-secondary, #5b6570)",
-					fontSize: "12px",
-					lineHeight: "24px",
-					whiteSpace: "nowrap",
-					cursor: "default"
-				},
-				children: [
-					// ONE hover for the leading cluster (glyph + branch): the glyph is the
-					// "what does this colour mean" element, and the branch is the element
-					// that always exists — so the card opens from either, and a clean
-					// checkout with no glyph still has a card. The detail fetch
-					// (enabled: hovered) follows the same pointer.
-					leadingHover,
-					react_jsx_runtime.jsx("span", { key: "text", children: text }),
-					countHover,
-					prTokenHover
-				]
-			});
+			const countHover = chipCountHover(info, detail, setHovered);
+			const prTokenHover = chipPrTokenHover(info, detail, hoveredLink, setHovered, setHoveredLink);
+			const chip = chipAssemble(leadingHover, text, countHover, prTokenHover);
 			// No Tooltip primitive (a shell that does not seed it): the leading cluster
-			// renders bare and the badge still works — the card is an enhancement, the
-			// badge is the feature.
+			// renders bare and the badge still works — the card is an enhancement.
 			return chip;
 		}
 

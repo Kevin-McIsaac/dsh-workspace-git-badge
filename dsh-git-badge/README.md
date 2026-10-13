@@ -31,9 +31,9 @@ session is working in, so the badge follows a linked worktree.
 
 ## Sidebar technical details
 
-The status icon renders using the upstream `sidebar.session.row.leading` seat — a
-16px cell in the row's leading cluster, rendered only while the session is idle.
-The hover card rides upstream's own `sidebar.session.row.hover` seat as well.
+Both surfaces ride upstream seats: the status icon on
+`sidebar.session.row.leading` (a 16px, idle-only cell), the hover card on
+`sidebar.session.row.hover`.
 
 ## Changelog
 
