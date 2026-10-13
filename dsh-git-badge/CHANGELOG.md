@@ -98,6 +98,16 @@ npm. 0.6.0 is the first release recorded here.
   picker's verb `push`, so the chip and the row say the same word. The `publish`
   RANKING CATEGORY keeps its name.
 
+### Fixed
+
+- **The `push` suggestion no longer offers a command git refuses.** A branch
+  created from `origin/main` tracks `origin/main`, so a bare `git push` is
+  refused under the default `push.default=simple` because the upstream branch
+  name does not match the local branch name. The push rule now detects that
+  case and suggests `git push -u <remote> <branch>`, which publishes under the
+  branch's own name and repairs the upstream in one step. The `/gh push` skill
+  gained the same case.
+
 ### Removed
 
 - **The drawn status mark.** `StatusMark`, `badgeStatus`, `MARK_FILL` and

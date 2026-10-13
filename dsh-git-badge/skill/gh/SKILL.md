@@ -30,8 +30,10 @@ unstaged / untracked / unmerged), plus any in-progress operation marker
   match wins: resume a paused operation (`git merge --continue`,
   `git rebase --continue`, …; a squash merge concludes with `git commit`);
   resolve unmerged files only WITH the user; `git pull --ff-only` when behind;
-  `git push -u origin <branch>` when there is no upstream; `git push` when
-  ahead; stage and commit when dirty (`git commit` if work is already staged,
+  `git push -u origin <branch>` when there is no upstream OR the upstream names
+  a different branch (a feature branch still tracking `origin/main` is the common
+  case); `git push` when ahead of a same-named upstream; stage and commit when
+  dirty (`git commit` if work is already staged,
   `git add -p && git commit` for unstaged edits, `git add -A && git commit`
   only for untracked-only changes, which `add -p` cannot see); `gh pr checks
   <n> --watch` when CI fails. Clean and synced → say so and stop.
@@ -42,10 +44,13 @@ unstaged / untracked / unmerged), plus any in-progress operation marker
   `REVIEW_REQUIRED` (wait for the reviewer). Report which PR it is and what
   it needs; do not invent a command for it.
 
-- **`/gh push`** — `git push`. If there is no upstream, `git push -u origin
-  <branch>`. If the push is rejected as non-fast-forward, STOP and ask: offer
-  `--force-with-lease` as the option, never plain `--force`, and never without
-  an explicit yes.
+- **`/gh push`** — `git push` when the upstream shares the branch name. If there
+  is no upstream, OR the upstream names a different branch (a feature branch
+  tracking `origin/main` is the common case), run `git push -u origin <branch>`:
+  a bare `git push` is refused there under the default `push.default=simple`, and
+  `-u` publishes under the branch's own name and repairs the tracking. If the
+  push is rejected as non-fast-forward, STOP and ask: offer `--force-with-lease`
+  as the option, never plain `--force`, and never without an explicit yes.
 
 - **`/gh pr`** — create a pull request for the current branch: push first if
   needed, then `gh pr create` with a title from the branch's commits and a body

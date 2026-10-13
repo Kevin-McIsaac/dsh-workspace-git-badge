@@ -322,6 +322,23 @@ test("nextActions: ahead → push", () => {
 	);
 });
 
+test("nextActions: an upstream that names a different branch publishes under its own name", () => {
+	const next = rule({ git: true, branch: "feat/x", upstream: "origin/main", ahead: 1 });
+	assert.equal(next.args, "push");
+	assert.equal(next.command, "git push -u origin feat/x");
+	assert.match(next.why, /tracks a different branch/);
+	// a same-named upstream keeps the plain push and its reason
+	const same = rule({ git: true, branch: "feat/x", upstream: "origin/feat/x", ahead: 2 });
+	assert.equal(same.command, "git push");
+	assert.equal(same.why, "2 ahead of origin/feat/x");
+	// a branch name with slashes matches its own upstream, not a prefix of it
+	const nested = rule({ git: true, branch: "feat/x/y", upstream: "origin/feat/x/y", ahead: 1 });
+	assert.equal(nested.command, "git push");
+	// a remote other than origin is named in the publish command
+	const fork = rule({ git: true, branch: "feat/x", upstream: "fork/main", ahead: 1 });
+	assert.equal(fork.command, "git push -u fork feat/x");
+});
+
 test("nextActions: no upstream on a dirty branch → publish it", () => {
 	const next = rule({ git: true, branch: "feat/x", stagedFiles: 1 });
 	assert.equal(next.args, "push");
