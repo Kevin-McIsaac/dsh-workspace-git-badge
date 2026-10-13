@@ -16,7 +16,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { appliedSignature, applyPatch, firstFailure, isCurrentRev, isOurs, seamPresent } from "./anchors.js";
-import { dataDir, writeRestartMarker } from "./store.js";
+import { dataDir } from "./store.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -160,18 +160,15 @@ export function revertPlan(paths) {
 }
 
 /**
- * Backup the bytes AS FOUND, patch client.js in place, install the no-op host
- * half, and record the restart marker (`reason` names the actor: apply |
- * postinstall | revert). Callers gate on inspect() first — this writes
- * unconditionally.
+ * Backup the bytes AS FOUND, patch client.js in place, and install the no-op
+ * host half. Callers gate on inspect() first — this writes unconditionally.
  */
-export function doPatch(paths, reason = "apply") {
+export function doPatch(paths) {
 	mkdirSync(dataDir(), { recursive: true });
 	copyFileSync(paths.client, paths.backupClient);
 	copyFileSync(paths.index, paths.backupIndex);
 	writeFileSync(paths.client, applyPatch(readText(paths.client)));
 	copyFileSync(paths.stub, paths.index);
-	writeRestartMarker(reason);
 }
 
 /** Restore the backup over the installed files. The caller has already gated. */

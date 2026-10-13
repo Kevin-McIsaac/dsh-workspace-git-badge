@@ -1,7 +1,14 @@
-# SEAM.md — the `sidebar.workspaces.sessionRow` seam
+# SEAM.md — the `sidebar.workspaces.sessionRow` seam (RETIRED)
 
-The sidebar badge needs one small additive slot in the workspace browser: the
-badge on each **session** row. Its provenance line needs no slot of its own —
+> **RETIRED.** The plugin no longer uses this seam. The session row's token rides
+> upstream's own `sidebar.session.row.leading` seat, and the hover-card line rides
+> `sidebar.session.row.hover`. The patcher still ships for **one release** so an
+> install an older version patched can run `npx dsh-git-badge revert`; it retires
+> in a follow-up. Do not apply the patch. The rest of this file is the historical
+> record of what the patch was.
+
+The sidebar badge needed one small additive slot in the workspace browser: the
+badge on each **session** row. Its provenance line needed no slot of its own —
 upstream declares one. This file documents what the patch does, how to apply it,
 and why it is safe.
 

@@ -69,7 +69,8 @@
 import { execFile } from "node:child_process";
 import { watch, existsSync, readFileSync } from "node:fs";
 import { basename, isAbsolute, join, resolve } from "node:path";
-import { SESSION_CHECKOUT_TTL_MS, clearRestartMarker, readRestartMarker, readSessionCheckouts } from "../seam/store.js";
+import { SESSION_CHECKOUT_TTL_MS, readSessionCheckouts } from "../seam/store.js";
+import { installSkill } from "../seam/skill.js";
 
 const inject = ["webServer", "workspaceRegistry"];
 const name = "dsh-git-badge";
@@ -1641,6 +1642,11 @@ async function effectiveTarget(target, sessionId) {
 
 /** Host plugin body — register the status route and the SSE change feed. */
 function apply(ctx) {
+	// The /gh skill must exist in the user's skills catalog for the commands
+	// menu to find it. Installing it here (not only from a CLI run) means a
+	// market install gets /gh on the next boot. installSkill() never throws: it
+	// returns a reason string, so a read-only home degrades to a console line.
+	console.log(`[dsh-git-badge] gh skill: ${installSkill()}`);
 	// The ranking order lives in this plugin's own settings namespace: declared
 	// with a schema so the host validates it, stored in the user's settings
 	// document, and observed live — a change applies to the next status read
@@ -1675,11 +1681,6 @@ function apply(ctx) {
 			console.error("[dsh-git-badge] settings namespace unavailable, using the legacy order file:", error);
 		}
 	}
-	// A fresh boot composed the files on disk into the new bundles — any
-	// restart-pending marker was written by an install/apply against the PREVIOUS
-	// boot and its change is now live. Clearing here is what makes the marker
-	// self-expiring: it survives exactly until the restart it asks for happens.
-	clearRestartMarker();
 	ctx.effect(() => ctx.webServer.register({
 		kind: "exact",
 		path: "/api/git-badge",
@@ -1692,7 +1693,6 @@ function apply(ctx) {
 					res.end(JSON.stringify({ git: false, error: target.error }));
 					return;
 				}
-				const pending = readRestartMarker();
 				const detail = url.searchParams.get("detail") === "1";
 				const pr = url.searchParams.get("pr") === "1";
 				// WHO asked decides whether a linked worktree may stand in for the
@@ -1742,12 +1742,6 @@ function apply(ctx) {
 				// tell whether an event belongs to it — without this the input chip
 				// only ever refreshed on remount or the 60s poll.
 				res.writeHead(200, { "content-type": "application/json" });
-				if (pending !== null) {
-					// dshmarket cannot see postinstall/apply host-file changes; this
-					// flag is how the running UI learns a restart is pending and
-					// offers its own Restart button (dshmarket v1 restart endpoint).
-					body.seamRestartPending = { by: pending.by, at: pending.at };
-				}
 				res.end(JSON.stringify(body));
 			} catch (error) {
 				res.writeHead(400, { "content-type": "application/json" });

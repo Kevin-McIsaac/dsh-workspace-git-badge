@@ -1,33 +1,24 @@
 /**
  * dsh-git-badge — client half.
  *
- * Both surfaces show the SAME status mark — a circle, or a tree for a linked
- * worktree, filled with the status colour — so status and worktree-ness read
- * identically wherever they appear.
+ * Every surface rides an UPSTREAM seat. No patch, no manual step.
  *
  * Surfaces:
- *  - sidebar.workspaces.sessionRow (seam): session-row badge — the ACTION word
- *    pill, from the node half's `rowToken`, immediately after the session title.
- *    Deliberately shows NO branch and no worktree name: the row lists
- *    conversations, and which checkout the badge describes is the hover card's
- *    business.
- *  - sidebar.session.row.leading (upstream, no patch): the SAME token as a
- *    single glyph in the row's 16px leading cell — the fallback an install
- *    without the seam patch gets. Silent when the seam is present, because the
- *    pill already carries the word there.
- *  - sidebar.session.row.hover (upstream, no patch): the hover-card line that
- *    names that checkout, rendered inside the card upstream ALREADY shows for a
+ *  - sidebar.session.row.leading: the session row's token as a single glyph in
+ *    the row's 16px leading cell, from the node half's `rowToken`. Upstream
+ *    renders this seat only while the session is IDLE.
+ *  - sidebar.session.row.hover: the hover-card line that explains the token and
+ *    names the checkout, rendered inside the card upstream ALREADY shows for a
  *    session row rather than in a tooltip nested inside it.
- *  - conversation.input.left (upstream): chip — status mark + branch + a
+ *  - conversation.input.left: chip — status mark + branch + a
  *    worktree's name + in-progress operation token + sync/dirty suffix + the
  *    PR/CI token, with a HOVER CARD carrying the breakdown the chip has no room
  *    for (file detail, recent commits, stash, PR state, and the conversation's own
  *    checkout when the badge followed a worktree).
  *
  * The chip's hover card needs nothing but the upstream slot: the Tooltip
- * primitive is seeded by the shell itself, so the card works on a PRISTINE
- * install with no seam patch. Its extra fields are fetched only once a pointer
- * rests on the chip, so the everyday badge pays for none of them.
+ * primitive is seeded by the shell itself. Its extra fields are fetched only once
+ * a pointer rests on the chip, so the everyday badge pays for none of them.
  */
 window.__ModuleLoader__.load({
 	id: "dsh-git-badge",
@@ -80,16 +71,14 @@ window.__ModuleLoader__.load({
 		/**
 		 * A request target names WHO is asking, never a filesystem path — the node
 		 * half resolves the directory itself, so a surface never needs to know
-		 * one. The chip targets its conversation (`session`); a sidebar row
-		 * targets the workspace id the seam hands it. The query string doubles as
-		 * the cache key.
+		 * one. Every surface here targets its conversation (`session`). The query
+		 * string doubles as the cache key.
 		 *
-		 * The two optional additions are the INPUT CHIP's alone, and each is an
-		 * explicit request rather than something every badge pays for:
-		 *   - `detail=1` — recent commits and stash for the hover card;
-		 *   - `pr=1` — the branch's GitHub PR/CI state.
-		 * A sidebar row asks for neither, so surveying N workspaces never costs N
-		 * forge calls (see the node half's PR region).
+		 * The two optional additions, each an explicit request:
+		 *   - `detail=1` — recent commits and stash for the chip's hover card;
+		 *   - `pr=1` — the branch's GitHub PR/CI state, which both the chip and
+		 *     the row token need (the leading glyph and the hover card share this
+		 *     exact key, so they cost one request between them).
 		 */
 		function targetQuery(target, options) {
 			if (target === void 0 || target.id === void 0) return void 0;
@@ -559,36 +548,14 @@ window.__ModuleLoader__.load({
 		};
 
 		/**
-		 * The action's own style, on top of META_STYLE:
-		 *  - `marginLeft: auto` floats it right, so a column of actions lines up down
-		 *    the sidebar — that alignment is what makes the list scannable;
-		 *  - `marginRight` keeps it clear of the relative time beside it (the first cut
-		 *    sat flush and read `merge11m`);
-		 *  - weight 600 plus a little padding make it a PILL, so the token reads as a
-		 *    tag rather than as loose text the eye can skip;
-		 *  - the radius is the app's own small one, so the pill belongs to the shell.
-		 *
-		 * The FILL is not set here: it is the action's own colour at low alpha, which
-		 * only SessionGitBadge can build.
-		 */
-		const ACTION_STYLE = {
-			flex: "none",
-			marginLeft: "auto",
-			marginRight: "8px",
-			fontWeight: 600,
-			padding: "0 6px",
-			borderRadius: "var(--dsw-radius-sm, 4px)"
-		};
-
-		/**
 		 * The row's own run state, from the shell's standard kit.
 		 *
 		 * The renderer that assembles slots hands EVERY entry the sessions store as
 		 * a selector hook (`useSessions`) — the same kit that supplies
 		 * `useWorkspaces` — which is how a row can tell an idle session from one
-		 * mid-turn without the seam having to carry it. A shell that does not seed
-		 * that kit leaves the prop undefined: then we cannot know, and the badge
-		 * behaves exactly as it did before rather than guessing "idle".
+		 * mid-turn without the row slot having to carry it. A shell that does not
+		 * seed that kit leaves the prop undefined: then we cannot know, and the
+		 * glyph behaves exactly as it did before rather than guessing "idle".
 		 *
 		 * One helper and one call site, so the hook order is identical on every path
 		 * (the fallback is a plain function, never a hook).
@@ -599,8 +566,8 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Report the idle gate ONCE, the way the boot diagnostics report the seam and
-		 * the Tooltip primitive. Whether the shell actually handed a slot the
+		 * Report the idle gate ONCE, the way the boot diagnostics report the
+		 * Tooltip primitive. Whether the shell actually handed a slot the
 		 * sessions store is invisible from anywhere else, and a gate that silently
 		 * never fires is indistinguishable from a gate that never needed to.
 		 */
@@ -617,80 +584,21 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * True once the sidebar seam's inject callback fires. A patched install
-		 * sets it; an unpatched one never does, because the callback only runs
-		 * when the seam is declared. The leading cell reads it to choose between
-		 * the pill's surface and its own glyph fallback. Module-scoped for the
-		 * same reason the boot-race handling below is: the callback can fire after
-		 * the first render.
-		 */
-		let seamPresent = false;
-
-		/**
-		 * The action badge: a severity-tinted pill carrying a glyph and the word — and
-		 * shown only when the session is IDLE. A turn in flight is precisely when a
-		 * git suggestion is noise: the checkout is still moving and the agent has not
-		 * finished, so the action describes a state that is about to change. Nothing
-		 * about the action itself changes; the gate is the whole feature.
+		 * The leading-cell token glyph — the row's compact signal, on upstream's
+		 * own `sidebar.session.row.leading` seat. No patch and no seam.
 		 *
-		 * The filter is on RENDER, not on the fetch: hiding the row must not take the
-		 * hover card's detail line down with it — both read the same cached status.
-		 */
-		function SessionGitBadge({ sessionId, useSessions }) {
-			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId }, { pr: true });
-			const running = useSessionRunning(useSessions, sessionId);
-			reportIdleGate(typeof useSessions === "function");
-			if (running) return null;
-			if (sessionId === void 0 || info === void 0 || info.git !== true) return null;
-			// The node half's token, not a client re-derivation: a missing
-			// rowToken (clean checkout, no repository, no rule) renders nothing.
-			const action = info.rowToken;
-			if (typeof action !== "string" || action === "") return null;
-			const colour = ACTION_COLOUR[action];
-			const style = { ...META_STYLE, ...ACTION_STYLE };
-			if (colour !== void 0) {
-				style.color = colour;
-				// The pill's fill is the action's own colour at low alpha, so severity is
-				// a wash a row can carry rather than a shout. color-mix is a current-browser
-				// feature: where it is unsupported the pill keeps its geometry, colour,
-				// glyph and weight, and only the tint is lost.
-				style.background = `color-mix(in srgb, ${colour} 18%, transparent)`;
-			}
-			// The glyph is DECORATION: `aria-hidden` keeps the accessible name the bare
-			// word, and the trailing space in its own text separates the two on screen
-			// without a margin. A missing glyph entry degrades to the word alone.
-			const glyph = ACTION_GLYPH[action];
-			return react_jsx_runtime.jsxs("span", {
-				style,
-				children:
-					glyph === void 0
-						? action
-						: [react_jsx_runtime.jsx("span", { "aria-hidden": true, children: `${glyph} ` }, "glyph"), action]
-			});
-		}
-
-		/**
-		 * The leading-cell fallback — an UNPATCHED install's compact signal.
-		 *
-		 * With no `sidebar.workspaces.sessionRow` seam there is no room for a word,
-		 * so the same node-half token renders as a single glyph in the leading
-		 * cell. It fetches only when the seam is absent (`seamPresent ? void 0`):
-		 * a patched install returns null here and pays nothing.
-		 *
-		 * It asks for PR state too (`pr: true`), the SAME query the row card and
-		 * the pill use, so the glyph shows the same PR tokens (`merge`, `review`,
-		 * `fix CI`) as the card — not only the local ones. The matching query
-		 * string means the glyph and the card share one cache entry and one
-		 * in-flight read. The price is one forge read per row per TTL on an
-		 * unpatched install; a patched one still pays nothing.
+		 * It asks for PR state too (`pr: true`), the SAME query the row card uses,
+		 * so the glyph shows the same PR tokens (`merge`, `review`, `fix CI`) as
+		 * the card — not only the local ones. The matching query string means the
+		 * glyph and the card share one cache entry and one in-flight read. The
+		 * price is one forge read per row per TTL.
 		 *
 		 * Geometry: the cell is `width:16px; flex:none` and the row has `gap:0`, so
 		 * a word would overflow into the title. Only one glyph is drawn, and no
 		 * wrapper changes the cell's box.
 		 *
-		 * The glyph is NOT `aria-hidden` here: with no word beside it, it is the
-		 * accessible name. (The pill's glyph stays hidden because the word is
-		 * present there.) With nothing to say it falls back to the shared
+		 * The glyph is NOT `aria-hidden`: with no word beside it, it is the
+		 * accessible name. With nothing to say it falls back to the shared
 		 * `StatusMark`, so a clean checkout still shows the green status dot.
 		 *
 		 * It carries NO hover of its own. The row is already a HoverCard anchor,
@@ -698,10 +606,10 @@ window.__ModuleLoader__.load({
 		 * hovering the glyph shows exactly what hovering the session line shows.
 		 */
 		function LeadingTokenGlyph({ sessionId, useSessions }) {
-			const info = useGitStatus(seamPresent ? void 0 : sessionId === void 0 ? void 0 : { kind: "session", id: sessionId }, { pr: true });
+			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId }, { pr: true });
 			const running = useSessionRunning(useSessions, sessionId);
 			reportIdleGate(typeof useSessions === "function");
-			if (seamPresent || running) return null;
+			if (running) return null;
 			if (sessionId === void 0 || info === void 0 || info.git !== true) return null;
 			const token = info.rowToken;
 			if (typeof token === "string" && token !== "") {
@@ -728,14 +636,14 @@ window.__ModuleLoader__.load({
 		 * whenever there is something to name — the row's action, a worktree, a pull
 		 * request, or any combination.
 		 *
-		 * The action sentence is what the leading GLYPH cannot say. An unpatched
-		 * install shows one glyph in the front cell; this card is its explanation,
-		 * and it uses the SAME hover the session line already has.
+		 * The action sentence is what the leading GLYPH cannot say. The row shows
+		 * one glyph in the front cell; this card is its explanation, and it uses
+		 * the SAME hover the session line already has.
 		 *
-		 * It makes no request of its own: the same `{ pr: true }` query as the badge
-		 * above resolves to the same cache key, so a card that mounts for every row
-		 * still costs one fetch per row, and a cold cache is served by the badge's
-		 * own in-flight request. That is why the badge must keep asking for `pr=1`.
+		 * It makes no request of its own: the same `{ pr: true }` query as the
+		 * leading glyph resolves to the same cache key, so a card that mounts for
+		 * every row still costs one fetch per row, and a cold cache is served by
+		 * the glyph's own in-flight request.
 		 *
 		 * Only a WORKTREE's checkout is spelled out. For a main checkout the branch is
 		 * the ordinary case and repeating it on every session's card would be noise;
@@ -748,11 +656,11 @@ window.__ModuleLoader__.load({
 			// token's colour, so the card names the icon the row shows instead of
 			// the literal word "action". Bits are still joined with a middle dot.
 			const bits = [];
-			// The row's own token comes FIRST. When the row shows a single glyph
-			// (an unpatched install) this line is the ONLY place that says what the
-			// glyph means and why — and it rides the row's existing hover card, so
-			// hovering the glyph shows the same thing as hovering the session line.
-			// Word and reason come from the same node-half rule.
+			// The row's own token comes FIRST. The row shows a single glyph, so
+			// this line is the ONLY place that says what the glyph means and why —
+			// and it rides the row's existing hover card, so hovering the glyph
+			// shows the same thing as hovering the session line. Word and reason
+			// come from the same node-half rule.
 			if (typeof info.rowToken === "string" && info.rowToken !== "") {
 				const why = typeof info.rowTokenWhy === "string" && info.rowTokenWhy !== "" ? info.rowTokenWhy : void 0;
 				const colour = ACTION_COLOUR[info.rowToken];
@@ -1230,33 +1138,15 @@ window.__ModuleLoader__.load({
 		 * Chip line in the input row: git state of the workspace the CURRENT
 		 * conversation is attached to. It targets the session id and lets the node
 		 * half resolve the workspace, so this surface needs no `workspaces`
-		 * service, no cwd and no path plumbing at all. Works on unpatched installs
-		 * (conversation.input.left is an upstream additive slot), and stays useful
-		 * next to the sidebar rows because it is context-anchored ("where am I")
-		 * rather than surveying.
+		 * service, no cwd and no path plumbing at all. `conversation.input.left`
+		 * is an upstream additive slot, so it works on every install, and it stays
+		 * useful next to the session row because it is context-anchored ("where am
+		 * I") rather than surveying.
 		 *
 		 * This is the ONLY surface that asks the node half for the extras (`pr=1`
 		 * always, `detail=1` on hover), because it is the only one that renders
 		 * them — see targetQuery.
 		 */
-		/**
-		 * Set LATE (see apply) — never at apply() time, because the workspace
-		 * browser may not have declared the seam yet and a hint set then would
-		 * lie to patched installs for the whole session. Every chip render reads
-		 * it, so it reaches the DOM on the next refresh after it is set.
-		 */
-		let seamHint = null;
-
-		/**
-		 * Dismissal of the seam-absent notice, deliberately MODULE-level rather
-		 * than component state: a useState flag would un-dismiss when the chip
-		 * remounts (a sidebar toggle, a route change), and the × the user just
-		 * clicked would silently stop meaning anything. Session-scoped on
-		 * purpose — it resets at the next boot, so a seam that is STILL absent
-		 * asks again, while one fixed by apply + restart never nags at all.
-		 */
-		let seamNoticeDismissed = false;
-
 		function ComposerGitChip({ sessionId }) {
 			const target = sessionId === void 0 ? void 0 : { kind: "session", id: sessionId };
 			// the PR/CI token is always on the chip, so its fetch is not gated
@@ -1269,10 +1159,6 @@ window.__ModuleLoader__.load({
 			// the PR token's own hover/focus state: it underlines on hover (and on
 			// focus) rather than at rest, and that underline is applied inline below
 			const [linkHover, setLinkHover] = react.useState(false);
-			// seamHint is module state set once, 5s after boot; dismissing it needs a
-			// re-render that no fetch will schedule, so the × bumps a counter here.
-			const [, bumpNotice] = react.useState(0);
-			const seamNotice = seamHint !== null && !seamNoticeDismissed ? seamHint : null;
 			// the branch link's hover underline — the PR token's pattern: the
 			// affordance appears on hover/focus, never at rest. Its OWN state, not
 			// the PR token's linkHover: two links sharing one flag would
@@ -1439,87 +1325,19 @@ window.__ModuleLoader__.load({
 					whiteSpace: "nowrap",
 					cursor: "default"
 				},
-				// the long-form explanation, on hover; the inline seam-notice below is
-				// the visible channel (its text is the short form, its title this).
-				// null until the delayed check in apply() proves the seam never
-				// appeared.
-				title: seamHint === null ? undefined : seamHint,
 				children: [
 					// The hover card belongs to the STATUS SYMBOL, not the badge: the
 					// circle is the "what does this colour mean" element, and a card
 					// opening sideways from a hover on the branch text got in the way of
 					// the very pull-down this row now carries. The detail fetch
 					// (enabled: hovered) follows the same pointer, so nothing pays for
-					// extras the card no longer shows. The seam-absent native title
-					// stays on the whole chip — it is about the badge, not the mark.
+					// extras the card no longer shows.
 					hoverableMark,
 
 						branchHover,
 						react_jsx_runtime.jsx("span", { key: "text", children: text }),
 					countHover,
-					prTokenHover,
-					/**
-					 * The seam-absent notice: the market-install notification for the
-					 * state a blocked postinstall leaves behind — chip working, sidebar
-					 * rows structurally off, nothing patched, nothing to restart INTO.
-					 * It is only ever TRUE (seamHint is set 5s after boot, only after
-					 * the composed graph is given its chance), and it is self-resolving:
-					 * apply + restart makes the seam declare, and this never renders
-					 * again. That is what distinguishes it from the old restart notice,
-					 * which outlived the restart it asked for. Dismissal is a session
-					 * value (see seamNoticeDismissed), so the × means "stop asking this
-					 * boot", never "stop asking forever".
-					 */
-					seamNotice === null
-						? null
-						: react_jsx_runtime.jsxs(
-								"span",
-								{
-									style: {
-										display: "inline-flex",
-										alignItems: "center",
-										gap: "6px",
-										paddingLeft: "6px",
-										borderLeft: "1px solid var(--dsw-alias-border-secondary, #d0d7de)",
-										whiteSpace: "normal",
-										maxWidth: "320px"
-									},
-									children: [
-										react_jsx_runtime.jsx(
-											"span",
-											{
-												title: seamHint,
-												children: "sidebar badges off — run `npx dsh-git-badge apply`"
-											},
-											"explain"
-										),
-										react_jsx_runtime.jsx(
-											"button",
-											{
-												"aria-label": "Dismiss the sidebar-badges notice (returns next boot while the seam is absent)",
-												onClick: () => {
-													seamNoticeDismissed = true;
-													bumpNotice((n) => n + 1);
-												},
-												style: {
-													cursor: "pointer",
-													color: "inherit",
-													background: "none",
-													border: "1px solid var(--dsw-alias-border-secondary, #d0d7de)",
-													borderRadius: "4px",
-													fontSize: "11px",
-													lineHeight: "18px",
-													padding: "0 6px",
-													flex: "none"
-												},
-												children: "×"
-											},
-											"dismiss"
-										)
-									]
-								},
-								"seam-notice"
-							),
+					prTokenHover
 				]
 			});
 			// No Tooltip primitive (a shell that does not seed it): the mark renders
@@ -1694,9 +1512,9 @@ window.__ModuleLoader__.load({
 		const inject = ["slots", "inputTriggers"];
 
 		/**
-		 * Register the badge into the seams. The seam owner hands each entry the row
-		 * owner share as props; the row badge destructures `{ sessionId }` and
-		 * deliberately ignores the cwd it may also be given.
+		 * Register the badge into upstream's own seats. The slot owner hands each
+		 * entry the row owner share as props; the row surfaces destructure
+		 * `{ sessionId }` and deliberately ignore the cwd they may also be given.
 		 */
 		function apply(ctx) {
 			// The /gh command contribution (the (+) commands menu): the state-aware
@@ -1911,44 +1729,17 @@ window.__ModuleLoader__.load({
 				}
 			}
 
-			// inject() re-evaluates when a seam's declaration appears, so boot
-			// order relative to the workspace browser does not matter. On an
-			// unpatched install the seam is never declared, so this callback never
-			// fires and the row badge simply never renders.
-			//
-			// The registration is reported from INSIDE the callback on purpose: a
-			// `spec()` check here at apply() time runs before the workspace browser
-			// declares the seam, so it reports the boot race rather than the
-			// outcome. That mistake made the old one-shot line claim "sidebar rows
-			// = off" while five row badges were rendering.
-			let rowsReported = false;
-			ctx.slots.inject("sidebar.workspaces.sessionRow", () => {
-				// The seam exists: the word pill owns the row, so the leading
-				// glyph stays off (and fetches nothing).
-				seamPresent = true;
-				if (!rowsReported) {
-					rowsReported = true;
-					console.info("[dsh-git-badge] surfaces: sidebar session rows = on (seam present).");
-				}
-				return ctx.slots.register({
-					name: "sidebar.workspaces.sessionRow",
-					id: "git-badge-row"
-				}, SessionGitBadge);
-			});
-			// The leading-cell fallback: upstream's own seat, present on every
-			// install. It renders the token glyph only when the seam is ABSENT, so
-			// a patched install shows the word pill and an unpatched one shows the
-			// same token as a glyph.
+			// The row's token rides upstream's OWN `sidebar.session.row.leading`
+			// seat: a 16px cell the workspace browser renders in the row's leading
+			// cluster. No patch and no declaration to make.
 			ctx.slots.inject("sidebar.session.row.leading", () => ctx.slots.register({
 				name: "sidebar.session.row.leading",
 				id: "git-badge-row-leading"
 			}, LeadingTokenGlyph));
-			// The row is ALREADY a HoverCard anchor upstream, so a badge that opened
-			// its own tooltip would nest two cards. This renders the provenance line
+			// The row is ALREADY a HoverCard anchor upstream, so a glyph that opened
+			// its own tooltip would nest two cards. This renders the explanation
 			// inside that card instead, through the hover seat upstream declares
-			// itself (sidebar.session.row.hover) — no seam patch and no request of
-			// its own. Upstream 0.2.0-rc.2 threads renderSlot into the card and adds
-			// the seat; before that this needed a patched sessionRow.detail seam.
+			// itself (sidebar.session.row.hover) — no request of its own.
 			ctx.slots.inject("sidebar.session.row.hover", () => ctx.slots.register({
 				name: "sidebar.session.row.hover",
 				id: "git-badge-row-detail"
@@ -1964,29 +1755,9 @@ window.__ModuleLoader__.load({
 				id: "git-badge-chip",
 				inject: (sessionId) => ({ sessionId })
 			}, ComposerGitChip));
-			const seamDeclared = ctx.slots.spec("sidebar.workspaces.sessionRow") !== void 0;
-			console.info(
-				"[dsh-git-badge] surfaces: input chip = on; sidebar session rows = " +
-					(seamDeclared
-						? "on (seam present)."
-						: // discoverability: the chip works everywhere, but the session rows
-							// need the seam patch, and on a market install nothing else says so.
-							// The patcher ships IN this package — no clone needed.
-							"off (seam absent) — run `npx dsh-git-badge apply` to add them, then restart dsh web.")
-			);
-			// The chip tooltip can only be set LATE. At apply() time the workspace
-			// browser may not have declared the seam yet (the boot race documented
-			// above), so claiming absence here would lie to patched installs for the
-			// whole session — the exact mistake that made the old one-shot line
-			// claim "sidebar rows = off" while five row badges were rendering. Give
-			// the composed graph a beat to settle; only a seam that is STILL absent
-			// earns the hint, and every chip render after that carries it.
-			setTimeout(() => {
-				if (rowsReported) return; // seam present; badges rendered — nothing to hint about
-				if (ctx.slots.spec("sidebar.workspaces.sessionRow") !== void 0) return;
-				seamHint =
-					"Session-row badges are off: run `npx dsh-git-badge apply`, then restart dsh web. (Input-chip badges are unaffected.)";
-			}, 5000);
+			// No seam, no apply step: the leading seat and the hover seat are both
+			// upstream's own. Report the surfaces once, for diagnostics.
+			console.info("[dsh-git-badge] surfaces: input chip = on; sidebar row token = on (upstream leading seat).");
 			// The hover card depends on a primitive the SHELL seeds, not on anything
 			// this plugin declares. Report the outcome rather than letting a missing
 			// seed look like a missing feature: the try/catch above deliberately keeps

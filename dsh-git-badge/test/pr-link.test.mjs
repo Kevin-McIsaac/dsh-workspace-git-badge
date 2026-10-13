@@ -80,6 +80,6 @@ test("the affordance is an underline on hover or focus, never at rest", () => {
 });
 
 test("the sidebar row never grows a link either", () => {
-	const row = createClient().row({ branch: "main", dirty: false, rowToken: "merge", pr: { ...PR, url: PR_URL } }, "Project");
+	const row = createClient().leading({ branch: "main", dirty: false, rowToken: "merge", pr: { ...PR, url: PR_URL } });
 	assert.equal(anchor(row), null, "the row shows status and identity only");
 });

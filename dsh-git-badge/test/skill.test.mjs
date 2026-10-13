@@ -9,9 +9,11 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { fakeCtx } from "../test-support/harness.mjs";
 
 const SKILL = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "skill", "gh", "SKILL.md"), "utf8");
 /** Prose assertions run on the unwrapped text — the skill is hard-wrapped. */
@@ -107,4 +109,24 @@ test("the clean risk gate carries every field the host's confirmation renders", 
 // ---------------------------------------------------------------------------
 // the default branch: no pull request is ever suggested FROM main
 // ---------------------------------------------------------------------------
+
+test("the plugin's apply() installs the /gh skill into the catalog", async (t) => {
+	// The skill install moved from the retired postinstall/patcher CLI into the
+	// plugin itself, so a market install gets /gh on the next boot. installSkill()
+	// never throws: this pins that apply() actually calls it.
+	const home = mkdtempSync(join(tmpdir(), "dsh-git-badge-apply-skill-"));
+	const previous = process.env.DSH_HOME;
+	process.env.DSH_HOME = home;
+	t.after(() => {
+		if (previous === void 0) delete process.env.DSH_HOME;
+		else process.env.DSH_HOME = previous;
+	});
+	const { apply } = await import("../lib/index.js");
+	const { ctx, disposeAll } = fakeCtx({ workspaces: [] });
+	apply(ctx);
+	disposeAll();
+	const target = join(home, "skills", "gh", "SKILL.md");
+	assert.ok(existsSync(target), "apply() installs /gh");
+	assert.match(readFileSync(target, "utf8"), /^name: gh$/m, "and it is the packaged skill");
+});
 

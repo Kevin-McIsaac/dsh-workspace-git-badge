@@ -136,8 +136,8 @@ The feature has three independently testable layers:
    served to a browser is left to a refresh.
 3. **Published plugin** (`dsh-git-badge` from npm) — the customer experience;
    test in a **clean profile**.
-4. **Seam patch** (`seam/apply.sh`) — the sidebar session-row badge; only
-   meaningful on top of a working plugin install.
+4. **Legacy patch removal** (`seam/apply.sh revert`) — only for an install an
+   older version patched. The plugin needs no patch.
 
 ## Clean-profile test (customer simulation)
 
@@ -206,9 +206,9 @@ curl -s "http://127.0.0.1:3100/api/git-badge?session=__no_such_session__"
 
 `test-profile.sh` does exactly this — prefer it over retyping.
 
-Then in a browser: no sidebar badges (no seam in a clean profile), input chip
-present, console shows
-`[dsh-git-badge] surfaces: input chip = on; sidebar session rows = off (seam absent …)`.
+Then in a browser: the input chip and the session-row action glyph are both
+present, and the console shows
+`[dsh-git-badge] surfaces: input chip = on; sidebar row token = on (upstream leading seat).`
 Open the URL the server printed (the one carrying `?token=`) — a bare
 `http://127.0.0.1:3000`-style URL will not authenticate, and the launch token is
 per-process, so it cannot be recovered from the boot log after the fact.
@@ -216,43 +216,31 @@ per-process, so it cannot be recovered from the boot log after the fact.
 Clean up: stop the server and delete the profile directory; `test-profile.sh`
 prints both commands with the real paths.
 
-## Seam-patched test (full badges)
+## Legacy patch removal
+
+An older version patched the installed DSH package. The plugin no longer uses
+that seam, so the only action left is to undo the patch once:
 
 ```bash
 seam/apply.sh status    # patched / out of date / patchable / upstream-landed / drift
-seam/apply.sh apply     # patches the INSTALLED file in place, upgrading an older patch of OURS
 seam/apply.sh revert    # restore the bytes as found before patching
 ```
 
 `seam/apply.sh` is a dev wrapper around the SHIPPED patcher
-(`dsh-git-badge/seam/apply.js`, published as the `dsh-git-badge-seam` bin) — a
-market install runs `npx dsh-git-badge apply` with no clone. The patch is
-**anchor-based**: `seam/anchors.js` defines each change as a `[name, old, new]`
-triple, and `apply` locates each `old` block in the installed `client.js` (it
-must occur exactly once) and replaces it in place. A DSH update that changes
-anything else in the file no longer invalidates the patch — only a change that
-moves one of the anchors does, and `status`/`apply` name that anchor instead of
-reporting an opaque hash mismatch. `apply` refuses (writing nothing) unless
-every anchor resolves exactly once.
-
-`apply` tells its own artifacts from an upstream landing by the
-`dsh-git-badge:seam-patch` marker, so a re-patch installs instead of being
-skipped as "the seam is already there". `revert` restores the **bytes as found
+(`dsh-git-badge/seam/apply.js`), so a market install runs
+`npx dsh-git-badge revert` with no clone. The patch is **anchor-based**:
+`seam/anchors.js` defines each change as a `[name, old, new]` triple, and the
+patcher locates each `old` block in the installed `client.js` (it must occur
+exactly once) and replaces it in place. `revert` restores the **bytes as found
 before patching** (`backup-client.js` in `SEAM_DATA_DIR`, default the patcher's
 own directory), guarded against downgrading a build upstream replaced after the
-patch. The pinned hash (`KNOWN_GOOD_HASH`) is advisory only: `status` reports
-whether the installed build is the one the anchors were verified against, but
-`apply` proceeds on any build whose anchors resolve.
+patch. Never run `apply`: the plugin does not need the seam.
 
-**The two stores are independent, and that is the trap.** `apply` patches
-whichever store it is pointed at, so the shipped default
-(`$DSH_HOME/git-badge-seam`) and this repo's wrapper (`seam/`) each keep their
-own backup. Apply through one, and the other's backup stays behind — and after a
-DSH update that stale backup holds an **older** upstream. Reverting through it
-would write those older bytes over the installed build. That is a real hazard,
-not a hypothetical one. So `revert` validates the backup before restoring it:
-when the current anchors do not resolve against it (`backupState` is not
-`patchable`), revert **REFUSES** and changes nothing.
+**The two stores are independent, and that is the trap.** A patch applied
+through the shipped default (`$DSH_HOME/git-badge-seam`) and one applied through
+this repo's wrapper (`seam/`) each keep their own backup. Revert through the
+store that patched the build. `status` reports only the store it was given, so
+when two checkouts disagree, check `SEAM_DATA_DIR` first.
 
 `status` names the outcome in advance, so read the `revert:` line before you
 need it:
@@ -264,24 +252,24 @@ revert:     would REFUSE — no backup in this store, so the original bytes are 
 ```
 
 Recover from a refused revert by reverting from the store that patched the
-build, or by reinstalling the DSH package. `status` reports only the store it was
-given, so when two checkouts disagree, check `SEAM_DATA_DIR` first.
+build, or by reinstalling the DSH package.
 
-After apply, **restart the dsh web process** — the workspace bundle URL
+After a revert, **restart the dsh web process** — the workspace bundle URL
 carries a `?rev=` hash that only changes at boot, so a browser refresh alone
-can keep serving stale JS (and the composed boot graph is what the browser
-trusts). If the UI looks stale after a patch change: restart, THEN
-hard-refresh. DevTools console confirms which code is live via the
-`[dsh-git-badge] surfaces:` line, which now reports the SESSION rows.
+can keep serving stale JS. If the UI looks stale: restart, THEN hard-refresh.
+DevTools console confirms which code is live via the
+`[dsh-git-badge] surfaces:` line.
 
-What the patch buys: the action token on each session row (`merge`, `fix CI`, …).
+## Row surfaces (no patch)
+
+The action token renders on each session row as a glyph in the leading cell
+(`merge`, `fix CI`, …), through upstream's `sidebar.session.row.leading` seat.
 The **project** rows stay bare — by design, since a workspace cannot know which
 worktree its sessions use. The **search** list stays bare too: it renders a
-different component that has no seam. The flat "all sessions" list is NOT bare —
-it reuses `SessionNodeItem`, so the token renders there too (rev 3 dropped the
-`workspaceId` gate that used to suppress it). The hover-card line naming the
-checkout and the pull request needs no patch at all: it rides upstream's own
-`sidebar.session.row.hover` seat, so it appears on a pristine install.
+different component without that seat. The flat "all sessions" list reuses
+`SessionNodeItem`, so the glyph renders there too. The hover-card line naming
+the checkout and the pull request rides upstream's own
+`sidebar.session.row.hover` seat, so it also appears on a pristine install.
 
 ## What "verified" means per change
 
@@ -290,8 +278,8 @@ checkout and the pull request needs no patch at all: it rides upstream's own
   repos, resolution, SSE, the watcher, and every PR/CI degradation path through
   the `prRunner` seam — so a `gh`-less CI box still tests the feature).
 - **Client half changed** → `npm test` covers the rendering rules (mark shape and
-  colour, row/chip composition, the hover card's contents, and the PR token);
-  a browser refresh is then only needed to see it live. After patch or
+  colour, the leading glyph, row/chip composition, the hover card's contents, and
+  the PR token); a browser refresh is then only needed to see it live. After
   bundle-graph changes, restart first (see above).
 - **Hover card / PR token changed** → two things to know when testing by hand.
   The card's fields are **lazy**: the node half only sees `detail=1` after a
