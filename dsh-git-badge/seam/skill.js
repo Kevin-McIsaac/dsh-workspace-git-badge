@@ -17,14 +17,14 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-export const SKILL_NAME = "gh";
+const SKILL_NAME = "gh";
 
 /** The user-level skills catalog — DSH_HOME honours the harness override. */
-export function skillsDir() {
+function skillsDir() {
 	return join(process.env.DSH_HOME || join(process.env.HOME || "", ".dsh"), "skills");
 }
 
-export function skillSource() {
+function skillSource() {
 	return join(HERE, "..", "skill", "gh", "SKILL.md");
 }
 

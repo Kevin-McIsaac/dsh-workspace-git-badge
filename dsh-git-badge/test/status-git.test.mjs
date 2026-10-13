@@ -6,28 +6,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { changeListeners, config, gitStatus, nextActions, outerGitDir, runGit as pluginRunGit, seedOrder } from "../lib/index.js";
+import { config, gitStatus, nextActions, outerGitDir, runGit as pluginRunGit, seedOrder } from "../lib/index.js";
 import { makeRepo, makeTempDir, runGit, runGitSafe } from "../test-support/repo.mjs";
-
-/** Subscribe to change notifications; released with the test. */
-function spyOn(t) {
-	const seen = [];
-	const spy = (payload) => seen.push(payload);
-	changeListeners.add(spy);
-	t.after(() => changeListeners.delete(spy));
-	return seen;
-}
-
-/** Poll to a deadline — fs/git timing is not deterministic. */
-async function waitFor(fn, { timeoutMs = 3000, intervalMs = 25 } = {}) {
-	const deadline = Date.now() + timeoutMs;
-	for (;;) {
-		const value = fn();
-		if (value) return value;
-		if (Date.now() >= deadline) return value;
-		await new Promise((resolve) => setTimeout(resolve, intervalMs));
-	}
-}
+import { spyOn, waitFor } from "../test-support/harness.mjs";
 
 test("a non-repository directory is a definitive { git: false }", async (t) => {
 	const dir = await makeTempDir(t, "dsh-git-badge-nonrepo-");

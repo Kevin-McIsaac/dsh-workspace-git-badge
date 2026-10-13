@@ -9,6 +9,7 @@
  * The fake ctx / fake stream shapes are adapted from
  * @wongzexu/dsh-git-status (MIT), tests/git-events.test.mjs.
  */
+import { changeListeners } from "../lib/index.js";
 
 /**
  * Poll `fn` until it returns something truthy or the deadline passes. fs.watch
@@ -23,6 +24,16 @@ export async function waitFor(fn, { timeoutMs = 3000, intervalMs = 25 } = {}) {
 		if (Date.now() >= deadline) return value;
 		await new Promise((resolve) => setTimeout(resolve, intervalMs));
 	}
+}
+
+/** Subscribe a spy to change notifications; released with the test. */
+export function spyOn(t) {
+	const seen = [];
+	// notifications carry a payload: { path, workspace }
+	const spy = (payload) => seen.push(payload);
+	changeListeners.add(spy);
+	t.after(() => changeListeners.delete(spy));
+	return seen;
 }
 
 /** Minimal event emitter shared by the fake req/res. */
@@ -132,8 +143,16 @@ export function fakeStream() {
 	});
 }
 
+/** Drive GET /api/git-badge through a captured route set. */
+export async function get(routes, query) {
+	const req = fakeReq({ url: `/api/git-badge${query}` });
+	const res = fakeStream();
+	await routes.get("/api/git-badge").handler(req, res);
+	return res;
+}
+
 /** SSE text → [{ event, data }]; comment-only frames surface as message/''. */
-export function parseFrames(text) {
+function parseFrames(text) {
 	return text.split("\n\n").filter((frame) => frame !== "").map((frame) => ({
 		event: /^event: (.+)$/m.exec(frame)?.[1] ?? "message",
 		data: /^data: (.+)$/m.exec(frame)?.[1] ?? ""

@@ -15,7 +15,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { apply, config, gitStatus, prState, prStatusFor, readPrStatus, summarizeChecks, summarizePr } from "../lib/index.js";
 import { fakeCtx, fakeReq, fakeStream, waitFor } from "../test-support/harness.mjs";
-import { makeRepo } from "../test-support/repo.mjs";
+import { githubRepo, makeRepo } from "../test-support/repo.mjs";
 
 const WORKSPACE_ID = "ws-pr";
 
@@ -53,14 +53,6 @@ function clearPr(t) {
  * branch-key test below.
  */
 const prKey = (root, branch) => root + "\u0000" + branch;
-
-/** A repo whose `origin` looks like GitHub, with no upstream (so no fetch). */
-async function githubRepo(t) {
-	const repo = await makeRepo(t);
-	await repo.commit("initial");
-	await repo.git(["remote", "add", "origin", "git@github.com:owner/repo.git"]);
-	return repo;
-}
 
 const OPEN_PR = JSON.stringify({
 	number: 142,

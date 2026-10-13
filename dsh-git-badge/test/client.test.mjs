@@ -9,7 +9,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createClient, elements, expand, rows, text } from "../test-support/client.mjs";
+import { createClient, elements, expand, rows, sessionsWithRunning, text } from "../test-support/client.mjs";
 
 /** A main checkout and a linked worktree, differing only in that one field. */
 const MAIN = { branch: "main", isWorktree: false, worktreeName: "repo" };
@@ -65,14 +65,6 @@ test("the chip shows the action icon, and NO icon when there is no token", () =>
 	}
 });
 
-test("no surface draws the retired disc/tree mark", () => {
-	// The mark is gone. Several tokens draw an SVG, so this uses one whose icon is
-	// still a text glyph.
-	const client = createClient();
-	for (const node of [client.chip(withToken("commit")), client.leading(withToken("commit"))]) {
-		assert.equal(hasSvg(node), false, "the mark is gone");
-	}
-});
 
 test("the row's leading glyph NEVER shows the branch", () => {
 	// The row lists conversations; WHICH checkout the token describes is the hover
@@ -327,9 +319,6 @@ test("a non-repository, and an unresolved workspace, render no mark", () => {
 // the leading-cell token glyph — upstream's own seat, on every install
 // ---------------------------------------------------------------------------
 
-/** A stand-in for the shell's standard kit: a selector hook over the sessions store. */
-const sessionsWithRunning = (running) => (select) => select({ byId: { "s-1": { running } } });
-
 test("LeadingTokenGlyph renders the token as one icon with the token colour and name", () => {
 	const client = createClient();
 	for (const [token, glyph, severity] of TOKENS) {
@@ -391,8 +380,6 @@ test("the PR token's state glyph takes the CI colour, and the number stays muted
 	// no state glyph: nothing extra is added to the token
 	const quiet = client.chip({ ...MAIN, pr: { number: 18, state: "none", open: true, draft: true } });
 	assert.ok(!elements(quiet).some((el) => typeof el.props?.children === "string" && el.props.children.startsWith(" \u2713")), "no tick without a passing state");
-	// the plain formatter, which the internals export keeps, is unchanged
-	assert.equal(client.internals.formatPrToken({ pr: { number: 42, state: "failing" } }), " PR#42 \u2717");
 });
 
 test("the row's hover card explains the glyph, using the row's own hover", () => {

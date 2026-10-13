@@ -46,11 +46,6 @@ window.__ModuleLoader__.load({
 			primitives = null;
 		}
 		const Tooltip = primitives === null ? void 0 : primitives.Tooltip;
-		// The shell's pull-down primitive (what the input-area selectors use) and
-		// its candidate ranker. Same guarded require as Tooltip: a shell without
-		// them loses the pull-down affordances, never the badges.
-		const Menu = primitives === null ? void 0 : primitives.Menu;
-		const rankByName = primitives === null ? void 0 : primitives.rankByName;
 
 		/**
 		 * Module-level git-status cache. Entries are invalidated by SSE events,
@@ -92,11 +87,9 @@ window.__ModuleLoader__.load({
 		//#region SSE change feed (one EventSource per page, ref-counted)
 		const eventListeners = new Set();
 		let eventSource = null;
-		let eventRefs = 0;
 
 		function subscribeGitEvents(onChange) {
 			eventListeners.add(onChange);
-			eventRefs += 1;
 			if (eventSource === null) {
 				eventSource = new EventSource("/api/git-badge/events");
 				// NAMED frames: the node half writes `event: change`, and onmessage
@@ -123,8 +116,7 @@ window.__ModuleLoader__.load({
 			}
 			return () => {
 				eventListeners.delete(onChange);
-				eventRefs -= 1;
-				if (eventRefs === 0 && eventSource !== null) {
+				if (eventListeners.size === 0 && eventSource !== null) {
 					eventSource.close();
 					eventSource = null;
 				}
@@ -175,7 +167,7 @@ window.__ModuleLoader__.load({
 					// event or the fallback poll succeeds.
 					if (data !== null && data.error !== void 0 && GIT_CACHE.has(cacheKey)) return;
 					if (data !== null && typeof data.workspace === "string") resolvedWorkspace = data.workspace;
-					GIT_CACHE.set(cacheKey, { at: Date.now(), data });
+					GIT_CACHE.set(cacheKey, { data });
 					if (GIT_CACHE.size > GIT_CACHE_LIMIT) {
 						GIT_CACHE.delete(GIT_CACHE.keys().next().value);
 					}
@@ -275,11 +267,6 @@ window.__ModuleLoader__.load({
 			return files > 0 ? " \u270E" + files : "";
 		}
 
-		/** Both halves, in chip order — kept for callers that want the whole suffix. */
-		function formatGitSuffix(info) {
-			return formatSync(info) + formatFileCount(info);
-		}
-
 		/**
 		 * PR / CI token — INPUT CHIP ONLY, and absent entirely when the node half
 		 * has nothing to say (no `gh`, no GitHub remote, no PR for the branch), so
@@ -290,6 +277,10 @@ window.__ModuleLoader__.load({
 		 */
 		const PR_STATE_GLYPH = { passing: "\u2713", pending: "\u2026", failing: "\u2717", none: "" };
 		const PR_STATE_LABEL = { passing: "checks passing", pending: "checks running", failing: "checks failing", none: "no checks" };
+		/** The PR's state label, defaulting to "no checks". */
+		function prStateLabel(pr) {
+			return PR_STATE_LABEL[pr.state] === void 0 ? PR_STATE_LABEL.none : PR_STATE_LABEL[pr.state];
+		}
 
 		/**
 		 * The CI state -> colour, for the token's STATE GLYPH only. The number and
@@ -316,18 +307,11 @@ window.__ModuleLoader__.load({
 			};
 		}
 
-		/** ` PR#142 ✗` (plus ` draft`), or "" when there is no PR to report. */
-		function formatPrToken(info) {
-			const parts = prTokenParts(info);
-			if (parts === null) return "";
-			return parts.number + (parts.glyph === "" ? "" : " " + parts.glyph) + parts.draft;
-		}
-
 		/** The token's accessible name: "pull request 142, checks failing, draft". */
 		function prTokenLabel(info) {
 			const pr = info.pr;
 			if (pr === void 0 || pr === null || pr.number === void 0) return void 0;
-			const state = PR_STATE_LABEL[pr.state] === void 0 ? PR_STATE_LABEL.none : PR_STATE_LABEL[pr.state];
+			const state = prStateLabel(pr);
 			return "pull request " + pr.number + ", " + state + (pr.draft === true ? ", draft" : "");
 		}
 
@@ -393,12 +377,6 @@ window.__ModuleLoader__.load({
 			whiteSpace: "nowrap"
 		};
 
-		/**
-		 * The row's verdict comes from the NODE half now: `info.rowToken`, the
-		 * first ranked rule with a token. The client used to re-derive it here
-		 * (unmerged → resolve, failing → fix CI, …) and the two copies drifted.
-		 * One authority, one list, no reconciliation.
-		 */
 		/**
 		 * Session-row badge — the ACTION, and nothing else:
 		 *   Session title…                                        merge
@@ -506,11 +484,6 @@ window.__ModuleLoader__.load({
 				shapes: [{ d: "M7.10508 8.78991C7.45179 10.0635 8.61653 11 10 11H14C16.4703 11 18.5222 12.7915 18.9274 15.1461C20.1303 15.5367 21 16.6668 21 18C21 19.6569 19.6569 21 18 21C16.3431 21 15 19.6569 15 18C15 16.7334 15.7849 15.6501 16.8949 15.2101C16.5482 13.9365 15.3835 13 14 13H10C8.87439 13 7.83566 12.6281 7 12.0004V15.1707C8.16519 15.5825 9 16.6938 9 18C9 19.6569 7.65685 21 6 21C4.34315 21 3 19.6569 3 18C3 16.6938 3.83481 15.5825 5 15.1707V8.82929C3.83481 8.41746 3 7.30622 3 6C3 4.34315 4.34315 3 6 3C7.65685 3 9 4.34315 9 6C9 7.26661 8.21506 8.34988 7.10508 8.78991ZM6 7C6.55228 7 7 6.55228 7 6C7 5.44772 6.55228 5 6 5C5.44772 5 5 5.44772 5 6C5 6.55228 5.44772 7 6 7ZM6 19C6.55228 19 7 18.5523 7 18C7 17.4477 6.55228 17 6 17C5.44772 17 5 17.4477 5 18C5 18.5523 5.44772 19 6 19ZM18 19C18.5523 19 19 18.5523 19 18C19 17.4477 18.5523 17 18 17C17.4477 17 17 17.4477 17 18C17 18.5523 17.4477 19 18 19Z" }]
 			}
 		};
-
-		/** True when a token has an icon at all — drawn or typed. */
-		function hasIcon(token) {
-			return DRAWN_ICONS[token] !== void 0 || ACTION_GLYPH[token] !== void 0;
-		}
 
 		/**
 		 * The icon NODE: a drawn shape for the six drawn tokens, a text glyph for the
@@ -667,6 +640,12 @@ window.__ModuleLoader__.load({
 			}, label);
 		}
 
+		/** Push one label/value row unless the value is empty. */
+		function addRow(rows, label, value) {
+			if (value === void 0 || value === null || value === "") return;
+			rows.push(cardRow(label, value));
+		}
+
 		/**
 		 * The action SENTENCE as a raw value. SHARED by the session-row card
 		 * (actionRow wraps it in the card label/value shape) and the chip card
@@ -682,7 +661,7 @@ window.__ModuleLoader__.load({
 			const why = typeof info.rowTokenWhy === "string" && info.rowTokenWhy !== "" ? info.rowTokenWhy : void 0;
 			const colour = SEVERITY_FILL[info.rowSeverity];
 			const value = [];
-			if (hasIcon(token)) {
+			if (DRAWN_ICONS[token] !== void 0 || ACTION_GLYPH[token] !== void 0) {
 				value.push(react_jsx_runtime.jsx("span", {
 					"aria-hidden": true,
 					style: { color: colour === void 0 ? META_STYLE.color : colour, fontWeight: 700, display: "inline-flex", alignItems: "center" },
@@ -734,10 +713,7 @@ window.__ModuleLoader__.load({
 			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId }, { pr: true });
 			if (info === void 0 || info.git !== true) return null;
 			const rows = [];
-			const add = (label, value) => {
-				if (value === void 0 || value === null || value === "") return;
-				rows.push(cardRow(label, value));
-			};
+			const add = (label, value) => addRow(rows, label, value);
 			// The HEADER, the shape the chip card leads with: the same sentence from
 			// the same actionRow, so the two cards cannot describe the icon
 			// differently, and the sentence gains the 62px label column's width.
@@ -787,7 +763,7 @@ window.__ModuleLoader__.load({
 		/** The PR's full state as text, for the card: "#142 · checks failing · draft · review approved". */
 		function formatPrDetail(pr) {
 			if (pr === void 0 || pr === null || pr.number === void 0) return void 0;
-			const state = PR_STATE_LABEL[pr.state] === void 0 ? PR_STATE_LABEL.none : PR_STATE_LABEL[pr.state];
+			const state = prStateLabel(pr);
 			const bits = ["#" + pr.number, state];
 			if (pr.draft === true) bits.push("draft");
 			if (pr.review !== void 0) bits.push(String(pr.review).toLowerCase().replace(/_/g, " "));
@@ -987,10 +963,7 @@ window.__ModuleLoader__.load({
 		 */
 		function lineageRows(info) {
 			const rows = [];
-			const add = (label, value) => {
-				if (value === void 0 || value === null || value === "") return;
-				rows.push(cardRow(label, value));
-			};
+			const add = (label, value) => addRow(rows, label, value);
 			// The STATE row always renders. The old upstream and sync rows spoke
 			// about the push axis (the branch's own remote), which the state row
 			// subsumes: the merge verdict is the fact that matters. The base counts
@@ -1108,10 +1081,7 @@ window.__ModuleLoader__.load({
 			// has landed; until then the card still shows the base facts
 			const data = detail === void 0 ? info : detail;
 			const rows = [];
-			const add = (label, value) => {
-				if (value === void 0 || value === null || value === "") return;
-				rows.push(cardRow(label, value));
-			};
+			const add = (label, value) => addRow(rows, label, value);
 			// The ACTION header, first: the SAME sentence the session-row card renders,
 			// from the same helper, so the chip card explains the icon the row shows.
 			// It is a heading, not a labelled row, so the verdict leads the card.
@@ -1134,8 +1104,8 @@ window.__ModuleLoader__.load({
 			// to the branch NAME's hover — the card is the checkout's verdict, not
 			// the branch's CV. The branch name is also the chip's own text, so a
 			// card row for it was pure repetition.
-			add("changes", formatFileBreakdown(info));
-			add("operation", info.operation === void 0 || info.operation === null ? void 0 : String(info.operation));
+			add("changes", formatFileBreakdown(data));
+			add("operation", data.operation === void 0 || data.operation === null ? void 0 : String(data.operation));
 			// WHICH checkout the badge describes, when it is a worktree. The chip shows
 			// the branch alone, so this row is the only place the tree is named.
 			add("worktree", worktreeDetail(data));
@@ -1578,7 +1548,7 @@ window.__ModuleLoader__.load({
 			});
 		}
 
-		const inject = ["slots", "inputTriggers"];
+		const inject = ["slots"];
 
 		/**
 		 * Register the badge into upstream's own seats. The slot owner hands each
@@ -1845,7 +1815,7 @@ window.__ModuleLoader__.load({
 		// Additive; the host reads apply/inject and ignores the rest. The suite
 		// drives these to assert the REQUEST contract — which surface asks for the
 		// expensive extras — without a browser, a fetch or a network.
-		exports.__internals = { targetQuery, formatPrToken, formatFileBreakdown, formatPrDetail, formatCheckoutDetail, worktreeDetail, linkedWorktreesDetail, ghSkillActions, cleanGate, moveCategory };
+		exports.__internals = { targetQuery, worktreeDetail, linkedWorktreesDetail, ghSkillActions, cleanGate, moveCategory };
 		return module.exports;
 	}
 });

@@ -147,18 +147,13 @@ const config = {
 	 */
 	prRunner: null,
 	/**
-	 * Bound on the repository-wide open-PR read (`gh pr list`). Only one page is
-	 * read, so a repository with more open PRs than this simply has the excess
-	 * invisible to worktree selection; the checkout's own PR read is unaffected.
-	 */
-	prListLimit: 50,
-	/**
 	 * Worktree-aware status: "auto" lets a SESSION-targeted badge follow the one
-	 * linked worktree whose branch has an open PR, so a conversation doing its
-	 * work in a worktree reports that tree instead of the main checkout its
-	 * directory names; "off" always reports the session's own directory. A
-	 * workspace-targeted row never follows a worktree whatever this is set to — a
-	 * row surveys the checkout the registry owns. See effectiveTarget.
+	 * linked worktree the session registered for itself, so a conversation doing
+	 * its work in a worktree reports that tree instead of the main checkout its
+	 * directory names; the plugin never guesses a worktree from pull requests;
+	 * "off" always reports the session's own directory. A workspace-targeted row
+	 * never follows a worktree whatever this is set to — a row surveys the
+	 * checkout the registry owns. See effectiveTarget.
 	 */
 	worktreeStatus: "auto"
 };
@@ -256,6 +251,15 @@ function singleFlight(store, key, { ttlMs = 0, keepValue = false, serve }, run) 
  */
 const defaultBranchState = new Map();
 
+/** The first existing of origin/main and origin/master, or null. */
+async function originBaseName(toplevel) {
+	for (const candidate of ["main", "master"]) {
+		const probe = await runGit(toplevel, ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/" + candidate]);
+		if (probe.stdout !== null && probe.stdout.trim() !== "") return candidate;
+	}
+	return null;
+}
+
 /** The cached default branch, kicking a refresh when stale. Never throws. */
 function defaultBranchFor(toplevel, notify) {
 	return singleFlight(defaultBranchState, toplevel, {
@@ -275,10 +279,8 @@ function defaultBranchFor(toplevel, notify) {
 			// back, network-free, to the same base branch this module already
 			// probes for its ahead/behind row. A repository whose default branch is
 			// neither main nor master still answers undefined, exactly as before.
-			for (const candidate of ["main", "master"]) {
-				const probe = await runGit(toplevel, ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/" + candidate]);
-				if (probe.stdout !== null && probe.stdout.trim() !== "") { name = candidate; break; }
-			}
+			const fallback = await originBaseName(toplevel);
+			if (fallback !== null) name = fallback;
 		}
 		const value = name === "" ? void 0 : name;
 		if (record.value !== value) notify?.();
@@ -306,15 +308,9 @@ function baseRelationFor(toplevel, branch, notify) {
 		keepValue: true,
 		serve: (state) => state.value
 	}, async (record) => {
-		let base = null;
-		for (const candidate of ["main", "master"]) {
-			const probe = await runGit(toplevel, ["rev-parse", "--verify", "--quiet", "refs/remotes/origin/" + candidate]);
-			if (probe.stdout !== null && probe.stdout.trim() !== "") {
-				base = "origin/" + candidate;
-				break;
-			}
-		}
-		if (base === null) return void 0;
+		const candidate = await originBaseName(toplevel);
+		if (candidate === null) return void 0;
+		const base = "origin/" + candidate;
 		const out = await runGit(toplevel, ["rev-list", "--count", "--left-right", base + "...HEAD"]);
 		const [behind, ahead] = (out.stdout ?? "").trim().split("\t").map((v) => Number.parseInt(v, 10));
 		if (!Number.isFinite(ahead) || !Number.isFinite(behind)) return void 0;
@@ -382,10 +378,6 @@ async function maybeFetch(toplevel) {
 /** toplevel -> { lastAttemptAt, inFlight, value }; `value` undefined = nothing to say. */
 const prState = new Map();
 
-/** Test seam: the CLI invoker `gh` calls go through, so no test needs `gh`. */
-function runPrCli(cmd, args, opts) {
-	return (config.prRunner ?? runCli)(cmd, args, opts);
-}
 
 /**
  * Does `origin` point at github.com? A cheap LOCAL call, so a non-GitHub repo
@@ -410,13 +402,11 @@ async function originIsGitHub(toplevel) {
  * an otherwise all-successful set.
  */
 function summarizeChecks(checks) {
-	let sawAny = false;
 	let sawPending = false;
 	for (const check of checks) {
 		const state = String(check?.state ?? "").toUpperCase();
 		const status = String(check?.status ?? "").toUpperCase();
 		const conclusion = String(check?.conclusion ?? "").toUpperCase();
-		sawAny = true;
 		const failed =
 			["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"].includes(state) ||
 			["FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"].includes(conclusion);
@@ -424,7 +414,7 @@ function summarizeChecks(checks) {
 		// unfinished: a CheckRun that has not completed, or a StatusContext PENDING
 		if (state === "PENDING" || (status !== "" && status !== "COMPLETED")) sawPending = true;
 	}
-	if (!sawAny) return "none";
+	if (checks.length === 0) return "none";
 	return sawPending ? "pending" : "passing";
 }
 
@@ -447,9 +437,9 @@ function summarizePr(json) {
 	// GitHub's OWN merge verdict (CLEAN / BLOCKED / BEHIND / DIRTY / DRAFT /
 	// UNSTABLE / HAS_HOOKS / UNKNOWN), passed through rather than re-derived here:
 	// whether a PR is mergeable depends on branch protection and required reviews,
-	// which is the forge's business and not this plugin's to interpret. `gh pr list`
-	// does not ask for it, so a worktree-candidate entry simply has no `mergeState`
-	// — absence is the contract, as everywhere else in this half.
+	// which is the forge's business and not this plugin's to interpret. It is
+	// omitted when `gh` did not report it — absence is the contract, as
+	// everywhere else in this half.
 	if (typeof json.mergeStateStatus === "string" && json.mergeStateStatus !== "") pr.mergeState = json.mergeStateStatus.toUpperCase();
 	// The chip links the token to the PR, so `url` is the one field that becomes an
 	// `href`: only http(s) is emitted, and anything else is omitted like every
@@ -475,7 +465,7 @@ async function readPrStatus(toplevel, branch) {
 	// a detached HEAD is not a branch `gh` can resolve a PR for
 	if (typeof branch !== "string" || branch === "" || branch.startsWith("HEAD")) return void 0;
 	if (!(await originIsGitHub(toplevel))) return void 0;
-	const out = await runPrCli("gh", ["pr", "view", branch, "--json", "number,state,isDraft,reviewDecision,statusCheckRollup,url,mergeStateStatus"], {
+	const out = await (config.prRunner ?? runCli)("gh", ["pr", "view", branch, "--json", "number,state,isDraft,reviewDecision,statusCheckRollup,url,mergeStateStatus"], {
 		cwd: toplevel,
 		timeout: config.prTimeoutMs,
 		// GH_PROMPT_DISABLED: an auth prompt must never hang the refresh (the gh
@@ -492,13 +482,6 @@ async function readPrStatus(toplevel, branch) {
 		return void 0;
 	}
 	return summarizePr(json);
-}
-
-
-/** Order-insensitive identity for an open-PR set, so "did it change?" is exact. */
-function prListKey(byBranch) {
-	if (byBranch === void 0) return "";
-	return JSON.stringify([...byBranch].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
 /**
@@ -584,22 +567,20 @@ function parseStatusV2(out) {
 			if (Number.isFinite(a)) ahead = a;
 			if (Number.isFinite(b)) behind = b;
 		} else if (line.startsWith("1 ") || line.startsWith("2 ")) {
-			// XY columns: X = index (staged), Y = worktree (unstaged)
+			// XY columns: X = index (staged), Y = worktree (unstaged). The path is
+			// the LAST field in both record shapes (space-separated, and the path
+			// itself may contain spaces), so it is computed once per record and
+			// shared by both columns — collected untruncated and capped by the
+			// caller, exactly like the untracked names.
+			const path = line.startsWith("2 ")
+				? line.split("\t").pop().trim()
+				: line.split(" ").slice(8).join(" ").trim();
 			if (line[2] !== ".") {
 				staged += 1;
-				const path = line.startsWith("2 ")
-					? line.split("\t").pop().trim()
-					: line.split(" ").slice(8).join(" ").trim();
 				if (path !== "") stagedNames.push(path);
 			}
 			if (line[3] !== ".") {
 				unstaged += 1;
-				// the path is the LAST field in both records (space-separated, and
-				// the path itself may contain spaces) — collected untruncated and
-				// capped by the caller, exactly like the untracked names
-				const path = line.startsWith("2 ")
-					? line.split("\t").pop().trim()
-					: line.split(" ").slice(8).join(" ").trim();
 				if (path !== "") unstagedNames.push(path);
 			}
 		} else if (line.startsWith("u ")) unmerged += 1;
@@ -613,6 +594,14 @@ function parseStatusV2(out) {
 		}
 	}
 	return { branch, upstream, ahead, behind, staged, unstaged, unmerged, untracked, untrackedNames, unstagedNames, stagedNames };
+}
+
+/** Parse a plain (unsigned) `log --format=%h%x09%s%x09%cr` body: hash, subject, relative time. */
+function parseCommitLines(stdout) {
+	return stdout.trim().split("\n").map((line) => {
+		const [hash, subject, when] = line.split("\t");
+		return { hash, subject: subject ?? "", when: when ?? "" };
+	}).filter((c) => c.hash !== void 0);
 }
 
 /**
@@ -806,11 +795,6 @@ function seedOrder() {
 	currentOrder = legacyOrderFile();
 }
 
-/** The ranking order every status read uses. */
-function nextOrder() {
-	return currentOrder;
-}
-
 /**
  * The hover card's "action" row and the (+) menu's picker: every sub-action the
  * checkout justifies, each as a `gh`-skill invocation ({ args, why, what } —
@@ -819,7 +803,7 @@ function nextOrder() {
  * invocations, so it rides the base response.
  *
  * Ranking: rule candidates are collected with a category, then sorted by the
- * configured order (nextOrder) — NOT first-match — so a configuration can, for
+ * configured order (currentOrder) — NOT first-match — so a configuration can, for
  * example, rank "commit" above "sync" without touching code. Ties keep
  * collection order.
  *
@@ -892,11 +876,13 @@ function nextStepRules(info) {
 		add("publish", "push", `${ahead} ahead of ${info.upstream ?? "upstream"}`, "push local commits to the remote", "git push", "push", "business");
 	}
 	const pr = info.pr === void 0 || info.pr === null ? void 0 : info.pr;
+	const hasPr = pr !== void 0 && pr.number !== void 0;
+	const openPr = hasPr && pr.open !== false;
 	// PR states no `/gh` verb covers: ROW-ONLY rules. They carry the row's token
 	// and `args: null`, so they triage on the row without the picker offering a
 	// verb the skill does not have. They ride the same ranking as everything
 	// else, so a row-only rule can sit above the first picker-eligible one.
-	if (pr !== void 0 && pr.number !== void 0 && pr.open !== false) {
+	if (openPr) {
 		if (pr.mergeState === "DIRTY") {
 			add("conflict", null, `pull request ${pr.number} conflicts with its base`, `resolve the conflict on pull request ${pr.number}`, void 0, "resolve", "error");
 		}
@@ -909,8 +895,7 @@ function nextStepRules(info) {
 			add("sync", null, `pull request ${pr.number} is behind its base`, `update pull request ${pr.number} from its base`, void 0, "update", "business");
 		}
 	}
-	if (pr !== void 0 && pr.number !== void 0 && pr.open !== false
-		&& (pr.mergeState === "CLEAN" || (pr.state === "passing" && pr.review === "APPROVED"))) {
+	if (openPr && (pr.mergeState === "CLEAN" || (pr.state === "passing" && pr.review === "APPROVED"))) {
 		add("merge", `merge ${pr.number}`, `pull request ${pr.number} is ready to merge`, `merge pull request ${pr.number} (squash)`, void 0, "merge", "success");
 	}
 	if (dirty > 0) {
@@ -926,7 +911,7 @@ function nextStepRules(info) {
 				: "git add -p && git commit";
 		add("commit", "commit", `work to commit: ${parts}`, staged > 0 ? "commit the staged changes" : "stage and commit the working changes", command, "commit", "business");
 	}
-	if (pr !== void 0 && pr.number !== void 0 && pr.state === "failing") {
+	if (hasPr && pr.state === "failing") {
 		add("checks", `checks ${pr.number}`, `checks failing on #${pr.number}`, "watch the CI checks on pull request " + pr.number, `gh pr checks ${pr.number} --watch`, "fix CI", "error");
 	}
 
@@ -936,7 +921,7 @@ function nextStepRules(info) {
 	// is not the default; `clean` last and flagged, because a destructive verb
 	// whose intent git status cannot reveal must never be suggested.
 	const standing = [];
-	if (pr !== void 0 && pr.number !== void 0) {
+	if (hasPr) {
 		standing.push({
 			args: `pr view ${pr.number}`,
 			why: `open pull request #${pr.number}`,
@@ -954,7 +939,7 @@ function nextStepRules(info) {
 		});
 	}
 
-	const order = nextOrder();
+	const order = currentOrder;
 	const rank = (cat) => {
 		const at = order.indexOf(cat);
 		return at === -1 ? order.length : at;
@@ -1027,6 +1012,65 @@ function nextActions(info) {
 		rowWhy: rowRule?.why ?? idle.why,
 		rowSeverity: rowRule?.severity ?? idle.severity
 	};
+}
+
+/**
+ * The ✎n NAMES — the one part of the count the numbers cannot answer ("what are
+ * these?"). Hover-gated with the rest of detail=1, so no refresh pays for it.
+ * Posture: RELATIVE names only (git's own output, never absolute — AGENTS.md
+ * rule 7 is relaxed by an inch, not a mile), shortened to the last two path
+ * segments, capped at 20 with the total carried separately so the client can
+ * say "… and k more" honestly. Staged and unstaged names are TRACKED files: the
+ * collapsed untracked retry never affects them, so they ride regardless of
+ * untrackedMode.
+ */
+function attachDetail(info, parsed, untrackedMode) {
+	const capped = (names) => names.slice(0, 20).map(shortenPath);
+	if (untrackedMode === "all" && parsed.untrackedNames.length > 0) {
+		info.untrackedNames = capped(parsed.untrackedNames);
+		info.untrackedNamesTotal = parsed.untrackedNames.length;
+	}
+	if (parsed.unstagedNames.length > 0) {
+		info.unstagedNames = capped(parsed.unstagedNames);
+		info.unstagedNamesTotal = parsed.unstagedNames.length;
+	}
+	if (parsed.stagedNames.length > 0) {
+		info.stagedNames = capped(parsed.stagedNames);
+		info.stagedNamesTotal = parsed.stagedNames.length;
+	}
+}
+
+/**
+ * The signed commit list: mixed newest-first from base...HEAD, each entry signed
+ * "+" (only on this branch - the PR's content) or "−" (only on main - what a
+ * rebase/merge brings in), git's own left-right verdict mapped onto the diff
+ * convention. Capped at 10 with the total from the same base so "... and k more"
+ * counts both sides. Called only when a base ref resolved; without one the
+ * caller serves the plain HEAD log instead.
+ */
+async function attachBranchCommits(info, toplevel, baseRef, logHead) {
+	if (baseRef !== null) {
+		const signedOut = await runGit(toplevel, ["log", "--left-right", "-10", "--format=%m%x09%h%x09%s%x09%cr", baseRef + "...HEAD"]);
+		if (signedOut.stdout !== null && signedOut.stdout.trim() !== "") {
+			info.branchCommits = signedOut.stdout.trim().split("\n").map((line) => {
+				const [marker, hash, subject, when] = line.split("\t");
+				return {
+					sign: marker === ">" ? "+" : marker === "<" ? "−" : void 0,
+					hash,
+					subject: subject ?? "",
+					when: when ?? ""
+				};
+			}).filter((c) => c.hash !== void 0);
+			const totalOut = await runGit(toplevel, ["rev-list", "--count", baseRef + "...HEAD"]);
+			const total = Number.parseInt((totalOut.stdout ?? "").trim(), 10);
+			if (Number.isFinite(total)) info.branchCommitsTotal = total;
+		}
+	} else {
+		// already fetched in the batch above — no second invocation
+		if (logHead.stdout !== null && logHead.stdout.trim() !== "") {
+			info.branchCommits = parseCommitLines(logHead.stdout);
+		}
+	}
 }
 
 /**
@@ -1149,27 +1193,7 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 	// is declared here rather than scoped to that block.
 	let baseRef = null;
 	if (wantDetail) {
-		// The ✎n NAMES — the one part of the count the numbers cannot answer
-		// ("what are these?"). Hover-gated with the rest of detail=1, so no
-		// refresh pays for it. Posture: RELATIVE names only (git's own output,
-		// never absolute — AGENTS.md rule 7 is relaxed by an inch, not a mile),
-		// shortened to the last two path segments, capped at 20 with the total
-		// carried separately so the client can say "… and k more" honestly.
-		// Staged and unstaged names are TRACKED files: the collapsed untracked
-		// retry never affects them, so they ride regardless of untrackedMode.
-		const capped = (names) => names.slice(0, 20).map(shortenPath);
-		if (untrackedMode === "all" && parsed.untrackedNames.length > 0) {
-			info.untrackedNames = capped(parsed.untrackedNames);
-			info.untrackedNamesTotal = parsed.untrackedNames.length;
-		}
-		if (parsed.unstagedNames.length > 0) {
-			info.unstagedNames = capped(parsed.unstagedNames);
-			info.unstagedNamesTotal = parsed.unstagedNames.length;
-		}
-		if (parsed.stagedNames.length > 0) {
-			info.stagedNames = capped(parsed.stagedNames);
-			info.stagedNamesTotal = parsed.stagedNames.length;
-		}
+		attachDetail(info, parsed, untrackedMode);
 		// The signed commit list and the counts-vs-main row: ahead/behind against origin/main (then
 		// origin/master) is the merge-state line — "3 ahead, 0 behind" reads as
 		// "this is the PR's content"; "0 ahead, 5 behind" as "stale, rebase
@@ -1216,37 +1240,7 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 				info.mainBehind = mBehind;
 			}
 		}
-		if (baseRef !== null) {
-			// The signed commit list: mixed newest-first from base...HEAD, each
-			// entry signed "+" (only on this branch - the PR's content) or "−"
-			// (only on main - what a rebase/merge brings in), git's own left-right
-			// verdict mapped onto the diff convention. Capped at 10 with the total
-			// from the same base so "... and k more" counts both sides. Without a
-			// default branch the list degrades to the plain last 10 on HEAD.
-			const signedOut = await runGit(toplevel, ["log", "--left-right", "-10", "--format=%m%x09%h%x09%s%x09%cr", baseRef + "...HEAD"]);
-			if (signedOut.stdout !== null && signedOut.stdout.trim() !== "") {
-				info.branchCommits = signedOut.stdout.trim().split("\n").map((line) => {
-					const [marker, hash, subject, when] = line.split("\t");
-					return {
-						sign: marker === ">" ? "+" : marker === "<" ? "−" : void 0,
-						hash,
-						subject: subject ?? "",
-						when: when ?? ""
-					};
-				}).filter((c) => c.hash !== void 0);
-				const totalOut = await runGit(toplevel, ["rev-list", "--count", baseRef + "...HEAD"]);
-				const total = Number.parseInt((totalOut.stdout ?? "").trim(), 10);
-				if (Number.isFinite(total)) info.branchCommitsTotal = total;
-			}
-		} else {
-			// already fetched in the batch above — no second invocation
-			if (logHead.stdout !== null && logHead.stdout.trim() !== "") {
-				info.branchCommits = logHead.stdout.trim().split("\n").map((line) => {
-					const [hash, subject, when] = line.split("\t");
-					return { hash, subject: subject ?? "", when: when ?? "" };
-				}).filter((c) => c.hash !== void 0);
-			}
-		}
+		await attachBranchCommits(info, toplevel, baseRef, logHead);
 		if (stashOut.stdout !== null) {
 			const count = stashOut.stdout.split("\n").filter((l) => l.trim() !== "").length;
 			if (count > 0) info.stashCount = count;
@@ -1269,10 +1263,7 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 		// total is the ahead count already computed above (no second rev-list).
 		const prOut = await runGit(toplevel, ["log", "-10", "--format=%h%x09%s%x09%cr", baseRef + "..HEAD"]);
 		if (prOut.stdout !== null && prOut.stdout.trim() !== "") {
-			info.prCommits = prOut.stdout.trim().split("\n").map((line) => {
-				const [hash, subject, when] = line.split("\t");
-				return { hash, subject: subject ?? "", when: when ?? "" };
-			}).filter((c) => c.hash !== void 0);
+			info.prCommits = parseCommitLines(prOut.stdout);
 			info.prCommitsTotal = info.mainAhead;
 		}
 	}
@@ -1363,7 +1354,7 @@ function closeWatchers(record) {
 		}
 	}
 	record.watcher = null;
-	if ("extra" in record) record.extra = null;
+	record.extra = null;
 }
 
 function unwatchWorkspace(key) {
@@ -1582,12 +1573,16 @@ function selectWorktreeWatch(ownerPath, workspaceId, chosenPath) {
 	selectedWorktrees.set(ownerPath, { worktreePath: chosenPath, workspaceId, owned });
 }
 
+/** The registry entities whose public surface carries a string `path`. */
+function listEntities(ctx) {
+	return ctx.workspaceRegistry.list().filter((entity) => typeof entity?.path === "string");
+}
+
 /** Reconcile the watcher set with the current workspace registry. */
 function syncWatchers(ctx) {
 	const wanted = new Set();
-	for (const entity of ctx.workspaceRegistry.list()) {
+	for (const entity of listEntities(ctx)) {
 		// `path` and `id` are the entity's public surface; its `record` is private
-		if (typeof entity?.path !== "string") continue;
 		wanted.add(entity.path);
 		watchWorkspace(entity.path, entity.path, entity.id === void 0 ? void 0 : String(entity.id));
 	}
@@ -1629,10 +1624,7 @@ async function resolveWorkspace(ctx, params) {
 	if (workspaceId === "" && sessionId === "") {
 		return { status: 400, error: { code: "target-required", message: "pass workspace=<id> or session=<id>" } };
 	}
-	const entities = [];
-	for (const entity of ctx.workspaceRegistry.list()) {
-		if (typeof entity?.path === "string") entities.push(entity);
-	}
+	const entities = listEntities(ctx);
 	if (workspaceId !== "") {
 		const entity = entities.find((candidate) => String(candidate.id) === workspaceId);
 		if (entity === void 0) {
@@ -1673,9 +1665,7 @@ async function resolveWorkspace(ctx, params) {
  */
 function sessionCheckouts() {
 	// The store owns the file's shape; the test seam only redirects the path.
-	return config.sessionCheckoutsFile === null
-		? readSessionCheckouts()
-		: readSessionCheckouts(config.sessionCheckoutsFile);
+	return readSessionCheckouts(config.sessionCheckoutsFile ?? undefined);
 }
 
 async function registeredCheckout(target, sessionId) {
@@ -1899,8 +1889,6 @@ export { apply, inject, name };
 // what lets a node-half change be verified without a restart.
 export {
 	config,
-	OPERATION_MARKERS,
-	operationMarker,
 	nextActions,
 	normalizeOrder,
 	seedOrder,
@@ -1908,19 +1896,15 @@ export {
 	parseStatusV2,
 	parseWorktreeList,
 	readWorktrees,
-	worktreesFor,
 	runCli,
 	runGit,
 	gitStatus,
-	gitStatusUncached,
-	resolveWorkspace,
 	effectiveTarget,
 	readPrStatus,
 	summarizePr,
 	summarizeChecks,
 	prStatusFor,
 	prState,
-	selectWorktreeWatch,
 	selectedWorktrees,
 	statusInFlight,
 	watchWorkspace,

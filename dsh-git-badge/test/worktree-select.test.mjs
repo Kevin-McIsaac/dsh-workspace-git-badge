@@ -22,7 +22,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	apply,
-	changeListeners,
 	config,
 	effectiveTarget,
 	gitStatus,
@@ -37,19 +36,11 @@ import {
 	unwatchWorkspace,
 	watchers
 } from "../lib/index.js";
-import { fakeCtx, fakeReq, fakeStream, waitFor } from "../test-support/harness.mjs";
-import { makeRepo } from "../test-support/repo.mjs";
+import { fakeCtx, get, spyOn, waitFor } from "../test-support/harness.mjs";
+import { githubRepo, makeRepo } from "../test-support/repo.mjs";
 
 const WORKSPACE_ID = "ws-tree";
 const SESSION_ID = "sess-tree";
-
-/** A repository whose `origin` looks like GitHub, with no upstream (so no fetch). */
-async function githubRepo(t) {
-	const repo = await makeRepo(t);
-	await repo.commit("initial");
-	await repo.git(["remote", "add", "origin", "git@github.com:owner/repo.git"]);
-	return repo;
-}
 
 /** The body `gh pr list --json …` prints for one open PR. */
 function openPrBody(branch, { number = 391, conclusion = "SUCCESS" } = {}) {
@@ -90,15 +81,6 @@ function stubForge(t, { list = [] } = {}) {
 	return { calls, state };
 }
 
-/** Subscribe a spy to change notifications; released with the test. */
-function spyOn(t) {
-	const seen = [];
-	const spy = (payload) => seen.push(payload);
-	changeListeners.add(spy);
-	t.after(() => changeListeners.delete(spy));
-	return seen;
-}
-
 /**
  * Every cache and watcher here is module-level and per-process, so each test
  * starts from and restores an empty world. The restore matters twice over:
@@ -120,11 +102,16 @@ function clearState(t) {
  * store's file, pointed at a per-test temp path by the config seam (no env
  * mutation, so the suite stays order-independent).
  */
+/** The one literal store-file shape the agent writes. */
+function checkoutStore(sessions) {
+	return JSON.stringify({ schema: "dsh-git-badge/session-checkout/v1", sessions });
+}
+
 function register(t, sessionId, path, { at = new Date().toISOString(), sessions } = {}) {
 	const dir = mkdtempSync(join(tmpdir(), "dsh-git-badge-checkout-"));
 	const file = join(dir, "session-checkouts.json");
 	const body = sessions ?? { [sessionId]: { path, at } };
-	writeFileSync(file, JSON.stringify({ schema: "dsh-git-badge/session-checkout/v1", sessions: body }));
+	writeFileSync(file, checkoutStore(body));
 	const previous = config.sessionCheckoutsFile;
 	config.sessionCheckoutsFile = file;
 	t.after(() => {
@@ -142,13 +129,6 @@ async function setup(t) {
 	apply(ctx);
 	t.after(() => disposeAll());
 	return { repo, routes, entities };
-}
-
-async function get(routes, query) {
-	const req = fakeReq({ url: `/api/git-badge${query}` });
-	const res = fakeStream();
-	await routes.get("/api/git-badge").handler(req, res);
-	return res;
 }
 
 //#region parsing
@@ -370,7 +350,7 @@ test("a follow is retired when the registration is cleared", async (t) => {
 	assert.ok(watchers.has(await realpath(tree)));
 	// the agent clears it (worktree removed, session moved back): the extra
 	// watcher must go with the follow
-	writeFileSync(file, JSON.stringify({ schema: "dsh-git-badge/session-checkout/v1", sessions: {} }));
+	writeFileSync(file, checkoutStore({}));
 	const effective = await effectiveTarget(entities[0], SESSION_ID);
 	assert.equal(effective.path, repo.root);
 	assert.equal(watchers.has(await realpath(tree)), false);
