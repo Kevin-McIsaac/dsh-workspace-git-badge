@@ -10,6 +10,20 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The row's token survives a status dot.** Upstream mounts the leading seat
+  only while a row's primary state is idle, and gives the 16px cell to its own
+  solid status dot otherwise: green for an unread completion, orange for a
+  pending interaction. A busy session that went idle therefore showed the dot
+  until the session was opened, while its checkout already had something to say.
+  The plugin now rides the row-action strip — the one per-row seat React mounts
+  in every state, hidden by CSS rather than unmounted — and paints the node
+  half's token over the dot from that marker plus one injected stylesheet. The
+  cell still decides: the fallback appears only when a solid dot occupies it, a
+  running spinner is left alone, `in sync` never replaces the dot, and the mark
+  is removed the moment the real seat returns. No upstream byte changes.
+
 ## [0.20.0] - 2026-10-13
 
 ### Added

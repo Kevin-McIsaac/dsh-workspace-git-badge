@@ -128,7 +128,12 @@ export function createClient({ tooltip = false, hover = false } = {}) {
 			const data = wantsDetail ? (hover ? injected.detail : void 0) : injected.data;
 			return [{ key: initial.key, data }, () => {}];
 		},
-		useEffect: () => {}
+		useEffect: () => {},
+		// The fallback marker holds a ref and writes in a layout effect. Both are
+		// inert here, so the marker's DOM work is exercised through its exported
+		// pure helpers (`__internals.syncRowFallback`) against a fake row instead.
+		useRef: (initial) => ({ current: initial }),
+		useLayoutEffect: () => {}
 	};
 	const jsxRuntime = { jsx: element, jsxs: element, Fragment: "Fragment" };
 	const primitives = tooltip ? { Tooltip: (...args) => element("Tooltip", args[0]) } : {};
@@ -199,6 +204,11 @@ export function createClient({ tooltip = false, hover = false } = {}) {
 		rowDetail(data, props) {
 			feed(data);
 			return capture(() => expand(registered["sidebar.session.row.hover"]({ sessionId: "s-1", ...props })));
+		},
+		/** Render the always-mounted row marker that carries the fallback overlay. */
+		fallback(data, props) {
+			feed(data);
+			return capture(() => expand(registered["sidebar.workspaces.session.row.action"]({ sessionId: "s-1", ...props })));
 		},
 		/** Render the composer chip. */
 		chip(data, detail) {

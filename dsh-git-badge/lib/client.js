@@ -595,12 +595,216 @@ window.__ModuleLoader__.load({
 				return react_jsx_runtime.jsx("span", {
 					role: "img",
 					"aria-label": "git action: " + token,
+					// The fallback overlay in the SAME cell is suppressed by this
+					// marker, so a status transition can never paint two glyphs.
+					"data-git-badge-leading": "",
 					style: { ...META_STYLE, ...(colour === void 0 ? {} : { color: colour }), ...GLYPH_TEXT, display: "inline-flex", alignItems: "center" },
 					children: actionGlyphNode(token)
 				});
 			}
 			return null;
 		}
+
+		//#region leading-cell fallback (a solid status dot owns the cell)
+		/**
+		 * The leading cell's SOLID status dots. Upstream replaces the whole
+		 * `sidebar.session.row.leading` seat with one of these whenever the row's
+		 * primary state is not idle, so the plugin's glyph is not mounted at all:
+		 * `done` (green) when a background turn finished unread, `warning` (orange)
+		 * when a pending interaction waits. `ongoing` is the running spinner, an
+		 * `svg` with no solid dot, and stays upstream's alone.
+		 */
+		const ROW_FALLBACK_DOT = '[data-state="done"], [data-state="warning"]';
+
+		/**
+		 * The fallback's stylesheet. The plugin paints the token into the occupied
+		 * 16px cell from a marker attribute, so it adds NO foreign node to a
+		 * React-managed cell: the dot element steps aside and a `::after` draws the
+		 * node half's glyph, coloured by the severity custom property.
+		 *
+		 * `:has()` keeps the real seat and the fallback exclusive even during the
+		 * one commit where a row flips back to idle: a cell that already holds
+		 * `data-git-badge-leading` never paints the overlay. A browser without
+		 * `:has()` drops the whole rule, so the fallback is simply absent — it can
+		 * never double-draw.
+		 */
+		const ROW_FALLBACK_OVERLAY = "[data-git-badge-overlay]:not(:has([data-git-badge-leading]))";
+		const ROW_FALLBACK_CSS = [
+			ROW_FALLBACK_OVERLAY + " > span:first-child > " + ROW_FALLBACK_DOT + " { display: none; }",
+			ROW_FALLBACK_OVERLAY + " > span:first-child::after {",
+			'  content: var(--git-badge-glyph, "");',
+			"  display: inline-flex;",
+			"  align-items: center;",
+			"  justify-content: center;",
+			"  width: 16px;",
+			"  height: 20px;",
+			"  color: var(--git-badge-color, currentColor);",
+			"  font-size: 13px;",
+			"  line-height: 1;",
+			"}",
+			ROW_FALLBACK_OVERLAY + "[data-git-badge-drawn] > span:first-child::after {",
+			'  content: "";',
+			"  background-color: var(--git-badge-color, currentColor);",
+			"  -webkit-mask-image: var(--git-badge-mask-src);",
+			"  mask-image: var(--git-badge-mask-src);",
+			"  -webkit-mask-repeat: no-repeat;",
+			"  mask-repeat: no-repeat;",
+			"  -webkit-mask-position: center;",
+			"  mask-position: center;",
+			"  -webkit-mask-size: var(--git-badge-mask-size, 12px);",
+			"  mask-size: var(--git-badge-mask-size, 12px);",
+			"}"
+		].join("\n");
+
+		/**
+		 * One `DRAWN_ICONS` entry as a CSS mask URL, so the fallback paints the
+		 * EXACT artwork the real seat draws. The mask supplies the shape and the
+		 * element's `background-color` supplies the severity colour, which is why
+		 * the SVG is painted black: only its alpha is read.
+		 */
+		function glyphMaskDataUri(icon) {
+			const shapes = icon.shapes.map((shape) => {
+				if (shape.circle === true) return '<circle cx="6" cy="6" r="5"/>';
+				if (shape.stroke === true) return '<path d="' + shape.d + '" fill="none" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+				return '<path d="' + shape.d + '" fill="#000"/>';
+			}).join("");
+			const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="' + icon.viewBox + '">' + shapes + "</svg>";
+			return 'url("data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg) + '")';
+		}
+
+		/**
+		 * The fallback's mark for a token, or undefined when the dot should stay.
+		 *
+		 * `in sync` is deliberately excluded: it is a disc, the row's own dot is
+		 * also a dot, and replacing an unread marker with "nothing to do" would
+		 * throw away the only signal that the turn ended. Only a real action earns
+		 * the cell.
+		 */
+		function fallbackGlyph(token, severity) {
+			if (typeof token !== "string" || token === "" || token === "in sync") return void 0;
+			const colour = SEVERITY_FILL[severity];
+			const drawn = DRAWN_ICONS[token];
+			if (drawn !== void 0) return { mask: glyphMaskDataUri(drawn), size: drawn.size + "px", colour };
+			const glyph = ACTION_GLYPH[token];
+			if (glyph === void 0) return void 0;
+			return { glyph, colour };
+		}
+
+		/** Write one mark onto the row element. */
+		function applyFallbackMark(host, mark) {
+			host.setAttribute("data-git-badge-overlay", "");
+			if (mark.mask !== void 0) {
+				host.setAttribute("data-git-badge-drawn", "");
+				host.style.setProperty("--git-badge-mask-src", mark.mask);
+				host.style.setProperty("--git-badge-mask-size", mark.size);
+				host.style.removeProperty("--git-badge-glyph");
+			} else {
+				host.removeAttribute("data-git-badge-drawn");
+				host.style.removeProperty("--git-badge-mask-src");
+				host.style.removeProperty("--git-badge-mask-size");
+				// JSON.stringify keeps the quotes `content: var(...)` needs.
+				host.style.setProperty("--git-badge-glyph", JSON.stringify(mark.glyph));
+			}
+			if (mark.colour === void 0) host.style.removeProperty("--git-badge-color");
+			else host.style.setProperty("--git-badge-color", mark.colour);
+		}
+
+		/** Remove every trace of a mark, so the row is exactly as upstream left it. */
+		function clearFallbackMark(host) {
+			if (host === void 0 || host === null) return;
+			host.removeAttribute("data-git-badge-overlay");
+			host.removeAttribute("data-git-badge-drawn");
+			host.style.removeProperty("--git-badge-glyph");
+			host.style.removeProperty("--git-badge-mask-src");
+			host.style.removeProperty("--git-badge-mask-size");
+			host.style.removeProperty("--git-badge-color");
+		}
+
+		/** The row (`[data-row-key]`) an element sits in, or undefined. */
+		function rowHost(node) {
+			const closest = node?.closest;
+			if (typeof closest !== "function") return void 0;
+			return closest.call(node, "[data-row-key]") ?? void 0;
+		}
+
+		/**
+		 * The whole fallback decision in one testable call: does the cell hold a
+		 * SOLID dot, and does the node half have an action to show? The cell is the
+		 * authority, so no client-side copy of upstream's status precedence can
+		 * drift. Returns whether the overlay is on.
+		 */
+		function syncRowFallback(host, info) {
+			if (host === void 0 || host === null) return false;
+			const cell = host.firstElementChild;
+			const occupied = cell !== void 0 && cell !== null && typeof cell.querySelector === "function" && cell.querySelector(ROW_FALLBACK_DOT) !== null;
+			if (!occupied) {
+				clearFallbackMark(host);
+				return false;
+			}
+			const token = info !== void 0 && info !== null && info.git === true ? info.rowToken : void 0;
+			const mark = fallbackGlyph(token, info?.rowSeverity);
+			if (mark === void 0) {
+				clearFallbackMark(host);
+				return false;
+			}
+			applyFallbackMark(host, mark);
+			return true;
+		}
+
+		/** One stylesheet per page; the loader tags it for its own bookkeeping. */
+		let rowFallbackStyle = false;
+		function ensureRowFallbackStyle() {
+			if (rowFallbackStyle) return;
+			if (typeof document === "undefined" || document.head === void 0 || document.head === null) return;
+			try {
+				const style = document.createElement("style");
+				style.setAttribute("data-plugin", "dsh-git-badge");
+				style.textContent = ROW_FALLBACK_CSS;
+				document.head.appendChild(style);
+				rowFallbackStyle = true;
+			} catch {
+				// a missing or closed <head> must never break the badge
+			}
+		}
+
+		/**
+		 * The marker that carries the fallback. It MUST ride
+		 * `sidebar.workspaces.session.row.action`, because that strip is hidden by
+		 * CSS rather than unmounted: it is the one per-row seat React mounts in
+		 * every state, so it is the only place from which a row can be marked while
+		 * upstream's dot owns the leading cell. It renders a hidden span and adds
+		 * no button.
+		 */
+		function RowFallbackGlyph({ sessionId }) {
+			const ref = react.useRef(null);
+			const [occupied, setOccupied] = react.useState(false);
+			// `enabled` is the LAZY gate: a row with no solid dot keeps costing
+			// nothing, exactly as it did before the fallback existed.
+			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId }, { pr: true, enabled: occupied });
+			react.useEffect(() => {
+				ensureRowFallbackStyle();
+				const host = rowHost(ref.current);
+				if (host === void 0) return;
+				const cell = host.firstElementChild;
+				if (cell === void 0 || cell === null || typeof cell.querySelector !== "function") return;
+				const sync = () => setOccupied(cell.querySelector(ROW_FALLBACK_DOT) !== null);
+				sync();
+				if (typeof MutationObserver !== "function") return;
+				const observer = new MutationObserver(sync);
+				// The dot swaps in as a child; a state change edits `data-state` in
+				// place, so both must be watched. The row's own attributes are NOT
+				// observed, which is what keeps the mark from re-triggering itself.
+				observer.observe(cell, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-state"] });
+				return () => observer.disconnect();
+			}, [sessionId]);
+			// Layout effect: the mark lands in the same commit that reveals the dot,
+			// so the fallback does not flash the green/orange dot first.
+			react.useLayoutEffect(() => {
+				syncRowFallback(rowHost(ref.current), info);
+			}, [info, occupied]);
+			return react_jsx_runtime.jsx("span", { ref, "aria-hidden": true, style: { display: "none" } });
+		}
+		//#endregion
 
 		const CARD_CONTAINER = {
 			display: "flex",
@@ -1739,6 +1943,20 @@ window.__ModuleLoader__.load({
 				name: "sidebar.session.row.leading",
 				id: "git-badge-row-leading"
 			}, LeadingTokenGlyph));
+			// The seat above is mounted ONLY while the row's primary state is idle
+			// (upstream's own contract). A row that owns a solid status dot — an
+			// unread completion, or a pending interaction — keeps that cell to
+			// itself, so the token glyph would be invisible exactly when the turn
+			// that produced it just ended, until the session is opened. This strip is
+			// ALWAYS mounted (hidden by CSS, not unmounted), so a marker rides it and
+			// the stylesheet paints the token over the dot. The rule stays honest: no
+			// upstream byte changes, and the cell still belongs to upstream.
+			ctx.slots.inject("sidebar.workspaces.session.row.action", () => ctx.slots.register({
+				name: "sidebar.workspaces.session.row.action",
+				id: "git-badge-row-fallback",
+				order: 300
+			}, RowFallbackGlyph));
+			ensureRowFallbackStyle();
 			// The row is ALREADY a HoverCard anchor upstream, so a glyph that opened
 			// its own tooltip would nest two cards. This renders the explanation
 			// inside that card instead, through the hover seat upstream declares
@@ -1779,7 +1997,7 @@ window.__ModuleLoader__.load({
 		// Additive; the host reads apply/inject and ignores the rest. The suite
 		// drives these to assert the REQUEST contract — which surface asks for the
 		// expensive extras — without a browser, a fetch or a network.
-		exports.__internals = { targetQuery, worktreeDetail, linkedWorktreesDetail, ghSkillActions, cleanGate, moveCategory };
+		exports.__internals = { targetQuery, worktreeDetail, linkedWorktreesDetail, ghSkillActions, cleanGate, moveCategory, fallbackGlyph, glyphMaskDataUri, syncRowFallback, clearFallbackMark, ROW_FALLBACK_CSS, ROW_FALLBACK_DOT };
 		return module.exports;
 	}
 });
