@@ -212,32 +212,6 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * Three-state status, checked top-down, first match wins:
-		 *  - "error": unmerged files (mid-conflict, git is blocked) — or a dirty
-		 *    tree that is ALSO behind upstream (unsaved edits on an outdated
-		 *    base: commit-then-pull friction ahead).
-		 *  - "warn": dirty files, or any ahead/behind (routine work or sync
-		 *    pending — including the previously "quiet" green-but-↓1 case).
-		 *  - "ok": clean and in sync.
-		 * Red never means merely "behind": a clean tree one commit behind is
-		 * normal between pulls, not an alarm.
-		 *
-		 * The single source of truth for that summary. BOTH surfaces render it the
-		 * same way (see StatusMark): a circle, or a tree in a linked worktree,
-		 * filled with the colour below.
-		 */
-		function badgeStatus(info) {
-			const dirty = info.dirty === true;
-			const behind = (info.behind || 0) > 0;
-			const ahead = (info.ahead || 0) > 0;
-			const conflict = (info.unmergedFiles || 0) > 0;
-			if (conflict || (dirty && behind)) return "error";
-			if (dirty || ahead || behind) return "warn";
-			return "ok";
-		}
-
-
-		/**
 		 * The actions BOTH surfaces render — the server's list, verbatim.
 		 *
 		 * This half used to re-derive pull/push/commit/pr from the raw counts,
@@ -270,28 +244,6 @@ window.__ModuleLoader__.load({
 				confirmLabel: "Continue"
 			};
 		}
-
-		/**
-		 * Mark fill per status, from the app's own semantic tokens so BOTH surfaces
-		 * follow light/dark and custom themes — which a hardcoded emoji cannot do.
-		 * The literals are only fallbacks for use outside DSH.
-		 */
-		const MARK_FILL = {
-			error: "var(--dsw-alias-state-error-primary, #e5484d)",
-			warn: "var(--dsw-alias-state-warn-primary, #d29922)",
-			ok: "var(--dsw-alias-state-success-primary, #30a46c)"
-		};
-
-		/**
-		 * Accessible name per status, WITHOUT the "git" prefix — the mark adds
-		 * "git: " or "git worktree: ", so shape and colour are never the only
-		 * channel for either fact.
-		 */
-		const STATUS_LABEL = {
-			error: "conflict, or uncommitted changes on an outdated base",
-			warn: "uncommitted changes, or out of sync with upstream",
-			ok: "clean and in sync"
-		};
 
 		/**
 		 * Sync/dirty suffix — INPUT CHIP ONLY. The sidebar row shows status alone;
@@ -339,13 +291,36 @@ window.__ModuleLoader__.load({
 		const PR_STATE_GLYPH = { passing: "\u2713", pending: "\u2026", failing: "\u2717", none: "" };
 		const PR_STATE_LABEL = { passing: "checks passing", pending: "checks running", failing: "checks failing", none: "no checks" };
 
+		/**
+		 * The CI state -> colour, for the token's STATE GLYPH only. The number and
+		 * the link keep the chip's own muted colour, so the token still reads as one
+		 * row and only the state shouts. These are the same app state tokens the
+		 * action glyph uses.
+		 */
+		const PR_STATE_COLOUR = {
+			passing: "var(--dsw-alias-state-success-primary, #30a46c)",
+			pending: "var(--dsw-alias-state-warn-primary, #d29922)",
+			failing: "var(--dsw-alias-state-error-primary, #e5484d)"
+		};
+
+		/** The PR token's parts, so its plain text and its coloured form cannot drift. */
+		function prTokenParts(info) {
+			const pr = info.pr;
+			if (pr === void 0 || pr === null || pr.number === void 0) return null;
+			const state = PR_STATE_GLYPH[pr.state] === void 0 ? "none" : pr.state;
+			return {
+				number: " PR#" + pr.number,
+				glyph: PR_STATE_GLYPH[state],
+				colour: PR_STATE_COLOUR[state] ?? META_STYLE.color,
+				draft: pr.draft === true ? " draft" : ""
+			};
+		}
+
 		/** ` PR#142 ✗` (plus ` draft`), or "" when there is no PR to report. */
 		function formatPrToken(info) {
-			const pr = info.pr;
-			if (pr === void 0 || pr === null || pr.number === void 0) return "";
-			const state = PR_STATE_GLYPH[pr.state] === void 0 ? "none" : pr.state;
-			const glyph = PR_STATE_GLYPH[state];
-			return " PR#" + pr.number + (glyph === "" ? "" : " " + glyph) + (pr.draft === true ? " draft" : "");
+			const parts = prTokenParts(info);
+			if (parts === null) return "";
+			return parts.number + (parts.glyph === "" ? "" : " " + parts.glyph) + parts.draft;
 		}
 
 		/** The token's accessible name: "pull request 142, checks failing, draft". */
@@ -419,60 +394,6 @@ window.__ModuleLoader__.load({
 		};
 
 		/**
-		 * Status mark, SHARED BY BOTH SURFACES: the same shape in the same fill
-		 * wherever it appears, so the sidebar row and the input chip read
-		 * identically. The FILL is the status colour; the SHAPE carries
-		 * worktree-ness — a circle for a main checkout, a tree for a linked
-		 * worktree — so the two facts never compete for the same channel.
-		 *
-		 * Drawn rather than typed because 🌳 is a COLOUR EMOJI: CSS cannot tint
-		 * its leaves, and a mark that carries the status has to be paintable.
-		 * Three overlapping crown lobes plus a trunk stay legible at this size.
-		 *
-		 * Neither colour nor shape is the only channel: the accessible name
-		 * states both.
-		 */
-		function StatusMark({ info }) {
-			const status = badgeStatus(info);
-			const fill = MARK_FILL[status];
-			const isWorktree = info.isWorktree === true;
-			const svg = {
-				// 14px, NOT 12px: a colour emoji draws well above its nominal size — the
-				// 🔴/🟡/🟢 dot this replaces put down ~13-14px of ink at the surfaces'
-				// 12px font-size, so a 12px box read as a shrunken dot.
-				width: 14,
-				height: 14,
-				viewBox: "0 0 12 12",
-				role: "img",
-				"aria-label":
-					(isWorktree ? "git worktree: " : "git: ") +
-					STATUS_LABEL[status] +
-					// a followed checkout is not where the conversation lives, and the
-					// accessible name says so — the session registered it explicitly
-					(info.worktreeFollowed === true ? " (registered for this session)" : ""),
-				focusable: "false",
-				style: { flex: "none", display: "block", color: META_STYLE.color }
-			};
-			if (!isWorktree) {
-				// a plain filled disc: this is a main checkout. It fills its box so the
-				// ink lands at the size the emoji dot used to.
-				return react_jsx_runtime.jsx("svg", { ...svg, children: react_jsx_runtime.jsx("circle", { cx: 6, cy: 6, r: 5.5, fill }) });
-			}
-			return react_jsx_runtime.jsxs("svg", {
-				...svg,
-				children: [
-					// trunk first, so the crown's lobes overlap and join it. These are the
-					// 12px-era coordinates scaled 1.15 about the tree's centre, so its ink
-					// stays comparable to the disc's instead of reading small beside it.
-					react_jsx_runtime.jsx("rect", { key: "trunk", x: 5.25, y: 7.3, width: 1.5, height: 4.14, rx: 0.63, fill: "currentColor" }),
-					react_jsx_runtime.jsx("circle", { key: "crown-1", cx: 6, cy: 3.62, r: 3.57, fill }),
-					react_jsx_runtime.jsx("circle", { key: "crown-2", cx: 3.24, cy: 5.46, r: 2.53, fill }),
-					react_jsx_runtime.jsx("circle", { key: "crown-3", cx: 8.76, cy: 5.46, r: 2.53, fill })
-				]
-			});
-		}
-
-		/**
 		 * The row's verdict comes from the NODE half now: `info.rowToken`, the
 		 * first ranked rule with a token. The client used to re-derive it here
 		 * (unmerged → resolve, failing → fix CI, …) and the two copies drifted.
@@ -541,6 +462,54 @@ window.__ModuleLoader__.load({
 		};
 
 		/**
+		 * The hairline tokens, DRAWN rather than typed. `↑ ↓ ⇄ ↻` are hairline
+		 * strokes in the shell's font, and no weight or size makes them as solid as
+		 * the filled glyphs (`✚ ✓ ✗ ◆`). These four are paths on a 12x12 grid, painted
+		 * with `currentColor`, so each arrow matches the text's weight and centres on
+		 * it. The other six stay text: their glyphs already read well.
+		 */
+		const ARROW_PATHS = {
+			push: [{ d: "M6 1 L10.6 6.6 H7.5 V11 H4.5 V6.6 H1.4 Z" }],
+			pull: [{ d: "M6 11 L1.4 5.4 H4.5 V1 H7.5 V5.4 H10.6 Z" }],
+			sync: [
+				{ d: "M1.5 3.4 H8.4 V2 L11 4 L8.4 6 V4.6 H1.5 Z" },
+				{ d: "M10.5 8.6 H3.6 V10 L1 8 L3.6 6 V7.4 H10.5 Z" }
+			],
+			update: [
+				{ d: "M6 1.9 A4.1 4.1 0 1 1 1.9 6", stroke: true },
+				{ d: "M4.3 0.4 L8.3 1.9 L4.3 3.4 Z" }
+			]
+		};
+
+		/**
+		 * The icon NODE: a drawn arrow for the four hairline tokens, a text glyph for
+		 * the rest. The parent span carries the accessible name, so the drawn arrow is
+		 * decoration (`aria-hidden`).
+		 */
+		function actionGlyphNode(token) {
+			const paths = ARROW_PATHS[token];
+			if (paths === void 0) return ACTION_GLYPH[token] ?? token;
+			return react_jsx_runtime.jsx("svg", {
+				viewBox: "0 0 12 12",
+				width: 12,
+				height: 12,
+				"aria-hidden": true,
+				focusable: "false",
+				style: { display: "block", flex: "none", color: "inherit" },
+				children: paths.map((path, index) => react_jsx_runtime.jsx("path", path.stroke === true
+					? { d: path.d, fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round" }
+					: { d: path.d, fill: "currentColor" }, "arrow-" + index))
+			});
+		}
+
+		/**
+		 * The icon's own type style, for the TEXT glyphs only. A drawn arrow is a
+		 * fixed 12px box, so size and weight do not apply to it; the six text glyphs
+		 * sit one pixel larger than the surrounding 12px text.
+		 */
+		const GLYPH_TEXT = { fontSize: "13px" };
+
+		/**
 		 * The row's own run state, from the shell's standard kit.
 		 *
 		 * The renderer that assembles slots hands EVERY entry the sessions store as
@@ -591,8 +560,8 @@ window.__ModuleLoader__.load({
 		 * wrapper changes the cell's box.
 		 *
 		 * The glyph is NOT `aria-hidden`: with no word beside it, it is the
-		 * accessible name. With nothing to say it falls back to the shared
-		 * `StatusMark`, so a clean checkout still shows the green status dot.
+		 * accessible name. With nothing to say the cell renders NOTHING: no token
+		 * means no action, so there is no icon and no colour to explain.
 		 *
 		 * It carries NO hover of its own. The row is already a HoverCard anchor,
 		 * and the explanation rides the row's own card (SessionGitDetail) — so
@@ -607,15 +576,14 @@ window.__ModuleLoader__.load({
 			const token = info.rowToken;
 			if (typeof token === "string" && token !== "") {
 				const colour = SEVERITY_FILL[info.rowSeverity];
-				const glyph = ACTION_GLYPH[token];
 				return react_jsx_runtime.jsx("span", {
 					role: "img",
 					"aria-label": "git action: " + token,
-					style: colour === void 0 ? META_STYLE : { ...META_STYLE, color: colour },
-					children: glyph === void 0 ? token : glyph
+					style: { ...META_STYLE, ...(colour === void 0 ? {} : { color: colour }), ...GLYPH_TEXT, display: "inline-flex", alignItems: "center" },
+					children: actionGlyphNode(token)
 				});
 			}
-			return react_jsx_runtime.jsx(StatusMark, { info });
+			return null;
 		}
 
 		const CARD_CONTAINER = {
@@ -663,9 +631,10 @@ window.__ModuleLoader__.load({
 			if (glyph !== void 0) {
 				value.push(react_jsx_runtime.jsx("span", {
 					"aria-hidden": true,
-					style: { color: colour === void 0 ? META_STYLE.color : colour, fontWeight: 600 },
-					children: glyph + " "
+					style: { color: colour === void 0 ? META_STYLE.color : colour, fontWeight: 700, display: "inline-flex", alignItems: "center" },
+					children: actionGlyphNode(token)
 				}, "action-glyph"));
+				value.push(" ");
 			}
 			value.push(token + (why === void 0 ? "" : " \u2014 " + why));
 			return value;
@@ -937,14 +906,14 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * The branch name's own hover body — the branch's LINEAGE, and it ALWAYS
-		 * renders once the lazy detail payload has landed. Rows: upstream, sync
+		 * The branch LINEAGE rows, for the chip's one card — and they ALWAYS
+		 * render once the lazy detail payload has landed. Rows: upstream, sync
 		 * in words, the branch's last 10 commits (WHAT THIS BRANCH HAS, full
 		 * stop — no base-relative filtering, which empties on every push or
 		 * merge). The pull request has no row here — the chip's own PR token
 		 * already carries number, CI state and the link.
 		 */
-		function BranchLineage({ info }) {
+		function lineageRows(info) {
 			const rows = [];
 			const add = (label, value) => {
 				if (value === void 0 || value === null || value === "") return;
@@ -1005,7 +974,7 @@ window.__ModuleLoader__.load({
 			}
 			// NO pull-request row: the chip's own PR token (number, CI state, link)
 			// carries it — a second rendering two pixels away is pure duplication.
-			return react_jsx_runtime.jsx("div", { style: CARD_CONTAINER, children: rows });
+			return rows;
 		}
 
 		// The host's plugin-card chrome, reproduced inline: its CSS module is not
@@ -1054,12 +1023,13 @@ window.__ModuleLoader__.load({
 		};
 
 		/**
-		 * Hover card body for the input chip — INPUT CHIP ONLY. Pure presentation
-		 * over fields the status response already carries, plus the `detail=1`
-		 * additions (recent commits, stash) when they have arrived. Everything is
-		 * spelled out in text, so no fact here depends on a colour or a glyph.
+		 * The checkout's verdict rows, for the chip's one card — INPUT CHIP ONLY.
+		 * Pure presentation over fields the status response already carries, plus
+		 * the `detail=1` additions (recent commits, stash) when they have arrived.
+		 * Everything is spelled out in text, so no fact here depends on a colour or
+		 * a glyph.
 		 */
-		function HoverCard({ info, detail }) {
+		function statusRows(info, detail) {
 			// the detail payload is a superset of the plain one, so it wins when it
 			// has landed; until then the card still shows the base facts
 			const data = detail === void 0 ? info : detail;
@@ -1105,7 +1075,25 @@ window.__ModuleLoader__.load({
 			// response lands, like commits/stash.
 			if (data.worktreeFollowed === true) add("own checkout", formatCheckoutDetail(data.checkout));
 			add("stash", data.stashCount === void 0 ? void 0 : data.stashCount + " stashed");
-			return react_jsx_runtime.jsx("div", { style: CARD_CONTAINER, children: rows });
+			return rows;
+		}
+
+		/**
+		 * The chip's ONE card, behind the leading cluster (the action glyph and the
+		 * branch name together). It stacks the checkout's verdict rows over the
+		 * branch's lineage rows, so one hover answers both "what is this checkout
+		 * doing" and "what is on this branch".
+		 *
+		 * One card, not two: the glyph and the branch are one target, and the branch
+		 * is the element that always exists — so a clean checkout, which has no
+		 * glyph, still opens the card from its branch name.
+		 */
+		function ChipCard({ info, detail }) {
+			const data = detail === void 0 ? info : detail;
+			return react_jsx_runtime.jsx("div", {
+				style: CARD_CONTAINER,
+				children: [...statusRows(info, detail), ...lineageRows(data)]
+			});
 		}
 
 		//#region composer chip (upstream additive surface: conversation.input.left)
@@ -1160,78 +1148,74 @@ window.__ModuleLoader__.load({
 			const detail = useGitStatus(target, { pr: true, detail: true, enabled: hovered });
 			if (info === void 0 || info.git !== true) return null;
 
-			// The status mark wrapped in the chip's hover card — the card's ONLY
-			// anchor. Pointer rest here (and only here) enables the detail=1 fetch,
-			// so the extras are paid for exactly when the card that can render them
-			// is about to open. Defined inside the component: it closes over the
-			// hovered state that gates the detail fetch.
-			const hoverableMark = withTooltip(
+			// The LEADING CLUSTER — the action glyph (when the checkout needs one)
+			// and the branch name — is the chip card's ONLY anchor. Pointer rest here
+			// (and only here) enables the detail=1 fetch, so the extras are paid for
+			// exactly when the card that renders them is about to open. Defined inside
+			// the component: it closes over the `hovered` state that gates the fetch.
+			//
+			// The glyph is the SAME token the sidebar row shows, in the node half's
+			// severity colour. No token means NO GLYPH: a clean, synced checkout has
+			// no action to triage, so it shows no icon rather than a decorative dot.
+			const tokenGlyph = (() => {
+				const token = info.rowToken;
+				if (typeof token !== "string" || token === "") return null;
+				return react_jsx_runtime.jsx("span", {
+					key: "glyph",
+					role: "img",
+					"aria-label": "git action: " + token,
+					style: { color: SEVERITY_FILL[info.rowSeverity] ?? META_STYLE.color, flex: "none", ...GLYPH_TEXT, display: "inline-flex", alignItems: "center" },
+					children: actionGlyphNode(token)
+				});
+			})();
+			// The branch name links to the compare view (base...branch) — the web page
+			// of exactly what the card's lineage rows list. Vouched http(s) only (the
+			// node half rebuilt the URL from parsed parts); new tab, never navigating
+			// the conversation away. The sync arrows ride WITH the branch: they are the
+			// branch's standing against its upstream, so the same hover and the same
+			// link cover them. The ✎n count keeps its own surface.
+			const isBranchLink = typeof detail?.compareUrl === "string" && detail.compareUrl.startsWith("https://");
+			const sync = formatSync(info);
+			const branchLabel = info.branch + sync;
+			// The Tooltip's CHILD must not change element type once the detail payload
+			// lands: the primitive opens on the child's mouseenter and has no `open`
+			// prop, so a node replaced under the pointer may never be re-entered. The
+			// cluster span below is the stable hover surface; only this inner node
+			// swaps (plain text -> anchor) as the compare URL arrives.
+			const branchInner = isBranchLink
+				? react_jsx_runtime.jsx("a", {
+					href: detail.compareUrl,
+					target: "_blank",
+					rel: "noopener noreferrer",
+					"aria-label": "Compare " + info.branch + " with main on GitHub" + (sync === "" ? "" : ", " + (info.ahead || 0) + " ahead and " + (info.behind || 0) + " behind upstream"),
+					onPointerEnter: () => setBranchLinkHover(true),
+					onPointerLeave: () => setBranchLinkHover(false),
+					// focus joins hover: a keyboard user needs the same underline, and
+					// focus (unlike a pointer) must also start the detail fetch
+					onFocus: () => { setHovered(true); setBranchLinkHover(true); },
+					onBlur: () => setBranchLinkHover(false),
+					style: {
+						color: "inherit",
+						textDecoration: branchLinkHover ? "underline" : "none",
+						cursor: "pointer"
+					},
+					children: branchLabel
+				})
+				: branchLabel;
+			// ALWAYS wrapped. A wrapper mounted only once the lazy detail arrives
+			// cannot open for the visit that fetched it (see the child-stability note
+			// above); until the payload lands the card degrades to the base response.
+			const leadingHover = withTooltip(
 				react_jsx_runtime.jsx("span", {
 					onPointerEnter: () => setHovered(true),
-					style: { display: "inline-flex", alignItems: "center", flex: "none", cursor: "default" },
-					children: react_jsx_runtime.jsx(StatusMark, { info })
+					style: { display: "inline-flex", alignItems: "center", gap: "6px", flex: "none", cursor: isBranchLink ? "pointer" : "default" },
+					children: [tokenGlyph, react_jsx_runtime.jsx("span", { key: "branch", children: branchInner })]
 				}),
 				// a function label keeps the card's element tree out of every render
 				// until the tooltip actually opens
-				() => react_jsx_runtime.jsx(HoverCard, { info, detail }),
+				() => react_jsx_runtime.jsx(ChipCard, { info, detail }),
 				600 // matches the body cap: the tooltip must never be the clamp
 			);
-			// the mark is an element now rather than a leading glyph in the string, so
-			// the SAME StatusMark the sidebar row draws carries the status here too;
-			// the container's 4px gap supplies the space the emoji's own did
-			// The branch NAME is its own hover surface: the commits this branch adds
-			// (BranchCommitsList), sharing the mark's lazy detail fetch. The rest of
-			// the leading text (operation token) and the count keep their own
-			// surfaces. The wrapper is always mounted (see withTooltip); without the
-			// Tooltip primitive the name renders plain.
-			const branchHover = (() => {
-				// The branch name links to the compare view (base...branch) — the web
-				// page of exactly what the lineage tooltip lists. Vouched http(s)
-				// only (the node half rebuilt the URL from parsed parts); new tab,
-				// never navigating the conversation away.
-				const isLink = typeof detail?.compareUrl === "string" && detail.compareUrl.startsWith("https://");
-				// The sync arrows ride WITH the branch: they are the branch's standing
-				// against its upstream, so the same hover (lineage) and the same link
-				// (compare view, where the arrows are the diff) cover them. The ✎n
-				// count stays its own surface — it answers a different question.
-				const sync = formatSync(info);
-				const label = info.branch + sync;
-				// The Tooltip's CHILD must not change element type once the detail
-				// payload lands: the primitive opens on the child's mouseenter and has
-				// no `open` prop, so a node replaced under the pointer may never be
-				// re-entered. The outer span is the stable hover surface; only this
-				// inner node swaps (plain text -> anchor) as the compare URL arrives.
-				const inner = isLink
-					? react_jsx_runtime.jsx("a", {
-						href: detail.compareUrl,
-						target: "_blank",
-						rel: "noopener noreferrer",
-						"aria-label": "Compare " + info.branch + " with main on GitHub" + (sync === "" ? "" : ", " + (info.ahead || 0) + " ahead and " + (info.behind || 0) + " behind upstream"),
-						onPointerEnter: () => setBranchLinkHover(true),
-						onPointerLeave: () => setBranchLinkHover(false),
-						// focus joins hover: a keyboard user needs the same underline, and
-						// focus (unlike a pointer) must also start the detail fetch
-						onFocus: () => { setHovered(true); setBranchLinkHover(true); },
-						onBlur: () => setBranchLinkHover(false),
-						style: {
-							color: "inherit",
-							textDecoration: branchLinkHover ? "underline" : "none",
-							cursor: "pointer"
-						},
-						children: label
-					})
-					: label;
-				const branch = react_jsx_runtime.jsx("span", {
-					onPointerEnter: () => setHovered(true),
-					style: { cursor: isLink ? "pointer" : "default" },
-					children: inner
-				});
-				// ALWAYS wrapped. A wrapper mounted only once the lazy detail arrives
-				// cannot open for the visit that fetched it (see the child-stability
-				// note above); until the payload lands the lineage degrades to the base
-				// response, the way the mark's own card already does.
-				return withTooltip(branch, () => react_jsx_runtime.jsx(BranchLineage, { info: detail ?? info }), 480);
-			})();
 			const text = formatOperationToken(info);
 			// The ✎n count is its OWN hover surface: a names-only tooltip (see
 			// UntrackedList). It shares the mark's lazy detail fetch — resting on
@@ -1252,7 +1236,19 @@ window.__ModuleLoader__.load({
 				const pending = detail === void 0 || detail === null;
 				return withTooltip(count, () => react_jsx_runtime.jsx(CountNames, { info: detail ?? info, pending }), 480);
 			})();
-			const prToken = formatPrToken(info);
+			// ONE element, split so the STATE GLYPH can take the CI colour while the
+			// number keeps the chip's muted colour: the leading space rides inside the
+			// glyph span, so the text and the layout are unchanged.
+			const prParts = prTokenParts(info);
+			const prToken = prParts === null ? null : [
+				prParts.number,
+				prParts.glyph === "" ? null : react_jsx_runtime.jsx("span", {
+					key: "pr-state",
+					style: { color: prParts.colour },
+					children: " " + prParts.glyph
+				}),
+				prParts.draft
+			];
 			const prUrl = prLinkUrl(info);
 			// The PR token, with its own hover: the commits IN THIS PR (see
 			// PrCommitsList). Built here so the link/plain cases and the tooltip
@@ -1319,22 +1315,19 @@ window.__ModuleLoader__.load({
 					cursor: "default"
 				},
 				children: [
-					// The hover card belongs to the STATUS SYMBOL, not the badge: the
-					// circle is the "what does this colour mean" element, and a card
-					// opening sideways from a hover on the branch text got in the way of
-					// the very pull-down this row now carries. The detail fetch
-					// (enabled: hovered) follows the same pointer, so nothing pays for
-					// extras the card no longer shows.
-					hoverableMark,
-
-						branchHover,
-						react_jsx_runtime.jsx("span", { key: "text", children: text }),
+					// ONE hover for the leading cluster (glyph + branch): the glyph is the
+					// "what does this colour mean" element, and the branch is the element
+					// that always exists — so the card opens from either, and a clean
+					// checkout with no glyph still has a card. The detail fetch
+					// (enabled: hovered) follows the same pointer.
+					leadingHover,
+					react_jsx_runtime.jsx("span", { key: "text", children: text }),
 					countHover,
 					prTokenHover
 				]
 			});
-			// No Tooltip primitive (a shell that does not seed it): the mark renders
-			// bare and the badge still works — the card is an enhancement, the
+			// No Tooltip primitive (a shell that does not seed it): the leading cluster
+			// renders bare and the badge still works — the card is an enhancement, the
 			// badge is the feature.
 			return chip;
 		}

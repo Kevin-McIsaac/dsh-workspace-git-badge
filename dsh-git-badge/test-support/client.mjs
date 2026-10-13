@@ -82,21 +82,6 @@ export function rows(node) {
 		});
 }
 
-/** The single <svg> status mark in an expanded tree, or null. */
-export function mark(node) {
-	return elements(node).find((element) => element.type === "svg") ?? null;
-}
-
-/** "disc" or "tree" — the shape that carries worktree-ness. */
-export function markShape(svg) {
-	return children(svg).some((child) => child.type === "rect") ? "tree" : "disc";
-}
-
-/** The disc/crown fill — the status colour. */
-export function markFill(svg) {
-	return children(svg).find((child) => child.type === "circle")?.props.fill;
-}
-
 /**
  * Load the real client bundle and return a renderer per registered surface.
  * `apply()` is driven with a fake slots service that captures each registration

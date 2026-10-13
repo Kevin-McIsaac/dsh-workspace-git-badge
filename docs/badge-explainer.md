@@ -1,36 +1,36 @@
 # Reading the git badge (for git newbies)
 
-The badge shows a **status mark**, your **branch name**, and sometimes
+The badge shows an **action icon**, your **branch name**, and sometimes
 **small numbers** like `↑2 ↓1 ✎3`. Here's what each piece means.
 
-The mark is a small filled **circle** — or a **tree** when the folder is a linked
-`git worktree` — and its colour is the status. It belongs to the input box. A
-sidebar row shows the same idea as one **action glyph** in its leading cell
-(`✓`, `✗`, `◆`, …), and its hover card names the word behind it —
-the README's *action token* section explains that. In this guide `●` stands for the circle and `🌳` for the tree,
-and the coloured circles stand for the mark's fill colour.
+There is ONE icon system. The node half of the plugin ranks your checkout's
+state and picks the single action it needs — `push`, `merge`, `commit`, `review`
+and so on. That action appears as a **coloured glyph**: at the head of the input
+chip, and in a sidebar row's leading cell (`✓`, `✗`, `◆`, …). With nothing to do
+there is **no icon at all**, because there is no action to name. A hover card
+explains the icon in words, on both surfaces.
 
-## The status mark — "is there something I need to do?"
+## The action icon — "is there something I need to do?"
 
-The mark summarizes your whole git situation in three levels:
+The icon summarizes the ONE thing your checkout needs. Its colour is the
+**severity**, taken from the app's own state tokens:
 
-| Mark | Meaning | What to do |
-|------|---------|------------|
-| 🟢 **Green** | Every file in your folder matches your last commit, **and** you're in sync with the remote (GitHub). Nothing to do. | Nothing |
-| 🟡 **Yellow** | Routine work pending: you have uncommitted file changes (✎), or you're ahead (↑) / behind (↓) of the remote. Nothing is wrong. | Commit, push, or pull when convenient |
-| 🔴 **Red** | Something needs attention before you keep working: either a **merge conflict** is in progress (git is blocked until you resolve it), or you have **uncommitted edits on top of an outdated base** (dirty *and* behind — commit first, then pull). | Resolve the conflict, or commit your edits then `git pull` |
+| Colour | Severity | Examples | What to do |
+|--------|----------|----------|------------|
+| 🔴 **Red** | error | a merge conflict, a paused rebase, failing checks | Resolve the conflict, finish the operation, or fix the build first |
+| 🟡 **Amber** | warn | a review requested or required | Answer the review |
+| 🟢 **Green** | success | the pull request is ready to merge | Merge it |
+| 🔵 **Blue** | business | routine work: push, pull, sync, update, commit | Do it when convenient |
 
-**Note:** red never means merely "behind". A clean folder that is one commit
-behind the remote is a completely normal state between pulls — the mark only
-turns red when behind *combines* with unsaved edits.
-
-The rules are checked top-down: red wins over yellow, yellow over green.
+Severity is not identity: several routine actions share the blue, and the WORD on
+the hover card says which one. Red never means merely "behind" — that is routine
+blue.
 
 ## The numbers — three separate things
 
 ```
 ↑2   ↓1   ✎3
- │    │    └─ pencil: files changed but not committed (this makes the mark yellow)
+ │    │    └─ pencil: files changed but not committed (this makes the action `commit`)
  │    └─ down arrow: commits on the remote (GitHub) that you don't have yet — you should `git pull`
  └─ up arrow: commits you made that the remote doesn't have yet — you should `git push`
 ```
@@ -53,18 +53,18 @@ Sometimes the badge shows a word with a little sword in front of it, right after
 the branch name:
 
 ```
-● main ⚔rebase ↑0 ↓2 ✎3
+✚ main ⚔rebase ↑0 ↓2 ✎3
 ```
 
 That means git started an operation and has not finished it. The word says
 which one: `⚔merge`, `⚔squash`, `⚔cherry-pick`, `⚔revert`, `⚔bisect`,
 `⚔rebase`, `⚔sequencer`.
 
-This matters because the **status mark cannot tell you this**. When you pause a
-rebase and stage the files you fixed, no conflicts are left, so the mark goes
-back to yellow — or green. The ⚔ word is the only part of the badge saying git
-is still mid-operation and waiting for you to continue or undo it
-(`git rebase --continue`, `git rebase --abort`, …).
+This matters because the **action icon cannot tell you this**. When you pause a
+rebase and stage the files you fixed, no conflicts are left, so the icon goes
+back to the routine action (`commit`, `push`) — or disappears. The ⚔ word is the
+only part of the badge saying git is still mid-operation and waiting for you to
+continue or undo it (`git rebase --continue`, `git rebase --abort`, …).
 
 Only the chip in the input box shows the token. A sidebar row shows the one
 **action** that conversation needs — `resume`, `resolve`, `sync`, `pull`,
@@ -87,37 +87,37 @@ at all, and never the branch. Each word has a glyph too:
 The row shows the token as its glyph in the leading cell, with the word as its
 accessible name. Rest the pointer on that row and its usual hover card opens a
 label/value list: the action with its reason (`↑ push — no upstream configured`),
-the checkout, and the pull request. When there is no token — clean and in sync —
-that cell falls back to the status mark above.
+the checkout, and the pull request. The input chip leads with the SAME glyph, so
+the two surfaces agree. When there is no token — clean and in sync — both draw no
+icon at all.
 
 ## A worked example
 
-`● main  ↑0 ↓1` means:
+`↓ main  ↑0 ↓1` means (the `↓` is the `pull` token):
 
 - Your folder exactly matches your last local commit (the ✎ count is 0).
 - ↑0 You have nothing to push.
 - ↓1 Someone (or you, from GitHub) added one commit to the remote that
   you haven't pulled yet.
 
-The mark is **yellow, not green** — it's reminding you that you're one
+The icon is **blue** (`pull`) — it's reminding you that you're one
 commit behind the shared version. It's a perfectly safe state, just a
-small nudge: run `git pull` whenever you're ready. The mark only turns
-red if you start *editing files* while still behind — that combination
-is where beginners get bitten (a commit made on an outdated base needs
-an extra merge).
+small nudge: run `git pull` whenever you're ready. The colour turns
+red only when a state blocks you — a conflict, a paused operation, or a
+failing build.
 
 ## Quick cheat sheet
 
 | You see | What it means | What to do |
 |---------|--------------|------------|
-| 🟢 main | All clean, fully synced | Nothing |
-| 🟡 main ↓1 | Your files are fine, remote is 1 commit ahead | `git pull` when convenient |
-| 🟡 main ✎2 | 2 files changed, not committed | `git add` + `git commit` |
-| 🔴 main ✎2 ↓1 | Uncommitted edits *and* behind — commit before pulling | `git add` + `git commit`, then `git pull` |
-| 🟡 main ↑2 ↓1 ✎3 | Unsaved edits, plus unsynced commits both ways | Commit your edits, then `git pull` and `git push` |
-| 🟡 main ⚔rebase | A rebase is paused, waiting on you | Finish it (`git rebase --continue`) or undo it (`git rebase --abort`) |
-| 🔴 main | Merge conflict in progress | Resolve the conflicted files, then commit |
-| 🌳 main | A linked worktree sitting on `main`, clean and synced | Nothing — the tree shape marks it as a separate checkout |
+| main | All clean, fully synced | Nothing |
+| ↓ main ↓1 | Your files are fine, remote is 1 commit ahead | `git pull` when convenient |
+| ✚ main ✎2 | 2 files changed, not committed | `git add` + `git commit` |
+| 🟡 main ✎2 ↓1 | Uncommitted edits *and* behind | `git add` + `git commit`, then `git pull` |
+| 🔵 main ↑2 ↓1 ✎3 | Unsaved edits, plus unsynced commits both ways | Commit your edits, then `git pull` and `git push` |
+| ⏵ main ⚔rebase | A rebase is paused, waiting on you | Finish it (`git rebase --continue`) or undo it (`git rebase --abort`) |
+| ! main | Merge conflict in progress | Resolve the conflicted files, then commit |
+| main (a linked worktree) | A linked worktree sitting on `main`, clean and synced | Nothing — the card's `worktree` row names it |
 
-(The coloured circle in these tables stands for the mark's fill; the mark itself
-is a circle, or a tree in a linked worktree.)
+(The emoji in these tables stand for the icon's severity colour. The icon itself
+is one glyph, and the hover card gives the word behind it.)

@@ -12,7 +12,7 @@ Run this first for **any** change to either lib half. For the node half it
 verifies the status parser, `gitStatus` against real temporary repositories,
 request→workspace resolution, SSE framing and the fs watcher. For the client half
 it loads `lib/client.js` — the real bundle — behind a stub module loader and
-renders both registered surfaces, so the mark's shape/colour rules, the row's
+renders both registered surfaces, so the glyph/severity rules, the row's
 "never show the branch" rule and the worktree-name suppression are asserted
 rather than eyeballed. Nothing boots DSH, so it costs no restart and cannot end
 your session. CI runs the same command on Node 20/22/24
@@ -130,8 +130,8 @@ The feature has three independently testable layers:
 1. **Node half** (`dsh-git-badge/lib/index.js`) — pure functions and git plumbing;
    covered by the suite above without booting DSH. A restart is only needed to see
    the change live.
-2. **Client half** (`dsh-git-badge/lib/client.js`) — the rendered badge: mark
-   shape and colour, the row/chip composition, the accessible names. Covered by the
+2. **Client half** (`dsh-git-badge/lib/client.js`) — the rendered badge: glyph
+   and severity colour, the row/chip composition, the accessible names. Covered by the
    same suite through `test-support/client.mjs`; only the bundle actually being
    served to a browser is left to a refresh.
 3. **Published plugin** (`dsh-git-badge` from npm) — the customer experience;
@@ -231,8 +231,8 @@ the checkout and the pull request rides upstream's own
   see it live (the suite already covers the parser, `gitStatus` against real
   repos, resolution, SSE, the watcher, and every PR/CI degradation path through
   the `prRunner` seam — so a `gh`-less CI box still tests the feature).
-- **Client half changed** → `npm test` covers the rendering rules (mark shape and
-  colour, the leading glyph, row/chip composition, the hover card's contents, and
+- **Client half changed** → `npm test` covers the rendering rules (glyph and
+  severity colour, the leading glyph, row/chip composition, the hover card's contents, and
   the PR token); a browser refresh is then only needed to see it live. After
   bundle-graph changes, restart first (see above).
 - **Hover card / PR token changed** → two things to know when testing by hand.

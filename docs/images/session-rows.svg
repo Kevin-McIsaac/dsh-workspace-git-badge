@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="780" height="212" viewBox="0 0 780 212" role="img"
-     aria-label="Dark-mode sidebar session rows: a green tick in the leading cell for a merge-ready pull request, a red cross for failing CI, and a green status dot when there is nothing to do">
+     aria-label="Dark-mode sidebar session rows: a green tick in the leading cell for a merge-ready pull request, a red cross for failing CI, and an empty leading cell when there is nothing to do">
   <style>
     .panel { fill:#1b1e21; stroke:#2b3034; stroke-width:1 }
     .head  { font:12px -apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif; fill:#7d858c }
@@ -19,8 +19,8 @@
   <text class="act err" x="36" y="113">&#x2717;</text><text class="title" x="58" y="113">Fix the sidebar blanking the region…</text>
   <text class="time" x="712" y="113">2h</text>
 
-  <circle cx="42" cy="146" r="5" fill="#3fbf7f"/><text class="title" x="58" y="151">Docs: first pass at the READMEs…</text>
+  <text class="title" x="58" y="151">Docs: first pass at the READMEs…</text>
   <text class="time" x="712" y="151">3h</text>
 
-  <text class="cap" x="26" y="188">Leading glyph = the action (&#x2713; merge-ready, &#x2717; failing CI); the dot means nothing to do. Hover for the word and reason.</text>
+  <text class="cap" x="26" y="188">Leading glyph = the action (&#x2713; merge-ready, &#x2717; failing CI); an EMPTY cell means nothing to do. Hover for the word and reason.</text>
 </svg>
