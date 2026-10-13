@@ -12,7 +12,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { apply, config, nextActions } from "../lib/index.js";
+import { apply, config, nextActions, normalizeOrder, seedOrder } from "../lib/index.js";
 import { makeRepo } from "../test-support/repo.mjs";
 
 /** A schemastery-shaped stub: enough for the namespace schema to resolve. */
@@ -76,12 +76,30 @@ test("the node half registers the git-badge namespace with the category schema",
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		assert.deepEqual(registered.namespaces, ["git-badge"]);
 		const schema = registered.schemas[0];
-		assert.deepEqual(schema._defaults.order, ["operation", "unmerged", "sync", "publish", "merge", "commit", "checks"]);
+		assert.deepEqual(schema._defaults.order, ["operation", "unmerged", "conflict", "review", "sync", "publish", "merge", "commit", "checks"]);
 	} finally {
 		config.settingsSchemaLoader = previousLoader;
 		if (previousHome === void 0) delete process.env.DSH_HOME;
 		else process.env.DSH_HOME = previousHome;
 	}
+});
+
+test("normalizeOrder keeps an existing stored order valid and appends new categories", () => {
+	// The migration contract: a user whose order predates `conflict` and `review`
+	// keeps their ranking, with the two new categories appended (so they rank
+	// last) rather than re-ranking anything silently.
+	const stored = ["operation", "unmerged", "sync", "publish", "merge", "commit", "checks"];
+	const normalized = normalizeOrder(stored);
+	assert.deepEqual(normalized, ["operation", "unmerged", "sync", "publish", "merge", "commit", "checks", "conflict", "review"]);
+	// every stored category keeps its relative position
+	assert.deepEqual(normalized.filter((cat) => stored.includes(cat)), stored);
+	// a partial order still normalises, and unknown names are dropped
+	assert.deepEqual(
+		normalizeOrder(["commit", "sync", "bogus"]),
+		["commit", "sync", "operation", "unmerged", "conflict", "review", "publish", "merge", "checks"]
+	);
+	// garbage falls back to the full default, new categories included
+	assert.deepEqual(normalizeOrder("nope"), ["operation", "unmerged", "conflict", "review", "sync", "publish", "merge", "commit", "checks"]);
 });
 
 test("a pre-settings JSON file seeds the namespace base", async () => {
@@ -95,11 +113,38 @@ test("a pre-settings JSON file seeds the namespace base", async () => {
 		const { ctx, registered } = fakeCtx();
 		apply(ctx);
 		await new Promise((resolve) => setTimeout(resolve, 0));
-		assert.deepEqual(registered.orders[0], ["commit", "sync", "operation", "unmerged", "publish", "merge", "checks"], "the file's order, normalised");
+		assert.deepEqual(registered.orders[0], ["commit", "sync", "operation", "unmerged", "conflict", "review", "publish", "merge", "checks"], "the file's order, normalised, with the new categories appended");
 	} finally {
 		config.settingsSchemaLoader = previousLoader;
 		if (previousHome === void 0) delete process.env.DSH_HOME;
 		else process.env.DSH_HOME = previousHome;
+	}
+});
+
+test("the new categories are rankable: a configured order sets the row token", async () => {
+	const home = mkdtempSync(join(tmpdir(), "dsh-git-badge-review-"));
+	const previousHome = process.env.DSH_HOME;
+	const previousLoader = config.settingsSchemaLoader;
+	process.env.DSH_HOME = home;
+	config.settingsSchemaLoader = async () => stubSchema();
+	try {
+		// a dirty tree with changes requested: the default order ranks `review`
+		// above `commit`, the reverse order ranks `commit` first
+		const info = {
+			git: true,
+			upstream: "o/m",
+			stagedFiles: 1,
+			pr: { number: 9, state: "passing", review: "CHANGES_REQUESTED", open: true }
+		};
+		const { ctx } = fakeCtx({ order: ["commit", "review"] });
+		apply(ctx);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		assert.equal(nextActions(info).rowToken, "commit", "the configured order wins, and `review` is rankable");
+	} finally {
+		config.settingsSchemaLoader = previousLoader;
+		if (previousHome === void 0) delete process.env.DSH_HOME;
+		else process.env.DSH_HOME = previousHome;
+		seedOrder();
 	}
 });
 

@@ -14,7 +14,7 @@ awareness directly into your workflow:
 
 ![Dark-mode input chip: a tree mark with the worktree branch feat/worktree-aware-chip and a passing PR#18, above a main checkout showing sync and file counts and a failing check](docs/images/chip.svg)
 
-2. **Actionable session overview**: pinpoints the session requiring attention (`merge`, `fix CI`, `resolve`) without a context switch.
+2. **Actionable session overview**: pinpoints the session requiring attention (`merge`, `fix CI`, `resolve`, `review`, `resume`, `commit`, …) without a context switch. The node half ranks the rules and sends the row's token with every status response; the row just shows it. With the seam patched the row shows the word pill, and without it the same token renders as a glyph in the row's leading cell — coloured by severity. The row's hover card opens with the glyph, the word and the reason (`↑ publish — no upstream configured`) and wraps long lines.
 
 ![Dark-mode sidebar session rows: one asking you to merge in green, one asking you to fix CI in red, and one with nothing to do showing no token](docs/images/session-rows.svg)
 
@@ -46,7 +46,11 @@ After that, every later install/upgrade of the plugin applies the seam itself; o
 ## Sidebar technical details
 The sidebar session-row action token needs a seam the workspace browser does not
 declare upstream yet (discussion
-[#5092](https://github.com/deepseek-ai/deepseek-harness/discussions/5092)). The
+[#5092](https://github.com/deepseek-ai/deepseek-harness/discussions/5092)). With
+the seam patched, the row shows the word pill. Without it, the same node-half
+token renders as a **glyph in the row's leading cell** — upstream's own
+`sidebar.session.row.leading` seat — so an unpatched install keeps a compact
+signal instead of a bare row. The
 hover-card provenance line needs **no** patch: DSH 0.2.0-rc.2 declares its own
 `sidebar.session.row.hover` seat, and the line rides that. The patcher **ships
 inside the package** — no clone needed:

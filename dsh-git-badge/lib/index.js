@@ -702,13 +702,18 @@ const OPERATION_NEXT = {
  * below (first match wins) is the default, and a user can override it by
  * naming categories in `~/.dsh/git-badge-next.json`:
  *
- *   { "order": ["operation", "unmerged", "sync", "publish", "merge", "commit", "checks"] }
+ *   { "order": ["operation", "unmerged", "conflict", "review", "sync", "publish", "merge", "commit", "checks"] }
  *
  * Any subset in any order; categories not listed rank after the listed ones in
  * default order, unknown names are ignored. Typically edited for you by the
  * agent via `/gh order`.
+ *
+ * Migration note: `conflict` and `review` were added after an existing user's
+ * stored order was written. `normalizeOrder` appends the categories they did
+ * not list, so an old seven-category order ranks the two last until the user
+ * reorders them in Settings. Nothing re-ranks silently.
  */
-const DEFAULT_NEXT_ORDER = ["operation", "unmerged", "sync", "publish", "merge", "commit", "checks"];
+const DEFAULT_NEXT_ORDER = ["operation", "unmerged", "conflict", "review", "sync", "publish", "merge", "commit", "checks"];
 
 /** Normalise any order list: known categories first, then the rest in default order. */
 function normalizeOrder(order) {
@@ -791,7 +796,7 @@ function nextOrder() {
  * Clean, synced, nothing failing → null: the row is omitted entirely, because
  * "no suggestion" is also a suggestion.
  *
- * @returns {{ args: string, command: string|undefined, why: string, what: string } | null}
+ * @returns {{ args: string|null, cat: string, command: string|undefined, why: string, what: string, token: string|null } | null}
  */
 function nextStepRules(info) {
 	if (info === void 0 || info === null || info.git !== true) return null;
@@ -804,7 +809,10 @@ function nextStepRules(info) {
 	const untracked = info.untrackedFiles || 0;
 	const dirty = staged + unstaged + untracked;
 	const rules = [];
-	const add = (cat, args, why, what, command) => rules.push({ cat, args, why, what, command });
+	// `args` is the `/gh` invocation, or null for a ROW-ONLY rule the `gh` skill
+	// has no verb for (the picker must not offer a verb that does not exist).
+	// `token` is the row's one-word imperative for the rule, or null.
+	const add = (cat, args, why, what, command, token) => rules.push({ cat, args, why, what, command, token });
 
 	if (info.operation !== void 0 && info.operation !== null) {
 		const op = String(info.operation);
@@ -813,25 +821,43 @@ function nextStepRules(info) {
 				? `${unmerged} unmerged file${plural(unmerged)} blocking the paused ${op}`
 				: `a ${op} is paused mid-operation`,
 			`resume the paused ${op}`,
-			OPERATION_NEXT[op]);
+			OPERATION_NEXT[op],
+			"resume");
 	}
 	if (unmerged > 0) {
-		add("unmerged", "next", `${unmerged} unmerged file${plural(unmerged)} to resolve`, "resolve the unmerged files (with you)", "git status");
+		add("unmerged", "next", `${unmerged} unmerged file${plural(unmerged)} to resolve`, "resolve the unmerged files (with you)", "git status", "resolve");
 	}
 	if (behind > 0 && ahead > 0) {
-		add("sync", "sync", `${ahead} ahead, ${behind} behind — diverged`, "rebase your commits onto upstream and push (asks before any force)");
+		add("sync", "sync", `${ahead} ahead, ${behind} behind — diverged`, "rebase your commits onto upstream and push (asks before any force)", void 0, "sync");
 	} else if (behind > 0) {
-		add("sync", "pull", `${behind} behind ${info.upstream ?? "upstream"}`, "update this branch from upstream", "git pull --ff-only");
+		add("sync", "pull", `${behind} behind ${info.upstream ?? "upstream"}`, "update this branch from upstream", "git pull --ff-only", "pull");
 	}
 	if (info.upstream === void 0 && dirty > 0) {
-		add("publish", "push", "no upstream configured", `publish ${info.branch} for the first time`, `git push -u origin ${info.branch}`);
+		add("publish", "push", "no upstream configured", `publish ${info.branch} for the first time`, `git push -u origin ${info.branch}`, "publish");
 	} else if (ahead > 0) {
-		add("publish", "push", `${ahead} ahead of ${info.upstream ?? "upstream"}`, "push local commits to the remote", "git push");
+		add("publish", "push", `${ahead} ahead of ${info.upstream ?? "upstream"}`, "push local commits to the remote", "git push", "push");
 	}
 	const pr = info.pr === void 0 || info.pr === null ? void 0 : info.pr;
+	// PR states no `/gh` verb covers: ROW-ONLY rules. They carry the row's token
+	// and `args: null`, so they triage on the row without the picker offering a
+	// verb the skill does not have. They ride the same ranking as everything
+	// else, so a row-only rule can sit above the first picker-eligible one.
+	if (pr !== void 0 && pr.number !== void 0 && pr.open !== false) {
+		if (pr.mergeState === "DIRTY") {
+			add("conflict", null, `pull request ${pr.number} conflicts with its base`, `resolve the conflict on pull request ${pr.number}`, void 0, "resolve");
+		}
+		if (pr.review === "CHANGES_REQUESTED") {
+			add("review", null, `changes requested on pull request ${pr.number}`, `address the review on pull request ${pr.number}`, void 0, "review");
+		} else if (pr.review === "REVIEW_REQUIRED") {
+			add("review", null, `pull request ${pr.number} needs a review`, `get pull request ${pr.number} reviewed`, void 0, "review");
+		}
+		if (pr.mergeState === "BEHIND") {
+			add("sync", null, `pull request ${pr.number} is behind its base`, `update pull request ${pr.number} from its base`, void 0, "update");
+		}
+	}
 	if (pr !== void 0 && pr.number !== void 0 && pr.open !== false
 		&& (pr.mergeState === "CLEAN" || (pr.state === "passing" && pr.review === "APPROVED"))) {
-		add("merge", `merge ${pr.number}`, `pull request ${pr.number} is ready to merge`, `merge pull request ${pr.number} (squash)`);
+		add("merge", `merge ${pr.number}`, `pull request ${pr.number} is ready to merge`, `merge pull request ${pr.number} (squash)`, void 0, "merge");
 	}
 	if (dirty > 0) {
 		const parts = [
@@ -844,10 +870,10 @@ function nextStepRules(info) {
 			: untracked > 0 && unstaged === 0
 				? "git add -A && git commit"
 				: "git add -p && git commit";
-		add("commit", "commit", `work to commit: ${parts}`, staged > 0 ? "commit the staged changes" : "stage and commit the working changes", command);
+		add("commit", "commit", `work to commit: ${parts}`, staged > 0 ? "commit the staged changes" : "stage and commit the working changes", command, "commit");
 	}
 	if (pr !== void 0 && pr.number !== void 0 && pr.state === "failing") {
-		add("checks", `checks ${pr.number}`, `checks failing on #${pr.number}`, "watch the CI checks on pull request " + pr.number, `gh pr checks ${pr.number} --watch`);
+		add("checks", `checks ${pr.number}`, `checks failing on #${pr.number}`, "watch the CI checks on pull request " + pr.number, `gh pr checks ${pr.number} --watch`, "fix CI");
 	}
 
 	// STANDING options: never ranked, never the primary suggestion — they are
@@ -892,18 +918,27 @@ function nextStepRules(info) {
  * extra into its action row, and `/gh pr` was offered on the default branch.
  * One authority, one list, no reconciliation.
  *
- * Exactly one entry can be `primary` (the top RANKED rule) or none at all —
- * a clean, synced checkout has actions (look at the PR, clean up) but no
- * suggestion, because "no suggestion" is also a suggestion.
+ * Exactly one entry can be `primary` (the top RANKED rule that has a `/gh`
+ * verb) or none at all — a clean, synced checkout has actions (look at the PR,
+ * clean up) but no suggestion, because "no suggestion" is also a suggestion.
  *
- * @returns {{ actions: Array<{args, why, what, command?, danger?, primary?}>, next: object|null }}
+ * `rowToken` is the row's own verdict: the first ranked rule with a non-null
+ * `token`. It may name a ROW-ONLY rule (a PR conflict, a requested review) that
+ * never enters `actions`, so the row triages while the chip and picker offer
+ * only real actions. `rowWhy` is that same rule's reason, so a surface with no
+ * room for the word (the leading glyph) can say WHY on hover.
+ *
+ * @returns {{ actions: Array<{args, why, what, command?, danger?, primary?}>, next: object|null, rowToken: string|null, rowWhy: string|null }}
  */
 function nextActions(info) {
 	const built = nextStepRules(info);
-	if (built === null) return { actions: [], next: null };
+	if (built === null) return { actions: [], next: null, rowToken: null, rowWhy: null };
 	const { ranked, standing } = built;
+	// Row-only rules carry `args: null` and are dropped here: the picker must
+	// never offer a `/gh` verb the skill does not have.
+	const offerable = ranked.filter((rule) => typeof rule.args === "string");
 	const actions = [
-		...ranked.map((rule, index) => ({
+		...offerable.map((rule, index) => ({
 			args: rule.args,
 			why: rule.why,
 			what: rule.what,
@@ -913,7 +948,10 @@ function nextActions(info) {
 		...standing
 	];
 	const primary = actions.find((action) => action.primary === true) ?? null;
-	return { actions, next: primary };
+	// The winning row rule supplies BOTH the token and its reason, so the two
+	// can never describe different rules.
+	const rowRule = ranked.find((rule) => rule.token !== null && rule.token !== void 0) ?? null;
+	return { actions, next: primary, rowToken: rowRule?.token ?? null, rowWhy: rowRule?.why ?? null };
 }
 
 /**
@@ -1153,12 +1191,14 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 			info.prCommitsTotal = info.mainAhead;
 		}
 	}
-	// The ranked suggestion rides EVERY response (it is pure derivation, and a
-	// sidebar row may one day use it instead of its own copy of these rules);
-	// the full action list is sent only for `pr=1`, the surfaces that have a
-	// picker, so a row's payload stays lean.
-	const { actions, next } = nextActions(info);
+	// The ranked suggestion AND the row's token ride EVERY response (both are
+	// pure derivation, and the sidebar row now reads the node half's token
+	// instead of re-deriving it); the full action list is sent only for `pr=1`,
+	// the surfaces that have a picker, so a row's payload stays lean.
+	const { actions, next, rowToken, rowWhy } = nextActions(info);
 	if (next !== null) info.next = next;
+	if (rowToken !== null) info.rowToken = rowToken;
+	if (rowWhy !== null) info.rowTokenWhy = rowWhy;
 	if (wantPr && actions.length > 0) info.actions = actions;
 	return info;
 }
@@ -1783,6 +1823,7 @@ export {
 	OPERATION_MARKERS,
 	operationMarker,
 	nextActions,
+	normalizeOrder,
 	seedOrder,
 	outerGitDir,
 	parseStatusV2,

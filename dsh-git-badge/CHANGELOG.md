@@ -10,6 +10,43 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Added
+
+- **An unpatched install now shows the session row's token as a leading
+  glyph.** Without the `sidebar.workspaces.sessionRow` seam there is no room
+  for the word pill, so the same node-half token renders as a single glyph in
+  the row's 16px leading cell, with the word as its accessible name. The glyph
+  asks the same question the row card does (`pr=1`), so the PR tokens `merge`,
+  `review` and `fix CI` reach it too — not only the local ones — and the two
+  share one cache entry. With no token (clean and in sync) the cell keeps the
+  shared status mark. The leading seat is upstream's own
+  (`sidebar.session.row.leading`) — no patch, and a patched install returns
+  nothing there and pays no request.
+- **The leading glyph explains itself on the row's hover card.** The node half
+  attaches the winning rule's reason as `rowTokenWhy`, and the session-row hover
+  card now opens with the token's own GLYPH and word, then the reason (for
+  example `↑ publish — no upstream configured`). It rides the card the row
+  already opens, so hovering the glyph shows exactly what hovering the session
+  line shows. The card's line also wraps now, so a long checkout name no longer
+  overruns it.
+- **New row tokens** for states the earlier table could not name: `resume` (a
+  paused operation), `resolve` (a PR that conflicts with its base), `review`
+  (changes requested, or a review required), `sync` (diverged), `update` (the
+  PR is behind its base), `publish` (no upstream) and `commit` (dirty work).
+- **Two ranking categories: `conflict` and `review`.** Both are row-only —
+  no `/gh` verb covers them — so they triage the row without entering the
+  action list the picker offers. They join the Settings → Plugins → Git Badge
+  order card.
+
+### Changed
+
+- **The node half is the single authority for the row's word.** `nextActions`
+  now returns `rowToken` alongside `actions` and `next`, and the route attaches
+  it to every status response. The client row reads that token instead of
+  re-deriving the rules, so the chip, the picker and the row cannot drift.
+  A stored order that predates the two new categories keeps its ranking, with
+  them appended (they rank last until reordered in Settings).
+
 ## [0.19.0] - 2026-10-12
 
 ### Fixed

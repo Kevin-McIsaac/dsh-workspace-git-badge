@@ -37,6 +37,16 @@ test("the hard rules tie the dry run to the clean verb", () => {
 	assert.match(FLAT, /`\/gh clean`'s dry run and verbatim quote come before any `git clean -f`/);
 });
 
+test("/gh order and /gh next name the new row-only categories", () => {
+	// `conflict` and `review` are ROW-ONLY: no `/gh` verb covers them, so the
+	// skill must order them AND must not promise a command for them.
+	assert.match(FLAT, /`conflict`/, "the order list names conflict");
+	assert.match(FLAT, /`review`/, "the order list names review");
+	assert.match(FLAT, /`CHANGES_REQUESTED`/, "/gh next names the changes-requested case");
+	assert.match(FLAT, /`REVIEW_REQUIRED`/, "/gh next names the review-required case");
+	assert.match(FLAT, /do not invent a command for it/, "and says there is no verb");
+});
+
 // ---------------------------------------------------------------------------
 // the menu entry (client half): /gh clean appears only with untracked files,
 // last, and carrying the host's risk gate

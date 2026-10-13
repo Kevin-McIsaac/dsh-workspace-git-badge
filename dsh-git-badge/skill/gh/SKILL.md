@@ -36,6 +36,12 @@ unstaged / untracked / unmerged), plus any in-progress operation marker
   only for untracked-only changes, which `add -p` cannot see); `gh pr checks
   <n> --watch` when CI fails. Clean and synced → say so and stop.
 
+  Three first-match cases have no verb of their own and belong to the row's
+  triage: a pull request whose `mergeState` is `DIRTY` (base conflict),
+  `review` `CHANGES_REQUESTED` (address the review), or `review`
+  `REVIEW_REQUIRED` (wait for the reviewer). Report which PR it is and what
+  it needs; do not invent a command for it.
+
 - **`/gh push`** — `git push`. If there is no upstream, `git push -u origin
   <branch>`. If the push is rejected as non-fast-forward, STOP and ask: offer
   `--force-with-lease` as the option, never plain `--force`, and never without
@@ -114,7 +120,9 @@ unstaged / untracked / unmerged), plus any in-progress operation marker
   When the request comes through the agent instead, read the current value from
   the settings document (`~/.dsh/settings.yaml`, the `git-badge:` section) and
   change that `order` list — any subset, any order; unlisted categories rank
-  after in default order. Never invent categories. The older
+  after in default order. The categories are `operation`, `unmerged`,
+  `conflict`, `review`, `sync`, `publish`, `merge`, `commit` and `checks`.
+  Never invent categories. The older
   `~/.dsh/git-badge-next.json` is only a fallback for hosts without the
   settings stack; do not edit it when the namespace is present. Typical
   invocations: "/gh order commit first", "/gh order never suggest checks

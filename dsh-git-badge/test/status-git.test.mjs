@@ -390,6 +390,86 @@ test("a clean repository response carries no next field", async (t) => {
 	assert.equal(info.next, void 0);
 });
 
+// ---------------------------------------------------------------------------
+// rowToken — the session row's single authority. `nextActions` derives it from
+// the same ranked rules as the card, and the route attaches it to every
+// response. These tests pin the whole token table, the row-only rules and the
+// clean/not-a-repo cases.
+// ---------------------------------------------------------------------------
+
+const ROW_BASE = { git: true, branch: "feat/x", upstream: "origin/feat/x", ahead: 0, behind: 0, dirty: false, stagedFiles: 0, unstagedFiles: 0, untrackedFiles: 0 };
+
+test("rowToken: every state in the token table derives its word", () => {
+	const cases = [
+		[{ operation: "rebase" }, "resume"],
+		[{ unmergedFiles: 1 }, "resolve"],
+		[{ pr: { number: 7, state: "passing", mergeState: "DIRTY", open: true } }, "resolve"],
+		[{ pr: { number: 7, state: "passing", review: "CHANGES_REQUESTED", open: true } }, "review"],
+		[{ pr: { number: 7, state: "passing", review: "REVIEW_REQUIRED", open: true } }, "review"],
+		[{ ahead: 1, behind: 2 }, "sync"],
+		[{ behind: 2 }, "pull"],
+		[{ pr: { number: 7, state: "passing", mergeState: "BEHIND", open: true } }, "update"],
+		[{ upstream: void 0, stagedFiles: 1 }, "publish"],
+		[{ ahead: 2 }, "push"],
+		[{ pr: { number: 7, state: "passing", mergeState: "CLEAN", open: true } }, "merge"],
+		[{ stagedFiles: 1 }, "commit"],
+		[{ pr: { number: 7, state: "failing", open: true } }, "fix CI"]
+	];
+	for (const [extra, token] of cases) {
+		assert.equal(nextActions({ ...ROW_BASE, ...extra }).rowToken, token, JSON.stringify(extra));
+	}
+});
+
+test("rowToken: a clean checkout and a non-repository derive no token", () => {
+	assert.equal(nextActions(ROW_BASE).rowToken, null, "clean and synced");
+	assert.equal(nextActions(void 0).rowToken, null, "no input");
+	assert.equal(nextActions({ git: false }).rowToken, null, "not a repository");
+});
+
+test("row-only rules never enter actions or next, but still set rowToken", () => {
+	// The PR conflict is ranked above the dirty tree's commit, so the row triages
+	// the conflict while the picker still offers only a real `/gh` verb.
+	const conflicted = nextActions({
+		...ROW_BASE,
+		stagedFiles: 1,
+		pr: { number: 7, state: "passing", mergeState: "DIRTY", open: true }
+	});
+	assert.equal(conflicted.rowToken, "resolve", "the row triages the conflict");
+	assert.equal(conflicted.next.args, "commit", "the picker offers a verb the skill has");
+	assert.equal(conflicted.actions[0].args, "commit", "the row-only rule is not first in the list");
+	assert.equal(
+		conflicted.actions.some((action) => typeof action.args !== "string"),
+		false,
+		"no row-only entry leaks into the picker's list"
+	);
+	// a row-only rule alone: the row speaks and the picker stays empty of verbs
+	const only = nextActions({ ...ROW_BASE, pr: { number: 7, state: "passing", review: "CHANGES_REQUESTED", open: true } });
+	assert.equal(only.rowToken, "review");
+	assert.equal(only.next, null, "no primary suggestion");
+	assert.equal(only.actions.every((action) => typeof action.args === "string"), true, "standing entries only");
+});
+
+test("rowWhy carries the winning row rule's reason, for a glyph with no room for the word", () => {
+	// The reason and the token come from the SAME rule, so a hover can never
+	// describe a different rule from the glyph it annotates.
+	assert.equal(nextActions({ ...ROW_BASE, upstream: void 0, stagedFiles: 1 }).rowWhy, "no upstream configured");
+	assert.equal(
+		nextActions({ ...ROW_BASE, pr: { number: 7, state: "passing", mergeState: "DIRTY", open: true } }).rowWhy,
+		"pull request 7 conflicts with its base"
+	);
+	// no token (clean, or not a repository) means no reason either
+	assert.equal(nextActions(ROW_BASE).rowWhy, null, "clean and synced");
+	assert.equal(nextActions({ git: false }).rowWhy, null, "not a repository");
+	assert.equal(nextActions(void 0).rowWhy, null, "no input");
+});
+
+test("a clean repository response omits rowToken as well as next", async (t) => {
+	const repo = await makeRepo(t);
+	await repo.commit("initial");
+	const info = await gitStatus(repo.root);
+	assert.equal(info.rowToken, void 0, "nothing to do, so no token");
+});
+
 test("the detail payload vouches a https compare URL", async (t) => {
 	const repo = await makeRepo(t);
 	await repo.commit("base");

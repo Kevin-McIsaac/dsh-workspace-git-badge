@@ -24,6 +24,28 @@ const STATUSES = {
 	"dirty and behind": { dirty: true, behind: 2 }
 };
 
+/**
+ * Every token the node half can attach as `rowToken`, with its glyph and the
+ * severity colour it maps to. The row renders the token it is GIVEN; the
+ * derivation itself is the node half's and is tested there.
+ */
+const TOKENS = [
+	["resume", "\u23F5", "error"],
+	["resolve", "!", "error"],
+	["fix CI", "\u2717", "error"],
+	["review", "\u25C6", "warn"],
+	["merge", "\u2713", "success"],
+	["sync", "\u21C4", "business"],
+	["pull", "\u2193", "business"],
+	["update", "\u21BB", "business"],
+	["publish", "\u2191", "business"],
+	["push", "\u2191", "business"],
+	["commit", "\u271A", "business"]
+];
+
+/** A row payload carrying one token, so the pill has something to render. */
+const withToken = (token) => ({ ...MAIN, rowToken: token });
+
 test("the mark belongs to the CHIP; the session row carries an action instead", () => {
 	// Deliberate asymmetry. The chip is the surface for "where am I / what is the
 	// state", so it keeps the shared mark; the row's job is triage, and an action
@@ -74,7 +96,7 @@ test("the selection of a mark colour never depends on the worktree shape", () =>
 test("the session row NEVER shows the branch", () => {
 	const client = createClient();
 	for (const base of [MAIN, WORKTREE]) {
-		const rendered = text(client.row({ ...base, branch: "SECRET/BRANCH", pr: { number: 1, state: "passing", mergeState: "CLEAN" } }));
+		const rendered = text(client.row({ ...base, branch: "SECRET/BRANCH", rowToken: "merge" }));
 		assert.ok(!rendered.includes("SECRET/BRANCH"), `the branch leaked into the row: ${rendered}`);
 	}
 });
@@ -87,48 +109,38 @@ test("the session row shows the ACTION and nothing else — silence when there i
 	assert.equal(text(client.row({ ...WORKTREE, worktreeName: "hotfix-tree", dirty: false })), "");
 	// and when there IS an action the row carries the pill alone: a glyph and the
 	// word — no mark, no PR number, no worktree name, no branch
-	const merge = client.row({ ...WORKTREE, worktreeName: "hotfix-tree", pr: { number: 391, state: "passing", mergeState: "CLEAN" } });
+	const merge = client.row({ ...WORKTREE, worktreeName: "hotfix-tree", rowToken: "merge" });
 	assert.equal(text(merge), "\u2713 merge");
 	assert.equal(mark(merge), null, "the row draws no mark");
 	assert.ok(!text(merge).includes("391"), "nor the PR number — the hover line names it");
 });
 
-test("the action token maps each state to the one thing to do", () => {
+test("the row renders the node half's rowToken, never a client re-derivation", () => {
+	// The token authority moved to the node half: the row reads `info.rowToken`
+	// and does NOT inspect `pr`, counts or unmerged files itself. A payload that
+	// would once have produced an action now renders nothing at all.
 	const client = createClient();
-	const action = (info) => client.internals.actionToken({ git: true, ...info });
-	// first match wins, so a conflict outranks everything downstream of it
-	assert.equal(action({ unmergedFiles: 1, pr: { state: "passing", mergeState: "CLEAN" } }), "resolve");
-	assert.equal(action({ pr: { state: "failing" } }), "fix CI");
-	assert.equal(action({ pr: { state: "passing", review: "CHANGES_REQUESTED" } }), "review");
-	assert.equal(action({ pr: { number: 18, state: "passing", mergeState: "CLEAN" } }), "merge");
-	assert.equal(action({ behind: 2 }), "pull");
-	assert.equal(action({ ahead: 1 }), "push");
-	// WAITING is not an action: every one of these is "leave it alone", because a
-	// wrong imperative nags and a neutral state does not
-	for (const pr of [
-		{ number: 18, state: "passing", mergeState: "BLOCKED" },
-		{ number: 18, state: "passing", draft: true, mergeState: "DRAFT" },
-		{ number: 18, state: "passing", mergeState: "BEHIND" },
-		{ number: 18, state: "passing", mergeState: "UNKNOWN" },
-		{ number: 18, state: "pending" }
-	]) {
-		assert.equal(action({ pr }), "", `waiting must be silent: ${JSON.stringify(pr)}`);
-	}
+	const action = (info) => text(client.row({ ...MAIN, ...info, rowToken: void 0 }));
+	assert.equal(action({ unmergedFiles: 1, pr: { state: "passing", mergeState: "CLEAN" } }), "", "no rowToken, no pill");
+	assert.equal(action({ behind: 2 }), "", "not derived from ahead/behind");
+	assert.equal(action({ ahead: 1 }), "", "not derived from ahead/behind");
 	assert.equal(action({ dirty: true }), "", "uncommitted work is not a chore");
-	assert.equal(action({ pr: { number: 18, state: "passing" } }), "", "no merge verdict yet is not an action");
-	assert.equal(client.internals.actionToken({ git: false }), "", "nothing to say without a repository");
+	// and when the node half DOES send one, the row renders it verbatim
+	for (const [token, glyph] of TOKENS) {
+		assert.equal(text(client.row(withToken(token))), `${glyph} ${token}`, `rowToken ${token}`);
+	}
 });
 
 test("the action is a severity-tinted pill that floats clear of the time", () => {
 	const client = createClient();
-	const styleFor = (info) => {
-		const row = client.row({ ...MAIN, ...info });
+	const styleFor = (token) => {
+		const row = client.row(withToken(token));
 		const found = elements(row).find((element) => element.props?.style?.marginLeft === "auto");
-		assert.ok(found !== void 0, `expected an action badge for ${JSON.stringify(info)}`);
+		assert.ok(found !== void 0, `expected an action badge for ${token}`);
 		return found.props.style;
 	};
 	// the gap: the first cut sat flush against the relative time and read `merge11m`
-	const merge = styleFor({ pr: { number: 1, state: "passing", mergeState: "CLEAN" } });
+	const merge = styleFor("merge");
 	assert.equal(merge.marginLeft, "auto", "floated right, so a column of actions lines up");
 	assert.equal(merge.marginRight, "8px", "and never flush against the time label");
 	assert.equal(merge.fontWeight, 600, "heavier than the timestamp it outranks");
@@ -140,17 +152,15 @@ test("the action is a severity-tinted pill that floats clear of the time", () =>
 	assert.match(merge.background, /state-success-primary/, "and the tint is the action's own colour");
 	// colour means how much this needs you, using the same state tokens the mark does
 	assert.match(merge.color, /state-success-primary/, "merge is the all-clear");
-	assert.match(styleFor({ pr: { state: "failing" } }).color, /state-error-primary/, "a broken build is loud");
-	assert.match(styleFor({ unmergedFiles: 1 }).color, /state-error-primary/, "so is a conflict");
-	assert.match(
-		styleFor({ pr: { state: "passing", review: "CHANGES_REQUESTED" } }).color,
-		/state-warn-primary/,
-		"a requested review is a nudge"
-	);
-	assert.match(styleFor({ behind: 1 }).color, /state-business-primary/, "routine sync is the quiet end of the ramp");
-	assert.match(styleFor({ ahead: 1 }).color, /state-business-primary/, "and so is push — never below notice again");
+	for (const [token, , severity] of TOKENS) {
+		assert.match(
+			styleFor(token).color,
+			new RegExp(`state-${severity}-primary`),
+			`${token} is ${severity}`
+		);
+	}
 	// the word is still the channel: the colour only reinforces it
-	assert.equal(text(client.row({ ...MAIN, pr: { state: "failing" } })), "\u2717 fix CI");
+	assert.equal(text(client.row(withToken("fix CI"))), "\u2717 fix CI");
 });
 
 test("every action carries a glyph, and the glyph is not the accessible name", () => {
@@ -158,21 +168,16 @@ test("every action carries a glyph, and the glyph is not the accessible name", (
 	// It is DECORATION — `aria-hidden` keeps the accessible name the bare word, so a
 	// screen reader says "push", not "upwards arrow push".
 	const client = createClient();
-	const CASES = [
-		[{ unmergedFiles: 1 }, "!", "resolve"],
-		[{ pr: { state: "failing" } }, "\u2717", "fix CI"],
-		[{ pr: { state: "passing", review: "CHANGES_REQUESTED" } }, "\u25C6", "review"],
-		[{ pr: { number: 1, state: "passing", mergeState: "CLEAN" } }, "\u2713", "merge"],
-		[{ behind: 1 }, "\u2193", "pull"],
-		[{ ahead: 1 }, "\u2191", "push"]
-	];
-	for (const [info, glyph, word] of CASES) {
-		const row = client.row({ ...MAIN, ...info });
+	for (const [word, glyph] of TOKENS) {
+		const row = client.row(withToken(word));
 		assert.equal(text(row), `${glyph} ${word}`, `glyph then word for ${word}`);
 		const decoration = elements(row).find((element) => element.props?.["aria-hidden"] === true);
 		assert.ok(decoration !== void 0, `the glyph for ${word} is decoration`);
 		assert.equal(text(decoration), `${glyph} `, "and it holds only the glyph and a space");
 		assert.equal(mark(row), null, "a glyph must never become the status mark's <svg>");
+		// the accessible name is the word alone: the pill carries no overriding label
+		const pill = elements(row).find((element) => element.props?.style?.marginLeft === "auto");
+		assert.equal(pill.props["aria-label"], void 0, `${word}: no aria-label on the pill`);
 	}
 });
 
@@ -336,3 +341,114 @@ test("a non-repository, and an unresolved workspace, render no mark", () => {
 	// badge contributes nothing at all when it has nothing to say
 	assert.equal(client.row({ git: false }), null, "and no badge");
 });
+
+// ---------------------------------------------------------------------------
+// the leading-cell glyph fallback. On an install WITHOUT the seam patch there
+// is no row pill, so the same node-half token renders as one glyph in the
+// upstream 16px leading cell.
+// ---------------------------------------------------------------------------
+
+/** A stand-in for the shell's standard kit: a selector hook over the sessions store. */
+const sessionsWithRunning = (running) => (select) => select({ byId: { "s-1": { running } } });
+
+test("LeadingTokenGlyph renders the token as one glyph with the token colour and name", () => {
+	const client = createClient({ seam: false });
+	for (const [token, glyph, severity] of TOKENS) {
+		const cell = client.leading(withToken(token));
+		assert.equal(text(cell), glyph, `${token}: exactly one glyph, no word`);
+		assert.equal(cell.type, "span");
+		assert.equal(cell.props.role, "img", `${token}: the glyph is the accessible name here`);
+		assert.equal(cell.props["aria-label"], "git action: " + token, `${token}: the word is the name`);
+		assert.equal(cell.props["aria-hidden"], void 0, `${token}: NOT decoration — no word sits beside it`);
+		assert.match(cell.props.style.color, new RegExp(`state-${severity}-primary`), `${token} is ${severity}`);
+		// geometry: one text node, and no wrapper that changes the cell's box
+		assert.equal(typeof cell.props.children, "string", `${token}: a single text node`);
+	}
+});
+
+test("the row's hover card explains the glyph, using the row's own hover", () => {
+	// The leading glyph carries no tooltip of its own: the row is already a
+	// HoverCard anchor, so the explanation rides the SAME card the session line
+	// uses. Word and reason come from the same node-half rule, and the card leads
+	// with the token GLYPH in the token's colour instead of the word "action".
+	const client = createClient();
+	const withGlyph = client.rowDetail({ ...MAIN, rowToken: "publish", rowTokenWhy: "no upstream configured" });
+	assert.equal(text(withGlyph), "\u2191 publish \u2014 no upstream configured");
+	const glyph = elements(withGlyph).find((element) => element.props?.["aria-hidden"] === true);
+	assert.ok(glyph !== void 0, "the glyph is decoration; the word follows it");
+	assert.equal(text(glyph), "\u2191 ", "the glyph and a space");
+	assert.match(glyph.props.style.color, /state-business-primary/, "painted in the token's own colour");
+	// no reason from the node half still names the action
+	assert.equal(text(client.rowDetail({ ...MAIN, rowToken: "push" })), "\u2191 push");
+	// action first, then the checkout and the pull request; and nothing at all
+	// when the row has neither a token nor anything else to name
+	assert.equal(
+		text(client.rowDetail({
+			branch: "feat/x", isWorktree: true, worktreeName: "hotfix-tree",
+			rowToken: "merge", rowTokenWhy: "pull request 9 is ready to merge"
+		})),
+		"\u2713 merge \u2014 pull request 9 is ready to merge \u00B7 checkout: hotfix-tree on feat/x"
+	);
+	assert.equal(text(client.rowDetail({ ...MAIN })), "");
+});
+
+test("the hover card WRAPS: a long checkout line must not overrun the card", () => {
+	// META_STYLE is `nowrap` for the chip, and it left the row card's long line on
+	// one row — in `.dotfiles` it overran. The card overrides that one property.
+	const client = createClient();
+	const card = client.rowDetail({
+		branch: "chore/global-skills-tiering",
+		isWorktree: true,
+		worktreeName: "global-skills-tiering",
+		worktreeFollowed: true,
+		rowToken: "push",
+		rowTokenWhy: "1 ahead of origin/chore/global-skills-tiering",
+		pr: { number: 391, state: "passing" }
+	});
+	assert.equal(card.props.style.whiteSpace, "normal", "the card line wraps");
+	assert.equal(card.props.style.overflowWrap, "anywhere", "and a long unbroken name still breaks");
+	// the chip's own meta style must stay nowrap — this override is local
+	assert.equal(card.props.style.flex, "none");
+});
+
+test("LeadingTokenGlyph falls back to the shared status mark with no token", () => {
+	const client = createClient({ seam: false });
+	const disc = client.leading({ ...MAIN, dirty: false });
+	assert.equal(markShape(mark(disc)), "disc", "clean and in sync is the green disc");
+	assert.match(markFill(mark(disc)), /state-success-primary/);
+	assert.equal(markShape(mark(client.leading({ ...WORKTREE, dirty: false }))), "tree", "a linked worktree keeps its shape");
+	// and nothing at all for a non-repository, or a target that is not resolved
+	assert.equal(client.leading({ git: false }), null, "no repository, no cell");
+	assert.equal(client.leading(void 0), null, "unresolved target, no cell");
+});
+
+test("LeadingTokenGlyph fetches only when the seam is absent, and for PR state too", () => {
+	// The patched install returns null here, so it pays for neither a render nor
+	// a status request.
+	const patched = createClient({ seam: true });
+	assert.equal(patched.leading(withToken("push")), null, "the pill owns the row");
+	assert.equal(patched.requests.filter((key) => typeof key === "string").length, 0, "and fetches nothing");
+	// The unpatched install asks the SAME question the row card asks, so the
+	// glyph and the card resolve to one cache entry and one in-flight read.
+	const unpatched = createClient({ seam: false });
+	unpatched.leading(withToken("push"));
+	assert.deepEqual(unpatched.requests, ["session=s-1&pr=1"], "one session+PR request, nothing else");
+	// and the PR token it can now receive is what the card shows
+	assert.equal(text(unpatched.leading({ ...MAIN, rowToken: "merge" })), "\u2713", "a PR token reaches the glyph");
+});
+
+test("LeadingTokenGlyph hides while the session runs a turn", () => {
+	const client = createClient({ seam: false });
+	assert.equal(text(client.leading(withToken("push"), { useSessions: sessionsWithRunning(false) })), "\u2191");
+	assert.equal(client.leading(withToken("push"), { useSessions: sessionsWithRunning(true) }), null, "nothing during a turn");
+});
+
+test("the leading glyph disappears once a late seam declaration arrives", () => {
+	// Boot race: the leading cell can render before the workspace browser declares
+	// the seam. It shows the glyph, then the seam flag flips and it goes away.
+	const client = createClient({ seam: false });
+	assert.equal(text(client.leading(withToken("push"))), "\u2191", "the fallback shows during the race");
+	client.declareSeam();
+	assert.equal(client.leading(withToken("push")), null, "and vanishes on the next render");
+});
+
