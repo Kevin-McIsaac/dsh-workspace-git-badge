@@ -4,9 +4,9 @@ The badge shows a **status mark**, your **branch name**, and sometimes
 **small numbers** like `↑2 ↓1 ✎3`. Here's what each piece means.
 
 The mark is a small filled **circle** — or a **tree** when the folder is a linked
-`git worktree` — and its colour is the status. It belongs to the input box; a
-sidebar row shows an **action word** instead (`merge`, `fix CI`, `review`, …),
-or that word's **glyph** in its leading cell when the seam patch is absent —
+`git worktree` — and its colour is the status. It belongs to the input box. A
+sidebar row shows the same idea as one **action glyph** in its leading cell
+(`✓`, `✗`, `◆`, …), and its hover card names the word behind it —
 the README's *action token* section explains that. In this guide `●` stands for the circle and `🌳` for the tree,
 and the coloured circles stand for the mark's fill colour.
 
@@ -85,12 +85,11 @@ at all, and never the branch. Each word has a glyph too:
 | `commit` | ✚ | uncommitted work (staged, unstaged or untracked) |
 | `fix CI` | ✗ | the pull request's checks are failing |
 
-On a **patched** install the row shows the word, as a pill. Without the seam
-patch the row has no room for a word, so the same token appears as its glyph in
-the row's leading cell, with the word as its accessible name. Rest the pointer
-on that row and its usual hover card opens with the glyph, the word and the
-reason (`↑ publish — no upstream configured`). When there is no token — clean and
-in sync — that cell falls back to the status mark above.
+The row shows the token as its glyph in the leading cell, with the word as its
+accessible name. Rest the pointer on that row and its usual hover card opens with
+the glyph, the word and the reason (`↑ publish — no upstream configured`). When
+there is no token — clean and in sync — that cell falls back to the status mark
+above.
 
 ## A worked example
 

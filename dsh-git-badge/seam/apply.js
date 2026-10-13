@@ -35,7 +35,7 @@
  *   SEAM_DATA_DIR  where revert backups are written. Default:
  *                  `$DSH_HOME/git-badge-seam` (else `~/.dsh/git-badge-seam`) —
  *                  a stable, user-level store shared by every way this tool
- *                  can run. See seam/store.js for the restart marker.
+ *                  can run. See seam/store.js for the session-checkout store.
  *
  * The package also declares this file under the package's own name
  * (bin "dsh-git-badge"), because npx only auto-runs a bin whose name matches
@@ -51,7 +51,6 @@ import { copyFileSync, existsSync } from "node:fs";
 import { MARKER } from "./anchors.js";
 import { backupState, doPatch, doRestore, installPaths, inspect, KNOWN_GOOD_HASH, revertPlan } from "./patch.js";
 import { installSkill } from "./skill.js";
-import { writeRestartMarker } from "./store.js";
 
 const VERDICT_EXIT_1 = new Set(["drift", "unreadable", "missing", "ours-corrupt"]);
 
@@ -140,7 +139,7 @@ if (verb === "apply") {
 			console.log("verdict:    PATCHED (rev current) — nothing to do.");
 			break;
 		case "patchable":
-			doPatch(paths, "apply");
+			doPatch(paths);
 			console.log("patched lib/client.js in place (anchors applied); host half stubbed.");
 			console.log("verdict:    PATCHED.");
 			break;
@@ -163,7 +162,7 @@ if (verb === "apply") {
 				process.exit(1);
 			}
 			doRestore(paths);
-			doPatch(paths, "apply");
+			doPatch(paths);
 			console.log("patched lib/client.js in place (anchors applied); host half stubbed.");
 			console.log("verdict:    UPGRADED — older artifact replaced with the current patch.");
 			break;
@@ -203,8 +202,6 @@ if (verb === "apply") {
 	if (plan.action === "restore") {
 		doRestore(paths);
 		console.log("reverted client.js/index.js to the bytes as found before patching.");
-		// A revert also changes bytes the running bundles were composed from.
-		writeRestartMarker("revert");
 	} else if (plan.action === "noop") {
 		// Idempotent re-run: the installed bytes already ARE the backup.
 		console.log(`already reverted — ${plan.reason}; nothing to do.`);

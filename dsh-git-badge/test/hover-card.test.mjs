@@ -512,15 +512,12 @@ test("no PR field renders exactly the chip it rendered before gh existed", () =>
 	assert.ok(!withoutPr.includes("PR#"), "no token, no trace");
 });
 
-test("the session row shows an ACTION, never a PR token or a branch", () => {
-	// Third shape for this contract, and each move had a reason: rows ignored `pr`
-	// entirely while the badge lived on a WORKSPACE row (one forge read per row was
-	// unaffordable); then the badge became per CONVERSATION and the row carried the
-	// PR token; now the row's job is triage, so it carries the imperative alone. The
-	// PR number and CI state moved to the row's hover line; the chip keeps both.
+test("the session row shows a GLYPH, never a PR token or a branch", () => {
+	// The row's job is triage, so it shows the node half's token as one glyph. The
+	// PR number and CI state live on the row's hover line; the chip keeps both.
 	const client = createClient();
-	const rendered = text(client.row({ branch: "SECRET/BRANCH", dirty: false, rowToken: "fix CI", pr: { number: 142, state: "failing" } }));
-	assert.equal(rendered, "\u2717 fix CI", `expected the action alone: ${rendered}`);
+	const rendered = text(client.leading({ branch: "SECRET/BRANCH", dirty: false, rowToken: "fix CI", pr: { number: 142, state: "failing" } }));
+	assert.equal(rendered, "\u2717", `expected the glyph alone: ${rendered}`);
 	assert.ok(!rendered.includes("PR#"), "the token belongs to the chip now");
 	assert.ok(!rendered.includes("SECRET/BRANCH"), `the row must not name the branch: ${rendered}`);
 });
@@ -533,23 +530,23 @@ const ROW_AHEAD = { branch: "feat/x", ahead: 1, rowToken: "push" };
 /** A stand-in for the shell's standard kit: a selector hook over the sessions store. */
 const sessionsWithRunning = (running) => (select) => select({ byId: { "s-1": { running } } });
 
-test("the row's action token hides while the session is running a turn", () => {
+test("the row's token glyph hides while the session is running a turn", () => {
 	// The shell hands every slot entry the sessions store as a selector hook, which
 	// is how a row can tell an idle session from one mid-turn. A turn in flight is
 	// exactly when a suggestion is noise: the checkout is still moving.
 	const client = createClient();
-	const idle = client.row(ROW_AHEAD, { useSessions: sessionsWithRunning(false) });
-	assert.equal(text(idle), "\u2191 push", `expected the token while idle: ${text(idle)}`);
-	const busy = client.row(ROW_AHEAD, { useSessions: sessionsWithRunning(true) });
-	assert.equal(text(busy), "", "no token while a turn is running");
+	const idle = client.leading(ROW_AHEAD, { useSessions: sessionsWithRunning(false) });
+	assert.equal(text(idle), "\u2191", `expected the glyph while idle: ${text(idle)}`);
+	const busy = client.leading(ROW_AHEAD, { useSessions: sessionsWithRunning(true) });
+	assert.equal(busy, null, "no glyph while a turn is running");
 });
 
 test("without the standard-kit hook the row is unchanged, and the console says so", () => {
 	// Absent means "cannot know", never "running": a shell that seeds no useSessions
-	// must keep the badge exactly as it was rather than blanking it.
+	// must keep the glyph exactly as it was rather than blanking it.
 	const client = createClient();
-	const rendered = text(client.row(ROW_AHEAD));
-	assert.equal(rendered, "\u2191 push", `expected the token unchanged: ${rendered}`);
+	const rendered = text(client.leading(ROW_AHEAD));
+	assert.equal(rendered, "\u2191", `expected the glyph unchanged: ${rendered}`);
 	assert.ok(
 		client.logs.some((line) => line.includes("session-row idle gate = off")),
 		`expected the off report: ${JSON.stringify(client.logs)}`
@@ -558,7 +555,7 @@ test("without the standard-kit hook the row is unchanged, and the console says s
 
 test("the idle gate reports ON when the shell supplies the hook", () => {
 	const client = createClient();
-	client.row(ROW_AHEAD, { useSessions: sessionsWithRunning(false) });
+	client.leading(ROW_AHEAD, { useSessions: sessionsWithRunning(false) });
 	assert.ok(
 		client.logs.some((line) => line.includes("session-row idle gate = on")),
 		`expected the on report: ${JSON.stringify(client.logs)}`

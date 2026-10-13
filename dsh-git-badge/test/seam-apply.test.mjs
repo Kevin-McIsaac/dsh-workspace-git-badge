@@ -248,14 +248,14 @@ test("revert refuses a backup from a different upstream generation — and statu
 
 test("the patcher ships in the package: files list, bin, and stub", { skip }, async () => {
 	const pkg = JSON.parse(await readFile(join(PACKAGE, "package.json"), "utf8"));
-	for (const f of ["seam/apply.js", "seam/anchors.js", "seam/postinstall.js", "seam/store.js", "seam/stub-index.js"]) {
+	for (const f of ["seam/apply.js", "seam/anchors.js", "seam/store.js", "seam/stub-index.js"]) {
 		assert.ok(pkg.files.includes(f), `files must ship ${f}`);
 		assert.ok(existsSync(join(PACKAGE, f)), `${f} exists`);
 	}
 	assert.equal(pkg.bin?.["dsh-git-badge"], "seam/apply.js", "the package-name alias IS the patcher: npx runs a bin only when its name matches the package");
 	assert.equal(pkg.bin?.["dsh-git-badge-seam"], "seam/apply.js", "the legacy bin entry names the patcher too");
 	assert.equal(pkg.bin?.["dsh-git-badge-checkout"], "seam/checkout.js", "the legacy checkout bin stays for direct invocation");
-	assert.equal(pkg.scripts?.postinstall, "node seam/postinstall.js", "the install-time hook is wired");
+	assert.equal(pkg.scripts?.postinstall, void 0, "no install-time hook: the plugin patches nothing");
 });
 
 test("the package-name alias dispatches checkout to the checkout CLI", { skip }, async (t) => {
@@ -322,73 +322,6 @@ test("a registration that cannot be written says WHY, and how to recover", { ski
 	assert.match(result.out, /add the worktree as its own dsh workspace/);
 });
 
-test("the postinstall hook acts only on pristine installs and never fails one", { skip }, async (t) => {
-	// Five states; only `patchable` may write. The hook's whole contract is
-	// "best effort, never break an install" — pin it here rather than trusting
-	// the try/catch. See the guardrail comment at the top of postinstall.js.
-	const { spawnSync } = await import("node:child_process");
-	// Hermetic store, like every other block in this file: without SEAM_DATA_DIR
-	// the hook resolves dataDir() to the REAL ~/.dsh/git-badge-seam, so the run
-	// clobbered the machine's backup-client.js/backup-index.js and dropped a
-	// restart marker there. On a writable $HOME (CI) that passed silently; under
-	// the read-only $HOME of an agent sandbox the copy threw EROFS, the hook
-	// skipped, and this test failed for a reason that had nothing to do with it.
-	const dataDir = await makeTempDir(t, "dsh-seam-data-");
-	const runHook = (dir) =>
-		spawnSync(process.execPath, [join(SEAM_SHIPPED, "postinstall.js")], {
-			env: { ...process.env, DSH_INSTALL: dir, SEAM_DATA_DIR: dataDir },
-			encoding: "utf8",
-		});
-	const mklib = async (name) => {
-		const root = await makeTempDir(t, `dsh-pi-${name}-`);
-		const dir = join(root, "node_modules", "@deepseek-ai", "dsh-client-ui-workspace", "lib");
-		await mkdir(dir, { recursive: true });
-		return { root, dir };
-	};
-
-	// 1. pristine → APPLIED, exit 0, marker present
-	const applied = await mklib("pristine");
-	await writeFile(join(applied.dir, "client.js"), await readFile(join(SEAM_REPO, "pristine-client.js"), "utf8"));
-	await writeFile(join(applied.dir, "index.js"), "// host\n");
-	const ok = runHook(applied.root);
-	assert.equal(ok.status, 0, `pristine applies cleanly: ${ok.stderr}`);
-	assert.match(ok.stdout, /seam applied/);
-	assert.match(await readFile(join(applied.dir, "client.js"), "utf8"), new RegExp(MARKER));
-
-	// 2. already patched → no-op, exit 0
-	const again = runHook(applied.root);
-	assert.equal(again.status, 0);
-	assert.match(again.stdout, /already applied/);
-
-	// 3. drifted → skip, file untouched, exit 0
-	const drifted = await mklib("drifted");
-	const driftedText = (await readFile(join(SEAM_REPO, "pristine-client.js"), "utf8")).replace(
-		"function SessionNodeItem({ node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, t }) {",
-		"function SessionNodeItemV2({ node, currentId, now, onOpen, onRenameRequest, renderSlot, onReveal, drag, t }) {"
-	);
-	await writeFile(join(drifted.dir, "client.js"), driftedText);
-	const skipDrift = runHook(drifted.root);
-	assert.equal(skipDrift.status, 0, "drift must not fail the install");
-	assert.match(skipDrift.stdout, /drifted from the patch anchors/);
-	assert.equal(await readFile(join(drifted.dir, "client.js"), "utf8"), driftedText, "nothing was written");
-
-	// 4. upstream landed → skip, exit 0
-	const landed = await mklib("landed");
-	await writeFile(
-		join(landed.dir, "client.js"),
-		(await readFile(join(SEAM_REPO, "pristine-client.js"), "utf8")) + '\nvar x = "sidebar.workspaces.sessionRow";\n'
-	);
-	const skipLanded = runHook(landed.root);
-	assert.equal(skipLanded.status, 0);
-	assert.match(skipLanded.stdout, /declares the seam itself/);
-
-	// 5. no DSH install → skip, exit 0
-	const nowhere = await makeTempDir(t, "dsh-pi-missing-");
-	const skipMissing = runHook(join(nowhere, "nowhere"));
-	assert.equal(skipMissing.status, 0, "a missing install must not fail the hook");
-	assert.match(skipMissing.stdout, /not found/);
-});
-
 test("every anchor resolves exactly once on the pinned pristine build", { skip }, async () => {
 	// The contract underneath everything else: if this ever fails, the anchor
 	// module and the pinned pristine have drifted apart and NO install state is
@@ -421,51 +354,6 @@ test("regenerating the PR-diff artifact is byte-identical to the shipped anchors
 	const anchors = await import(`${SEAM_SHIPPED}/anchors.js`);
 	const out = anchors.applyPatch(await pristine());
 	assert.equal(out, await readFile(join(SEAM_REPO, "patched-client.js"), "utf8"), "run seam/make-patch.sh if this drifts");
-});
-
-test("the restart-pending marker follows the write → serve → clear lifecycle", { skip }, async (t) => {
-	// The marker is the bridge from install-time to the running UI: postinstall
-	// writes it when it patches, the status response serves it, and the plugin's
-	// node half clears it at the next boot. This pins the store round trip and
-	// that the hook/patcher actually earn the marker — the client render and the
-	// boot-time clear are driven by the node/client halves (see the surfaces
-	// logs when testing by hand).
-	const { readRestartMarker, clearRestartMarker } = await import(`${SEAM_SHIPPED}/store.js`);
-	const store = await makeTempDir(t, "dsh-seam-marker-");
-	process.env.SEAM_DATA_DIR = store; // hermetic override; store.dataDir() reads it per call
-	try {
-		assert.equal(readRestartMarker(), null, "no marker at rest");
-
-		// postinstall apply earns the marker…
-		const install = await fakeInstall(t);
-		await writeFile(install.client, await readFile(join(SEAM_REPO, "pristine-client.js"), "utf8"));
-		await writeFile(install.index, "// host\n");
-		const { spawnSync } = await import("node:child_process");
-		const hook = spawnSync(process.execPath, [join(SEAM_SHIPPED, "postinstall.js")], {
-			env: { ...process.env, DSH_INSTALL: install.root, SEAM_DATA_DIR: store },
-			encoding: "utf8",
-		});
-		assert.equal(hook.status, 0, `hook applied: ${hook.stderr}`);
-		assert.match(hook.stdout, /seam applied/);
-		const marker = readRestartMarker();
-		assert.ok(marker, "postinstall wrote the marker");
-		assert.equal(marker.by, "postinstall");
-		assert.equal(marker.schema, "dsh-git-badge/restart-pending/v1");
-
-		// …and so does the CLI apply (the reason field names the actor).
-		clearRestartMarker();
-		assert.equal(readRestartMarker(), null);
-		await writeFile(install.client, await pristine());
-		const cli = await apply(install, "apply", store);
-		assert.equal(cli.code, 0, `apply applied: ${hook.out}`);
-		assert.equal(readRestartMarker().by, "apply");
-
-		// the boot clears it — the change is live, nothing is pending
-		clearRestartMarker();
-		assert.equal(readRestartMarker(), null, "cleared at boot");
-	} finally {
-		delete process.env.SEAM_DATA_DIR;
-	}
 });
 
 // ---------------------------------------------------------------------------

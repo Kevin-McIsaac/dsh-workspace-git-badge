@@ -14,74 +14,38 @@ awareness directly into your workflow:
 
 ![Dark-mode input chip: a tree mark with the worktree branch feat/worktree-aware-chip and a passing PR#18, above a main checkout showing sync and file counts and a failing check](docs/images/chip.svg)
 
-2. **Actionable session overview**: pinpoints the session requiring attention (`merge`, `fix CI`, `resolve`, `review`, `resume`, `commit`, …) without a context switch. The node half ranks the rules and sends the row's token with every status response; the row just shows it. With the seam patched the row shows the word pill, and without it the same token renders as a glyph in the row's leading cell — coloured by severity. The row's hover card opens with the glyph, the word and the reason (`↑ publish — no upstream configured`) and wraps long lines.
+2. **Actionable session overview**: pinpoints the session requiring attention. The session row status icon is extended to show what git actions are needed, e.g., push, merge. The row's hover card add this icon, the action and the reason (`↑ publish — no upstream configured`).
 
-![Dark-mode sidebar session rows: one asking you to merge in green, one asking you to fix CI in red, and one with nothing to do showing no token](docs/images/session-rows.svg)
+![Dark-mode sidebar session rows: a green tick in the leading cell for a merge-ready pull request, a red cross for failing CI, and a green status dot when there is nothing to do](docs/images/session-rows.svg)
 
 Both are updated within seconds of any commit, checkout, stage or file
 edit — including inside a linked  [worktree](#Worktrees) for safe isolation of parallel dhs working session.
 
 ## Install
 
-Use the puging market place or manually install using
+Use the plugin market place or install manually:
 
 ```bash
 dsh plugin --profile web add dsh-git-badge     # marketplace Install does this step
-npx dsh-git-badge apply                        # sidebar badges need this one manual step
 ```
 
-Then **restart the web process** and refresh the browser:
+Then **restart the web process** and refresh the browser. That is the whole
+install: every surface rides an upstream slot, so there is nothing to patch and
+no second step.
 
-- without the `apply`, the **input chip** works but the sidebar session rows stay off — hover the chip for a reminder;
-- `apply` patches the installed DSH package in place (anchor-guarded — it refuses to write anything unless every anchor block matches exactly once). `npx dsh-git-badge status` always tells you which state you are in.
-- **Make it automatic**: the package's `postinstall` runs the same guarded apply at install time — but pnpm blocks dependency scripts until you allow them (that boundary belongs to you, not the package). To default it to yes on a machine, allow the package once in the profile:
-
-  ```bash
-  cd ~/.dsh/profiles/web && pnpm approve-builds   # pick dsh-git-badge
-  # or add to pnpm-workspace.yaml:  allowBuilds: { "dsh-git-badge": true }
-  ```
-
-After that, every later install/upgrade of the plugin applies the seam itself; only the restart stays manual.
 
 ## Sidebar technical details
-The sidebar session-row action token needs a seam the workspace browser does not
-declare upstream yet (discussion
-[#5092](https://github.com/deepseek-ai/deepseek-harness/discussions/5092)). With
-the seam patched, the row shows the word pill. Without it, the same node-half
-token renders as a **glyph in the row's leading cell** — upstream's own
-`sidebar.session.row.leading` seat — so an unpatched install keeps a compact
-signal instead of a bare row. The
-hover-card provenance line needs **no** patch: DSH 0.2.0-rc.2 declares its own
-`sidebar.session.row.hover` seat, and the line rides that. The patcher **ships
-inside the package** — no clone needed:
 
-```bash
-npx dsh-git-badge apply     # patch the installed DSH in place, then restart dsh web
-npx dsh-git-badge status    # patched / out of date / patchable / upstream-landed / drift
-npx dsh-git-badge revert    # restore the bytes as found before patching
-```
+The status icon renders using the upstream 
+`sidebar.session.row.leading` seat — a 16px cell in the row's leading cluster,
+rendered only while the session is idle. The hover-card provenance line rides
+upstream's own `sidebar.session.row.hover` seat as well. 
 
-(If you have this repo cloned, `seam/apply.sh` runs the same tool.)
-
-Notes:
-
-- The patch lives in `node_modules`, so a DSH reinstall/update reverts it —
-  re-run the patcher afterwards.
-- The patch is **anchor-based** (`seam/anchors.js`): it patches the installed
-  file in place and **refuses to write anything** unless every anchor block is
-  found exactly once — it never blind-overwrites an update. A DSH release only
-  needs work from you if it moved one of the anchored code blocks; `status`
-  names the anchor that moved.
-- Once upstream ships the seam itself, `apply` becomes a no-op and the
-  npm-installed plugin picks it up with no changes on your side.
-
-Details, safety rails and the upstream proposal are in [`SEAM.md`](SEAM.md) /
-[`PR.md`](PR.md).
 
 ## Testing
 
 See [`TESTING.md`](TESTING.md) — clean-profile boot (customer simulation), the
-seam apply/revert procedure, and the gotchas list. `cd dsh-git-badge && npm test`
+legacy patch-removal procedure, and the gotchas list. `cd dsh-git-badge && npm test`
 runs the whole suite (parser, real temp repositories, resolution, SSE, the
 watcher, every `gh` degradation path and the rendered surfaces) with no DSH, no
 network and no restart.

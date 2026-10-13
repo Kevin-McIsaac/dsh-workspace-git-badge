@@ -90,11 +90,8 @@ export function markFill(svg) {
  *  - `hover: true` makes the chip's `hovered` boolean state initialise true, which
  *    is how the card's extra fields are reached — the suite has no real pointer
  *    and no re-render, so hover is chosen at render time instead.
- *  - `seam: false` models an UNPATCHED install: the session-row seam is never
- *    declared, so its inject callback never fires. The leading-cell fallback is
- *    then the surface under test. Default true (the patched install).
  */
-export function createClient({ tooltip = false, hover = false, seam = true } = {}) {
+export function createClient({ tooltip = false, hover = false } = {}) {
 	const source = readFileSync(CLIENT, "utf8");
 	const injected = { data: void 0, detail: void 0 };
 	// Every status-slot key the bundle asked for, in render order. A test uses
@@ -135,10 +132,6 @@ export function createClient({ tooltip = false, hover = false, seam = true } = {
 	);
 
 	const registered = {};
-	// Callbacks for a seam that is not declared YET. `declareSeam()` runs them,
-	// which is how a test reproduces the boot race: the leading glyph renders
-	// before the session-row seam appears, then disappears when it does.
-	const pendingSeam = [];
 	const realInfo = console.info;
 	// Diagnostics are captured rather than printed, so they are assertable instead of
 	// test noise: apply()'s boot lines, and the FIRST row render's idle-gate line —
@@ -157,15 +150,7 @@ export function createClient({ tooltip = false, hover = false, seam = true } = {
 		client = captured.factory(fakeRequire);
 		client.apply({
 			slots: {
-				inject: (name, callback) => {
-					// The seam is the one declaration an unpatched install lacks;
-					// hold its callback until declareSeam() to model the boot race.
-					if (name === "sidebar.workspaces.sessionRow" && !seam) {
-						pendingSeam.push(callback);
-						return;
-					}
-					callback();
-				},
+				inject: (_name, callback) => { callback(); },
 				register: (spec, component) => {
 					registered[spec.name] = component;
 					return () => {};
@@ -194,21 +179,12 @@ export function createClient({ tooltip = false, hover = false, seam = true } = {
 		logs,
 		/** Every status-slot fetch key the bundle asked for, in render order. */
 		requests,
-		/** Declare the session-row seam late — the boot race an unpatched boot wins. */
-		declareSeam() {
-			for (const callback of pendingSeam.splice(0)) callback();
-		},
-		/** Render the sidebar SESSION-row action pill; `props` adds kit. */
-		row(data, props) {
-			feed(data);
-			return capture(() => expand(registered["sidebar.workspaces.sessionRow"]({ sessionId: "s-1", label: "Session 1", ...props })));
-		},
-		/** Render the leading-cell token-glyph fallback (unpatched installs). */
+		/** Render the row's leading token glyph; `props` adds kit. */
 		leading(data, props) {
 			feed(data);
 			return capture(() => expand(registered["sidebar.session.row.leading"]({ sessionId: "s-1", ...props })));
 		},
-		/** Render the session row's hover-card detail line (the badge's provenance). */
+		/** Render the session row's hover-card detail line (the glyph's explanation). */
 		rowDetail(data, props) {
 			feed(data);
 			return capture(() => expand(registered["sidebar.session.row.hover"]({ sessionId: "s-1", ...props })));

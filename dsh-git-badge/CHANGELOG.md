@@ -12,16 +12,13 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Added
 
-- **An unpatched install now shows the session row's token as a leading
-  glyph.** Without the `sidebar.workspaces.sessionRow` seam there is no room
-  for the word pill, so the same node-half token renders as a single glyph in
-  the row's 16px leading cell, with the word as its accessible name. The glyph
-  asks the same question the row card does (`pr=1`), so the PR tokens `merge`,
-  `review` and `fix CI` reach it too — not only the local ones — and the two
-  share one cache entry. With no token (clean and in sync) the cell keeps the
-  shared status mark. The leading seat is upstream's own
-  (`sidebar.session.row.leading`) — no patch, and a patched install returns
-  nothing there and pays no request.
+- **The session row shows its token as a leading glyph.** The node-half token
+  renders as a single glyph in the row's 16px leading cell, with the word as its
+  accessible name. It asks the same question the row card does (`pr=1`), so the
+  PR tokens `merge`, `review` and `fix CI` reach it too — not only the local
+  ones — and the two share one cache entry. With no token (clean and in sync) the
+  cell keeps the shared status mark. The seat is upstream's own
+  (`sidebar.session.row.leading`) — no patch and no install step.
 - **The leading glyph explains itself on the row's hover card.** The node half
   attaches the winning rule's reason as `rowTokenWhy`, and the session-row hover
   card now opens with the token's own GLYPH and word, then the reason (for
@@ -46,6 +43,27 @@ npm. 0.6.0 is the first release recorded here.
   re-deriving the rules, so the chip, the picker and the row cannot drift.
   A stored order that predates the two new categories keeps its ranking, with
   them appended (they rank last until reordered in Settings).
+- **The install has one step again.** The session row no longer uses a patched
+  seat, so there is no `npx dsh-git-badge apply` and no `postinstall` hook. The
+  leading glyph and the hover card are upstream's own seats.
+
+### Removed
+
+- **The `sidebar.workspaces.sessionRow` word pill.** It was the patch's only
+  consumer. The row now shows the token glyph in its leading cell on every
+  install, so there is no second surface and no seam to maintain.
+- **The restart-pending marker** (`seamRestartPending` on the status response).
+  It existed only to tell the running UI that a patch had changed DSH files on
+  disk.
+- **The `postinstall` script.** It applied the patch at install time; with no
+  patch needed it would only churn the user's DSH package.
+
+### Deprecated
+
+- **`npx dsh-git-badge apply` and `status`.** Kept for one release so an install
+  that an older version patched can undo it with `npx dsh-git-badge revert`. The
+  patcher (`apply`, `status`, `seam/anchors.js`, `seam/patch.js`,
+  `seam/stub-index.js`) retires in a follow-up release.
 
 ## [0.19.0] - 2026-10-12
 
