@@ -314,7 +314,7 @@ function baseRelationFor(toplevel, branch, notify) {
 		const out = await runGit(toplevel, ["rev-list", "--count", "--left-right", base + "...HEAD"]);
 		const [behind, ahead] = (out.stdout ?? "").trim().split("\t").map((v) => Number.parseInt(v, 10));
 		if (!Number.isFinite(ahead) || !Number.isFinite(behind)) return void 0;
-		const value = { ahead, behind };
+		const value = { ahead, behind, base: candidate };
 		if (record.value?.ahead !== value.ahead || record.value?.behind !== value.behind) notify?.();
 		return value;
 	});
@@ -1185,9 +1185,12 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 	// the hover card said amber. Cached like the default branch, so no refresh pays
 	// for a rev-list on the hot path; the first read may answer without it.
 	const relation = baseRelationFor(toplevel, parsed.branch, notifyChange);
-	if (relation !== void 0 && (relation.ahead > 0 || relation.behind > 0)) {
-		info.mainAhead = relation.ahead;
-		info.mainBehind = relation.behind;
+	if (relation !== void 0) {
+		info.mainBranch = relation.base;
+		if (relation.ahead > 0 || relation.behind > 0) {
+			info.mainAhead = relation.ahead;
+			info.mainBehind = relation.behind;
+		}
 	}
 	// Resolved inside the detail block; the PR-token hover below reuses it, so it
 	// is declared here rather than scoped to that block.
@@ -1233,6 +1236,7 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 			}
 		}
 		if (baseRef !== null) {
+			info.mainBranch = baseRef.replace(/^origin\//u, "");
 			const lrOut = await runGit(toplevel, ["rev-list", "--count", "--left-right", baseRef + "...HEAD"]);
 			const [mBehind, mAhead] = (lrOut.stdout ?? "").trim().split("\t").map((v) => Number.parseInt(v, 10));
 			if (Number.isFinite(mBehind) && Number.isFinite(mAhead) && (mBehind > 0 || mAhead > 0)) {
