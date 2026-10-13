@@ -21,15 +21,14 @@ npm. 0.6.0 is the first release recorded here.
   (`sidebar.session.row.leading`) — no patch and no install step.
 - **The leading glyph explains itself on the row's hover card.** The node half
   attaches the winning rule's reason as `rowTokenWhy`, and the session-row hover
-  card now opens with the token's own GLYPH and word, then the reason (for
-  example `↑ publish — no upstream configured`). It rides the card the row
-  already opens, so hovering the glyph shows exactly what hovering the session
-  line shows. The card's line also wraps now, so a long checkout name no longer
-  overruns it.
+  card renders the action as a label/value row — the glyph, the word and the
+  reason (for example `↑ push — no upstream configured`) — beside the checkout
+  and the pull request. The chip card renders the SAME `action` row from one
+  shared helper, so the two cannot describe the icon differently.
 - **New row tokens** for states the earlier table could not name: `resume` (a
   paused operation), `resolve` (a PR that conflicts with its base), `review`
   (changes requested, or a review required), `sync` (diverged), `update` (the
-  PR is behind its base), `publish` (no upstream) and `commit` (dirty work).
+  PR is behind its base) and `commit` (dirty work).
 - **Two ranking categories: `conflict` and `review`.** Both are row-only —
   no `/gh` verb covers them — so they triage the row without entering the
   action list the picker offers. They join the Settings → Plugins → Git Badge
@@ -46,6 +45,12 @@ npm. 0.6.0 is the first release recorded here.
 - **The install has one step again.** The session row no longer uses a patched
   seat, so there is no `npx dsh-git-badge apply` and no `postinstall` hook. The
   leading glyph and the hover card are upstream's own seats.
+- **The chip card's picker row is `next`.** The `/gh` invocation moved out of the
+  `action` row, which now mirrors the icon. The chip's own-checkout row is
+  `own checkout`, so `checkout` names what a session-row card describes.
+- **One word per action: `publish` is gone.** The no-upstream rule uses the
+  picker's verb `push`, so the chip and the row say the same word. The `publish`
+  RANKING CATEGORY keeps its name.
 
 ### Removed
 

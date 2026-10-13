@@ -8,7 +8,7 @@ Notes for coding agents working in this repo.
 git status badges: an input-row chip (`conversation.input.left`) and a sidebar
 **session-row action glyph** (`sidebar.session.row.leading`), both on upstream
 seats. The glyph sits on the session row because that is the row that knows
-which checkout the conversation is working in; the hover-card line rides
+which checkout the conversation is working in; the hover card rides
 upstream's own `sidebar.session.row.hover` seat.
 
 **No patch is needed, and the patcher is gone.** Every surface rides an upstream

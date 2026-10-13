@@ -7,7 +7,7 @@
  *  - sidebar.session.row.leading: the session row's token as a single glyph in
  *    the row's 16px leading cell, from the node half's `rowToken`. Upstream
  *    renders this seat only while the session is IDLE.
- *  - sidebar.session.row.hover: the hover-card line that explains the token and
+ *  - sidebar.session.row.hover: the hover card that explains the token and
  *    names the checkout, rendered inside the card upstream ALREADY shows for a
  *    session row rather than in a tooltip nested inside it.
  *  - conversation.input.left: chip — status mark + branch + a
@@ -522,7 +522,6 @@ window.__ModuleLoader__.load({
 			sync: "var(--dsw-alias-state-business-primary, #3b82f6)",
 			pull: "var(--dsw-alias-state-business-primary, #3b82f6)",
 			update: "var(--dsw-alias-state-business-primary, #3b82f6)",
-			publish: "var(--dsw-alias-state-business-primary, #3b82f6)",
 			push: "var(--dsw-alias-state-business-primary, #3b82f6)",
 			commit: "var(--dsw-alias-state-business-primary, #3b82f6)"
 		};
@@ -542,7 +541,6 @@ window.__ModuleLoader__.load({
 			sync: "\u21C4",
 			pull: "\u2193",
 			update: "\u21BB",
-			publish: "\u2191",
 			push: "\u2191",
 			commit: "\u271A"
 		};
@@ -625,20 +623,74 @@ window.__ModuleLoader__.load({
 			return react_jsx_runtime.jsx(StatusMark, { info });
 		}
 
+		const CARD_CONTAINER = {
+			display: "flex",
+			flexDirection: "column",
+			gap: "4px",
+			fontSize: "12px",
+			lineHeight: "18px",
+			// Auto-width: the card fits its widest row instead of a guessed
+			// constant, capped at 600px. The Tooltip's maxWidth must stay >= the
+			// cap or IT becomes the clamp.
+			width: "max-content",
+			maxWidth: "600px"
+		};
+		const CARD_ROW = { display: "flex", gap: "8px", alignItems: "baseline" };
+		const CARD_LABEL = { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", flex: "none", minWidth: "62px" };
+		const CARD_VALUE = { minWidth: 0, overflowWrap: "anywhere", whiteSpace: "normal" };
+
+		/** One label/value row — the shape every hover body shares. */
+		function cardRow(label, value) {
+			return react_jsx_runtime.jsxs("div", {
+				style: CARD_ROW,
+				children: [
+					react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: label }),
+					react_jsx_runtime.jsx("span", { style: CARD_VALUE, children: value })
+				]
+			}, label);
+		}
+
 		/**
-		 * Session-row hover-card line — everything the action word cannot say: which
-		 * checkout the row's status describes, and which pull request the action
-		 * refers to. It renders through the upstream sidebar.session.row.hover
-		 * seat, inside the card upstream already opens for a row.
+		 * The action row, SHARED by the session-row card and the chip card so the
+		 * two cannot describe the icon differently. Returns the value node for the
+		 * row, or undefined when the checkout has no token.
 		 *
-		 * This matters MORE now that the row shows only an imperative: `merge` with no
-		 * way to see merge WHAT would be a nag rather than a hint, so the line appears
+		 * The glyph is DECORATION here: the word follows it, so `aria-hidden` keeps
+		 * the accessible name the bare action.
+		 */
+		function actionRow(info) {
+			const token = info?.rowToken;
+			if (typeof token !== "string" || token === "") return void 0;
+			const why = typeof info.rowTokenWhy === "string" && info.rowTokenWhy !== "" ? info.rowTokenWhy : void 0;
+			const colour = ACTION_COLOUR[token];
+			const glyph = ACTION_GLYPH[token];
+			const value = [];
+			if (glyph !== void 0) {
+				value.push(react_jsx_runtime.jsx("span", {
+					"aria-hidden": true,
+					style: { color: colour === void 0 ? META_STYLE.color : colour, fontWeight: 600 },
+					children: glyph + " "
+				}, "action-glyph"));
+			}
+			value.push(token + (why === void 0 ? "" : " \u2014 " + why));
+			return value;
+		}
+
+		/**
+		 * Session-row hover card — everything the action glyph cannot say: what the
+		 * action means and why, which checkout the row's status describes, and which
+		 * pull request it refers to. It renders through the upstream
+		 * sidebar.session.row.hover seat, inside the card upstream already opens for
+		 * a row.
+		 *
+		 * LABEL/VALUE ROWS, the shape the chip card uses. The `action` row comes from
+		 * the shared actionRow() helper, so the two cards cannot describe the icon
+		 * differently; `checkout` and `pull request` follow.
+		 *
+		 * This matters MORE now that the row shows only a glyph: `merge` with no way
+		 * to see merge WHAT would be a nag rather than a hint, so the card renders
 		 * whenever there is something to name — the row's action, a worktree, a pull
 		 * request, or any combination.
-		 *
-		 * The action sentence is what the leading GLYPH cannot say. The row shows
-		 * one glyph in the front cell; this card is its explanation, and it uses
-		 * the SAME hover the session line already has.
 		 *
 		 * It makes no request of its own: the same `{ pr: true }` query as the
 		 * leading glyph resolves to the same cache key, so a card that mounts for
@@ -652,60 +704,30 @@ window.__ModuleLoader__.load({
 		function SessionGitDetail({ sessionId }) {
 			const info = useGitStatus(sessionId === void 0 ? void 0 : { kind: "session", id: sessionId }, { pr: true });
 			if (info === void 0 || info.git !== true) return null;
-			// Nodes, not a string: the action bit carries the token GLYPH in the
-			// token's colour, so the card names the icon the row shows instead of
-			// the literal word "action". Bits are still joined with a middle dot.
-			const bits = [];
-			// The row's own token comes FIRST. The row shows a single glyph, so
-			// this line is the ONLY place that says what the glyph means and why —
-			// and it rides the row's existing hover card, so hovering the glyph
-			// shows the same thing as hovering the session line. Word and reason
-			// come from the same node-half rule.
-			if (typeof info.rowToken === "string" && info.rowToken !== "") {
-				const why = typeof info.rowTokenWhy === "string" && info.rowTokenWhy !== "" ? info.rowTokenWhy : void 0;
-				const colour = ACTION_COLOUR[info.rowToken];
-				const glyph = ACTION_GLYPH[info.rowToken];
-				// ONE bit: glyph then word, so the middle-dot separator never lands
-				// between the icon and the word it labels.
-				const action = [];
-				if (glyph !== void 0) {
-					// Decoration here: the word follows it, so the glyph is hidden
-					// from the accessible name rather than read as a stray symbol.
-					action.push(react_jsx_runtime.jsx("span", {
-						"aria-hidden": true,
-						style: {
-							color: colour === void 0 ? META_STYLE.color : colour,
-							fontWeight: 600
-						},
-						children: glyph + " "
-					}, "action-glyph"));
-				}
-				action.push(info.rowToken + (why === void 0 ? "" : " \u2014 " + why));
-				bits.push(action);
-			}
+			const rows = [];
+			const add = (label, value) => {
+				if (value === void 0 || value === null || value === "") return;
+				rows.push(cardRow(label, value));
+			};
+			// The SAME row the chip card renders, from the same helper, so the two
+			// cards cannot describe the icon differently.
+			add("action", actionRow(info));
 			if (info.isWorktree === true) {
+				// WHICH tree, not just that there is one: the row's glyph cannot say
+				// it, and the branch is ordinary for a main checkout.
 				const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
-				const checkout = [name === "" ? String(info.branch) : name + " on " + info.branch];
-				// the node half followed this tree because it is the one whose branch
-				// has the open PR — say so, because nothing on the row can
-
-				bits.push("checkout: " + checkout.join(" \u00B7 "));
+				add("checkout", name === "" ? String(info.branch) : name + " on " + info.branch);
 			}
-			const pr = formatPrDetail(info.pr);
-			if (pr !== void 0) bits.push("pull request " + pr);
-			if (bits.length === 0) return null;
-			const children = [];
-			bits.forEach((bit, index) => {
-				if (index > 0) children.push(" \u00B7 ");
-				children.push(bit);
-			});
-			// WRAP inside the card. META_STYLE is `nowrap` (the right choice for the
-			// chip, which must never wrap), but this line can name a long worktree,
-			// a branch and a pull request — in `.dotfiles` it overran the card. So
-			// the card overrides the one property that blocked wrapping.
-			return react_jsx_runtime.jsx("span", {
-				style: { ...META_STYLE, whiteSpace: "normal", overflowWrap: "anywhere" },
-				children
+			add("pull request", formatPrDetail(info.pr));
+			if (rows.length === 0) return null;
+			// The row's hover card is upstream's FIXED-WIDTH box: HoverCard.module.css
+			// pins `.card` to 244px. `width: max-content` (CARD_CONTAINER) would
+			// overflow it, so the stack FILLS the box instead and the value cells wrap
+			// inside it. The chip card is different — its Tooltip sizes to the content,
+			// so it keeps max-content.
+			return react_jsx_runtime.jsx("div", {
+				style: { ...CARD_CONTAINER, width: "100%", maxWidth: "100%" },
+				children: rows
 			});
 		}
 
@@ -849,18 +871,6 @@ window.__ModuleLoader__.load({
 			] });
 		}
 
-		const CARD_CONTAINER = {
-			display: "flex",
-			flexDirection: "column",
-			gap: "4px",
-			fontSize: "12px",
-			lineHeight: "18px",
-			// Auto-width: the card fits its widest row instead of a guessed
-			// constant, capped at 600px. The Tooltip's maxWidth must stay >= the
-			// cap or IT becomes the clamp.
-			width: "max-content",
-			maxWidth: "600px"
-		};
 		/**
 		 * The ✎n count's own hover body — the changed-file lists and NOTHING
 		 * else: the full card stays on the status mark, and this tooltip answers
@@ -1003,10 +1013,6 @@ window.__ModuleLoader__.load({
 			return react_jsx_runtime.jsx("div", { style: CARD_CONTAINER, children: rows });
 		}
 
-		const CARD_ROW = { display: "flex", gap: "8px", alignItems: "baseline" };
-		const CARD_LABEL = { color: "var(--dsw-alias-label-tertiary, #9ea7ad)", flex: "none", minWidth: "62px" };
-		const CARD_VALUE = { minWidth: 0, overflowWrap: "anywhere" };
-
 		// The host's plugin-card chrome, reproduced inline: its CSS module is not
 		// exported to plugins, so these values mirror PluginCard.module.css so our
 		// card sits in the same list as its siblings.
@@ -1052,18 +1058,6 @@ window.__ModuleLoader__.load({
 			flex: "none"
 		};
 
-		/** One label/value row — the shape every hover body shares. */
-		function cardRow(label, value) {
-			return react_jsx_runtime.jsxs("div", {
-				style: CARD_ROW,
-				children: [
-					react_jsx_runtime.jsx("span", { style: CARD_LABEL, children: label }),
-					react_jsx_runtime.jsx("span", { style: CARD_VALUE, children: value })
-				]
-			}, label);
-		}
-
-
 		/**
 		 * Hover card body for the input chip — INPUT CHIP ONLY. Pure presentation
 		 * over fields the status response already carries, plus the `detail=1`
@@ -1079,18 +1073,20 @@ window.__ModuleLoader__.load({
 				if (value === void 0 || value === null || value === "") return;
 				rows.push(cardRow(label, value));
 			};
-			// The "action" row — the top line, in the card's ordinary row layout:
-			// the SERVER's ranked suggestion, and nothing else. The client's
-			// extras (secondary picker entries) must never promote themselves into
-			// this line: when the server says there is nothing to do — clean and
-			// synced — the row is omitted, and "no suggestion" stays a suggestion.
-			// Plain text, no affordance: the actionable surface is the (+) menu's
-			// /gh picker, and this row is the read-only pointer to it.
+			// The ACTION row, first: the SAME row the session-row card renders, from
+			// the same helper, so the chip card explains the icon the row shows.
+			add("action", actionRow(data));
+			// The "next" row — the SERVER's ranked suggestion, and nothing else. The
+			// client's extras (secondary picker entries) must never promote
+			// themselves into this line: when the server says there is nothing to do
+			// — clean and synced — the row is omitted, and "no suggestion" stays a
+			// suggestion. Plain text, no affordance: the actionable surface is the
+			// (+) menu's /gh picker, and this row is the read-only pointer to it.
 			const topAction = data.next;
 			if (topAction !== void 0) {
 				// git-comment convention: the invocation, two spaces, then "# "
 				// plus what it does
-				add("action", "/gh " + topAction.args + "  # " + topAction.what);
+				add("next", "/gh " + topAction.args + "  # " + topAction.what);
 			}
 			// The branch lineage rows (branch, upstream, sync, pull request) moved
 			// to the branch NAME's hover — the card is the checkout's verdict, not
@@ -1109,8 +1105,10 @@ window.__ModuleLoader__.load({
 			// The conversation's OWN directory, present only when the badge is
 			// describing a followed worktree — the chip's branch and counts are the
 			// tree's in that case, so this is where the checkout's own state stays
-			// visible. Absent until the `detail=1` response lands, like commits/stash.
-			if (data.worktreeFollowed === true) add("checkout", formatCheckoutDetail(data.checkout));
+			// visible. Labelled `own checkout` because `checkout` now names the
+			// checkout a session-row card describes. Absent until the `detail=1`
+			// response lands, like commits/stash.
+			if (data.worktreeFollowed === true) add("own checkout", formatCheckoutDetail(data.checkout));
 			add("stash", data.stashCount === void 0 ? void 0 : data.stashCount + " stashed");
 			return react_jsx_runtime.jsx("div", { style: CARD_CONTAINER, children: rows });
 		}

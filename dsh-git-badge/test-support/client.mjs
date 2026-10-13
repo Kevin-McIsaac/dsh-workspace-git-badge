@@ -63,6 +63,25 @@ export function children(element) {
 	return Array.isArray(kids) ? kids : [kids];
 }
 
+/**
+ * The label/value rows of a card body, in order: [{ label, value }].
+ *
+ * A row is recognised by its shape — a div of exactly two children whose first
+ * span carries the card-label style — so this keeps working when the row labels
+ * or the row order change.
+ */
+export function rows(node) {
+	return elements(node)
+		.filter((element) => {
+			const kids = children(element);
+			return kids.length === 2 && kids[0]?.props?.style?.minWidth === "62px";
+		})
+		.map((row) => {
+			const [label, value] = children(row);
+			return { label: text(label), value: text(value) };
+		});
+}
+
 /** The single <svg> status mark in an expanded tree, or null. */
 export function mark(node) {
 	return elements(node).find((element) => element.type === "svg") ?? null;

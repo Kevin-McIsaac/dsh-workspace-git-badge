@@ -160,7 +160,7 @@ test("the action list rides only the pr=1 payload", async (t) => {
 	const row = JSON.parse((await get(routes, `?workspace=${WORKSPACE_ID}`)).text());
 	assert.equal(row.actions, void 0, "rows never pay for the picker's list");
 	assert.equal(typeof row.next?.args, "string", "the suggestion is available to every surface");
-	assert.equal(row.rowToken, "publish", "and so is the row's token");
+	assert.equal(row.rowToken, "push", "and so is the row's token");
 	// the chip's request serves the list, and its verdict matches the row's
 	const chip = JSON.parse((await get(routes, `?workspace=${WORKSPACE_ID}&pr=1`)).text());
 	assert.ok(Array.isArray(chip.actions), "pr=1 carries the list");
