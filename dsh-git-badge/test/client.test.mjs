@@ -9,7 +9,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createClient, elements, mark, markFill, markShape, text } from "../test-support/client.mjs";
+import { createClient, elements, expand, mark, markFill, markShape, rows, text } from "../test-support/client.mjs";
 
 /** A main checkout and a linked worktree, differing only in that one field. */
 const MAIN = { branch: "main", isWorktree: false, worktreeName: "repo" };
@@ -38,7 +38,7 @@ const TOKENS = [
 	["sync", "\u21C4", "business"],
 	["pull", "\u2193", "business"],
 	["update", "\u21BB", "business"],
-	["publish", "\u2191", "business"],
+	["push", "\u2191", "business"],
 	["push", "\u2191", "business"],
 	["commit", "\u271A", "business"]
 ];
@@ -139,13 +139,12 @@ test("a non-repository session row renders no glyph", () => {
 	assert.equal(client.leading({ git: false }), null, "nothing to say about a directory that is not a repository");
 });
 
-test("the hover line says what the action word cannot", () => {
+test("the row card says what the action glyph cannot", () => {
 	const client = createClient();
 	// The inferred case: the row's status describes a tree the conversation is not
-	// in, and because the row now carries only an imperative, this card is the ONLY
-	// place that can show which tree — and which PR — it refers to.
-	assert.equal(
-		text(
+	// in, so this card names the tree and the PR the action refers to.
+	assert.deepEqual(
+		rows(
 			client.rowDetail({
 				branch: "chore/global-skills-tiering",
 				isWorktree: true,
@@ -154,21 +153,23 @@ test("the hover line says what the action word cannot", () => {
 				pr: { number: 391, state: "passing" }
 			})
 		),
-		"checkout: global-skills-tiering on chore/global-skills-tiering \u00B7 pull request #391 \u00B7 checks passing"
+		[
+			{ label: "checkout", value: "global-skills-tiering on chore/global-skills-tiering" },
+			{ label: "pull request", value: "#391 \u00B7 checks passing" }
+		]
 	);
-	// a worktree the session is genuinely in is named without the explanation
-	assert.equal(
-		text(client.rowDetail({ branch: "feat/x", isWorktree: true, worktreeName: "hotfix-tree" })),
-		"checkout: hotfix-tree on feat/x"
+	// a worktree the session is genuinely in is named the same way
+	assert.deepEqual(
+		rows(client.rowDetail({ branch: "feat/x", isWorktree: true, worktreeName: "hotfix-tree" })),
+		[{ label: "checkout", value: "hotfix-tree on feat/x" }]
 	);
-	// a MAIN checkout has no tree to name, but its pull request is still worth the
-	// line: a bare `merge` on the row would otherwise be unexplainable
-	assert.equal(
-		text(client.rowDetail({ branch: "main", isWorktree: false, pr: { number: 18, state: "passing", review: "APPROVED" } })),
-		"pull request #18 \u00B7 checks passing \u00B7 approved"
+	// a MAIN checkout has no tree to name, but its pull request is still worth a row
+	assert.deepEqual(
+		rows(client.rowDetail({ branch: "main", isWorktree: false, pr: { number: 18, state: "passing", review: "APPROVED" } })),
+		[{ label: "pull request", value: "#18 \u00B7 checks passing \u00B7 approved" }]
 	);
-	// nothing to name at all — no tree, no PR — so the card says nothing
-	assert.equal(text(client.rowDetail({ branch: "main", isWorktree: false })), "");
+	// nothing to name at all — no tree, no PR — so the card renders nothing
+	assert.equal(client.rowDetail({ branch: "main", isWorktree: false }), null);
 	assert.equal(client.rowDetail({ git: false }), null);
 });
 
@@ -320,32 +321,35 @@ test("LeadingTokenGlyph renders the token as one glyph with the token colour and
 test("the row's hover card explains the glyph, using the row's own hover", () => {
 	// The leading glyph carries no tooltip of its own: the row is already a
 	// HoverCard anchor, so the explanation rides the SAME card the session line
-	// uses. Word and reason come from the same node-half rule, and the card leads
-	// with the token GLYPH in the token's colour instead of the word "action".
+	// uses. Word and reason come from the same node-half rule, and the card's
+	// action row leads with the token GLYPH in the token's colour.
 	const client = createClient();
-	const withGlyph = client.rowDetail({ ...MAIN, rowToken: "publish", rowTokenWhy: "no upstream configured" });
-	assert.equal(text(withGlyph), "\u2191 publish \u2014 no upstream configured");
+	const withGlyph = client.rowDetail({ ...MAIN, rowToken: "push", rowTokenWhy: "no upstream configured" });
+	assert.deepEqual(rows(withGlyph), [{ label: "action", value: "\u2191 push \u2014 no upstream configured" }]);
 	const glyph = elements(withGlyph).find((element) => element.props?.["aria-hidden"] === true);
 	assert.ok(glyph !== void 0, "the glyph is decoration; the word follows it");
 	assert.equal(text(glyph), "\u2191 ", "the glyph and a space");
 	assert.match(glyph.props.style.color, /state-business-primary/, "painted in the token's own colour");
 	// no reason from the node half still names the action
-	assert.equal(text(client.rowDetail({ ...MAIN, rowToken: "push" })), "\u2191 push");
-	// action first, then the checkout and the pull request; and nothing at all
-	// when the row has neither a token nor anything else to name
-	assert.equal(
-		text(client.rowDetail({
+	assert.deepEqual(rows(client.rowDetail({ ...MAIN, rowToken: "push" })), [{ label: "action", value: "\u2191 push" }]);
+	// action first, then the checkout; and nothing at all when the row has neither
+	// a token nor anything else to name
+	assert.deepEqual(
+		rows(client.rowDetail({
 			branch: "feat/x", isWorktree: true, worktreeName: "hotfix-tree",
 			rowToken: "merge", rowTokenWhy: "pull request 9 is ready to merge"
 		})),
-		"\u2713 merge \u2014 pull request 9 is ready to merge \u00B7 checkout: hotfix-tree on feat/x"
+		[
+			{ label: "action", value: "\u2713 merge \u2014 pull request 9 is ready to merge" },
+			{ label: "checkout", value: "hotfix-tree on feat/x" }
+		]
 	);
-	assert.equal(text(client.rowDetail({ ...MAIN })), "");
+	assert.equal(client.rowDetail({ ...MAIN }), null);
 });
 
-test("the hover card WRAPS: a long checkout line must not overrun the card", () => {
-	// META_STYLE is `nowrap` for the chip, and it left the row card's long line on
-	// one row — in `.dotfiles` it overran. The card overrides that one property.
+test("the row card FILLS the hover card, so its values wrap instead of overflowing", () => {
+	// Upstream's HoverCard is a fixed 244px box. A `max-content` stack overflows it
+	// without wrapping — the bug this pins. The card fills the box instead.
 	const client = createClient();
 	const card = client.rowDetail({
 		branch: "chore/global-skills-tiering",
@@ -356,10 +360,32 @@ test("the hover card WRAPS: a long checkout line must not overrun the card", () 
 		rowTokenWhy: "1 ahead of origin/chore/global-skills-tiering",
 		pr: { number: 391, state: "passing" }
 	});
-	assert.equal(card.props.style.whiteSpace, "normal", "the card line wraps");
-	assert.equal(card.props.style.overflowWrap, "anywhere", "and a long unbroken name still breaks");
-	// the chip's own meta style must stay nowrap — this override is local
-	assert.equal(card.props.style.flex, "none");
+	assert.equal(card.props.style.width, "100%", "the stack fills the hover card");
+	assert.equal(card.props.style.maxWidth, "100%", "and never exceeds it");
+	const parsed = rows(card);
+	assert.deepEqual(parsed.map((row) => row.label), ["action", "checkout", "pull request"]);
+	for (const row of parsed) assert.ok(row.value.length > 0, `row ${row.label} has a value`);
+	const value = elements(card).find((element) => element.props?.style?.overflowWrap === "anywhere");
+	assert.ok(value !== void 0, "the value cell breaks a long unbroken name");
+	assert.equal(value.props.style.whiteSpace, "normal", "and is allowed to wrap");
+});
+
+test("the chip card and the row card render the SAME action row", () => {
+	// The acceptance criterion for the shared helper: one checkout, one action
+	// sentence, whichever card renders it. Byte equality, not two lookalikes.
+	const client = createClient({ tooltip: true });
+	const info = {
+		...MAIN,
+		rowToken: "push",
+		rowTokenWhy: "no upstream configured",
+		next: { args: "push", why: "no upstream configured", what: "publish feat/x for the first time", primary: true }
+	};
+	const tooltip = elements(expand(client.rawChip(info))).find((element) => element.type === "Tooltip");
+	assert.ok(tooltip !== void 0, "the chip card is wrapped in the Tooltip primitive");
+	const chipAction = rows(expand(tooltip.props.label())).find((row) => row.label === "action");
+	const rowAction = rows(client.rowDetail(info)).find((row) => row.label === "action");
+	assert.ok(chipAction !== void 0 && rowAction !== void 0, "both cards render an action row");
+	assert.equal(chipAction.value, rowAction.value, "one action sentence, two cards");
 });
 
 test("LeadingTokenGlyph falls back to the shared status mark with no token", () => {

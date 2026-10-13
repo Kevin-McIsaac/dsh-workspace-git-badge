@@ -68,7 +68,7 @@ is still mid-operation and waiting for you to continue or undo it
 
 Only the chip in the input box shows the token. A sidebar row shows the one
 **action** that conversation needs — `resume`, `resolve`, `sync`, `pull`,
-`update`, `publish`, `push`, `merge`, `commit`, `review`, `fix CI` — or nothing
+`update`, `push`, `merge`, `commit`, `review`, `fix CI` — or nothing
 at all, and never the branch. Each word has a glyph too:
 
 | Word | Glyph | When it appears |
@@ -79,17 +79,16 @@ at all, and never the branch. Each word has a glyph too:
 | `sync` | ⇄ | you are both ahead of and behind the remote |
 | `pull` | ↓ | you are behind the remote |
 | `update` | ↻ | the pull request is behind its base branch |
-| `publish` | ↑ | the branch has no upstream yet |
-| `push` | ↑ | you have commits the remote does not |
+| `push` | ↑ | the branch has no upstream yet, or you have commits the remote does not |
 | `merge` | ✓ | GitHub reports the pull request ready to merge |
 | `commit` | ✚ | uncommitted work (staged, unstaged or untracked) |
 | `fix CI` | ✗ | the pull request's checks are failing |
 
 The row shows the token as its glyph in the leading cell, with the word as its
-accessible name. Rest the pointer on that row and its usual hover card opens with
-the glyph, the word and the reason (`↑ publish — no upstream configured`). When
-there is no token — clean and in sync — that cell falls back to the status mark
-above.
+accessible name. Rest the pointer on that row and its usual hover card opens a
+label/value list: the action with its reason (`↑ push — no upstream configured`),
+the checkout, and the pull request. When there is no token — clean and in sync —
+that cell falls back to the status mark above.
 
 ## A worked example
 

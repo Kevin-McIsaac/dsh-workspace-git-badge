@@ -409,7 +409,7 @@ test("rowToken: every state in the token table derives its word", () => {
 		[{ ahead: 1, behind: 2 }, "sync"],
 		[{ behind: 2 }, "pull"],
 		[{ pr: { number: 7, state: "passing", mergeState: "BEHIND", open: true } }, "update"],
-		[{ upstream: void 0, stagedFiles: 1 }, "publish"],
+		[{ upstream: void 0, stagedFiles: 1 }, "push"],
 		[{ ahead: 2 }, "push"],
 		[{ pr: { number: 7, state: "passing", mergeState: "CLEAN", open: true } }, "merge"],
 		[{ stagedFiles: 1 }, "commit"],

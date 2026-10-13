@@ -24,7 +24,7 @@ const CLAIMS = [
 	["the install command", /dsh plugin --profile web add dsh-git-badge/],
 	["the leading-cell seat", /sidebar\.session\.row\.leading/],
 	["the hover-card seat", /sidebar\.session\.row\.hover/],
-	["the hover example", /↑ publish — no upstream configured/],
+	["the hover example", /↑ push — no upstream configured/],
 	["the no-patch statement", /(no|nothing to) (seam )?patch/i]
 ];
 
@@ -46,7 +46,7 @@ test("neither README presents the retired patch as a step to run", () => {
 
 test("the package README lists the row token vocabulary", () => {
 	// The npm page is the reference a user reads for the row's words.
-	const TOKENS = ["resume", "resolve", "sync", "pull", "update", "publish", "push", "merge", "commit", "review", "fix CI"];
+	const TOKENS = ["resume", "resolve", "sync", "pull", "update", "push", "merge", "commit", "review", "fix CI"];
 	for (const token of TOKENS) {
 		assert.ok(PKG.includes(token), `the package README must list the token ${token}`);
 	}

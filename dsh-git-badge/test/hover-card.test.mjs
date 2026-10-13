@@ -15,7 +15,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createClient, elements, expand, mark, text } from "../test-support/client.mjs";
+import { createClient, elements, expand, mark, rows, text } from "../test-support/client.mjs";
 
 /**
  * The ORDINARY status response — everything a plain (no `detail=1`) fetch
@@ -59,10 +59,15 @@ const DETAIL = {
  * two payloads separately on purpose: a base response never contains the
  * detail-only fields, and a test that let it would prove nothing about laziness.
  */
-function card(client, base, detail = base) {
+/** The card BODY as an element tree, so a test can read its rows. */
+function cardBody(client, base, detail = base) {
 	const tooltip = elements(expand(client.rawChip(base, detail))).find((el) => el.type === "Tooltip");
 	assert.ok(tooltip !== void 0, "expected the status mark to be wrapped in the Tooltip primitive");
-	return text(expand(tooltip.props.label()));
+	return expand(tooltip.props.label());
+}
+
+function card(client, base, detail = base) {
+	return text(cardBody(client, base, detail));
 }
 
 //#region the request contract (laziness)
@@ -319,23 +324,30 @@ test("the branch hover lists the commits this branch adds", () => {
 	assert.ok(!branchLabel.includes("2 staged"), "no card content bleeds into it");
 });
 
-test("the card's action row is the SERVER's verdict, not the client's extras", () => {
+test("the chip card's next row is the SERVER's verdict, and its action row mirrors the icon", () => {
 	// clean feature branch, pushed, no PR: the picker offers /gh pr (an extra),
 	// but the server's next is null — so the card must stay quiet rather than
-	// promoting that extra into its top line
+	// promoting that extra into its next line. No rowToken either, so no action row.
 	const client = createClient({ tooltip: true, hover: true });
 	const clean = { branch: "feat/x", upstream: "origin/feat/x", ahead: 0, behind: 0, dirty: false };
 	const body = card(client, clean);
-	assert.ok(!body.includes("action"), `no action row when the server suggests nothing: ${body}`);
-	// and when the server DOES suggest, the row is its suggestion — `next` is the
-	// whole contract, so the fixture supplies it the way the response does
+	assert.ok(!body.includes("action"), `no action row without a token: ${body}`);
+	assert.ok(!body.includes("next"), `no next row when the server suggests nothing: ${body}`);
+	// When the server DOES suggest, the `next` row is its suggestion — `next` is
+	// the whole contract, so the fixture supplies it the way the response does.
+	// The `action` row comes from the SAME node rule as the icon.
 	const dirty = {
 		...clean,
 		dirty: true,
 		stagedFiles: 2,
+		rowToken: "commit",
+		rowTokenWhy: "work to commit: 2 staged",
 		next: { args: "commit", why: "work to commit: 2 staged", what: "commit the staged changes" }
 	};
-	assert.match(card(client, dirty), /action.*\/gh commit/, "the server's suggestion is the row");
+	const parsed = rows(cardBody(client, dirty));
+	assert.equal(parsed[0]?.label, "action", "the action row leads");
+	assert.equal(parsed[0]?.value, "\u271A commit \u2014 work to commit: 2 staged", "and mirrors the icon's word and reason");
+	assert.ok(parsed.some((row) => row.label === "next" && row.value.includes("/gh commit")), "the server's suggestion is the next row");
 });
 
 test("the PR token's hover lists only the commits in that PR", () => {
@@ -447,7 +459,7 @@ test("the card names the conversation's OWN checkout when the badge followed a w
 		checkout: { branch: "main", dirty: true, changedFiles: 2, untrackedFiles: 1, ahead: 1, behind: 2 }
 	};
 	const body = card(client, followed);
-	assert.ok(body.includes("checkout"), `expected the checkout row: ${body}`);
+	assert.ok(body.includes("own checkout"), `expected the own-checkout row: ${body}`);
 	assert.ok(body.includes("main \u00B7 \u270E3 \u00B7 \u21911 \u21932"), `expected the checkout's own state: ${body}`);
 	assert.ok(!body.includes("chore/global-skills-tiering"), "the branch name lives on the chip, not the card");
 });

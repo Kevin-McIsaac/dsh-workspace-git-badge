@@ -221,7 +221,7 @@ The action token renders on each session row as a glyph in the leading cell
 The **project** rows stay bare — by design, since a workspace cannot know which
 worktree its sessions use. The **search** list stays bare too: it renders a
 different component without that seat. The flat "all sessions" list reuses
-`SessionNodeItem`, so the glyph renders there too. The hover-card line naming
+`SessionNodeItem`, so the glyph renders there too. The hover card naming
 the checkout and the pull request rides upstream's own
 `sidebar.session.row.hover` seat, so it also appears on a pristine install.
 

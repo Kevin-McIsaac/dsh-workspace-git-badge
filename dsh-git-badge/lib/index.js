@@ -834,7 +834,7 @@ function nextStepRules(info) {
 		add("sync", "pull", `${behind} behind ${info.upstream ?? "upstream"}`, "update this branch from upstream", "git pull --ff-only", "pull");
 	}
 	if (info.upstream === void 0 && dirty > 0) {
-		add("publish", "push", "no upstream configured", `publish ${info.branch} for the first time`, `git push -u origin ${info.branch}`, "publish");
+		add("publish", "push", "no upstream configured", `publish ${info.branch} for the first time`, `git push -u origin ${info.branch}`, "push");
 	} else if (ahead > 0) {
 		add("publish", "push", `${ahead} ahead of ${info.upstream ?? "upstream"}`, "push local commits to the remote", "git push", "push");
 	}
