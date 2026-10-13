@@ -15,7 +15,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createClient, elements, expand, mark, rows, text } from "../test-support/client.mjs";
+import { createClient, elements, expand, rows, text } from "../test-support/client.mjs";
 
 /**
  * The ORDINARY status response — everything a plain (no `detail=1`) fetch
@@ -94,10 +94,10 @@ test("a sidebar row asks for neither extra", () => {
 	assert.equal(targetQuery({ kind: "workspace", id: "ws-1" }, {}), "workspace=ws-1");
 });
 
-test("the status mark wires a pointer-enter, which is what unlocks the card's fields", () => {
-	// the card lives on the MARK now (the circle is the "what does this colour
-	// mean" element), so the lazy fetch is gated by resting on the mark, not the
-	// badge
+test("the leading cluster wires a pointer-enter, which is what unlocks the card's fields", () => {
+	// the card lives on the LEADING CLUSTER now (the glyph is the "what does this
+	// colour mean" element, and the branch is always there), so the lazy fetch is
+	// gated by resting on the cluster, not the badge
 	const client = createClient();
 	const markEl = elements(expand(client.rawChip({ branch: "main" })))
 		.find((el) => typeof el.props?.onPointerEnter === "function");
@@ -137,7 +137,7 @@ test("the chip renders WITHOUT the Tooltip primitive, just uncarded", () => {
 	const client = createClient({ tooltip: false });
 	const raw = client.rawChip({ ...DETAIL });
 	assert.equal(raw.type, "span", "the chip itself must still render");
-	assert.ok(mark(expand(raw)) !== null, "and it must still carry the status mark");
+	assert.equal(elements(expand(raw)).some((el) => el.type === "svg"), false, "and it draws no mark");
 	assert.ok(text(expand(raw)).includes("main"), "and the branch");
 });
 
@@ -161,28 +161,28 @@ test("every hover surface is wrapped before its data lands, so the first hover o
 	// and opens on the CHILD's mouseenter. A wrapper mounted only after the lazy
 	// detail arrives therefore cannot open for the pointer that fetched it — the
 	// pointer has to leave and return, which was reported as "the first hover does
-	// nothing, the second works". So all four wrappers must exist with NO detail
+	// nothing, the second works". So all THREE wrappers must exist with NO detail
 	// payload (hover: false), and each label must degrade to the base response
 	// rather than claim an empty list.
 	const client = createClient({ tooltip: true });
 	const base = { ...BASE };
 	const wrappers = elements(expand(client.rawChip(base))).filter((el) => el.type === "Tooltip");
-	assert.equal(wrappers.length, 4, "mark + branch + count + PR token are all wrapped");
+	assert.equal(wrappers.length, 3, "leading cluster + count + PR token are all wrapped");
 	const labels = wrappers.map((el) => text(expand(el.props.label()))).join(" | ");
 	assert.ok(labels.includes("2 staged"), `the count names the breakdown: ${labels}`);
 	assert.ok(!labels.includes("no changed files"), "not a false empty-list claim before the names arrive");
 	assert.ok(labels.includes("#142"), `the token names the PR while its commits load: ${labels}`);
 	assert.ok(!labels.includes("no commits beyond the base branch"), "not a false empty-PR claim before the commits arrive");
 
-	// and the branch's wrapper child keeps its element type once detail lands: a
+	// and the leading cluster's child keeps its element type once detail lands: a
 	// span -> anchor swap would remount the node under the resting pointer
-	const branchWrapper = (c, detail) => elements(expand(c.rawChip(base, detail)))
+	const leadingWrapper = (c, detail) => elements(expand(c.rawChip(base, detail)))
 		.filter((el) => el.type === "Tooltip")
 		.find((el) => text(expand(el.props.children)).includes(base.branch));
-	assert.equal(branchWrapper(client).props.children.type, "span", "the branch wrapper's child, before detail");
+	assert.equal(leadingWrapper(client).props.children.type, "span", "the cluster's child, before detail");
 	// hover: true is what serves the lazy detail slot — the harness models laziness
 	const online = createClient({ tooltip: true, hover: true });
-	const stated = branchWrapper(online, { ...base, compareUrl: "https://github.com/owner/repo/compare/main...main" });
+	const stated = leadingWrapper(online, { ...base, compareUrl: "https://github.com/owner/repo/compare/main...main" });
 	assert.equal(stated.props.children.type, "span", "and still a span after the compare URL arrives");
 	assert.ok(elements(stated.props.children).some((el) => el.type === "a"), "while the anchor itself is nested INSIDE that stable span");
 });
@@ -274,15 +274,30 @@ test("the collapsed untracked fallback is disclosed in the card", () => {
 	assert.ok(body.includes("(collapsed)"), `expected the caveat: ${body}`);
 });
 
-test("the card does NOT repeat what the count and branch hovers own", () => {
-	// de-duplication contract: untracked names live on the count's tooltip,
-	// branch-unique commits live on the branch's tooltip — the card carries
-	// neither, at rest or on hover
+test("the card merges the checkout verdict and the branch lineage, without the count's file list", () => {
+	// ONE card now: the leading cluster (glyph + branch) opens the checkout rows
+	// AND the branch's lineage rows. The untracked NAMES still live on the count's
+	// own tooltip, so the card does not repeat that list.
 	const body = card(createClient({ tooltip: true, hover: true }), BASE, DETAIL);
 	assert.ok(!body.includes("notes/todo.txt"), `no untracked row: ${body}`);
 	assert.ok(!body.includes("\u2026 and 3 more"), "no untracked and-k-more");
-	assert.ok(!body.includes("def5678"), "no last-commits row (branch hover owns commits)");
 	assert.ok(body.includes("2 stashed"), "stash stays on the card");
+	assert.ok(body.includes("def5678"), "and the branch's commits are now ON the card");
+});
+
+test("a tokenless chip STILL opens the card from its leading cluster", () => {
+	// The retired mark was the card's ONLY anchor. A clean checkout has no token,
+	// so without this the whole card would be unreachable. The cluster — the glyph
+	// when there is one, plus the branch, which ALWAYS exists — is the anchor.
+	const client = createClient({ tooltip: true, hover: true });
+	const clean = { branch: "feat/x", upstream: "origin/feat/x", ahead: 0, behind: 0, dirty: false };
+	const raw = client.rawChip(clean);
+	const tooltip = elements(expand(raw)).find((el) => el.type === "Tooltip");
+	assert.ok(tooltip !== void 0, "the cluster is wrapped even with no token");
+	assert.ok(text(expand(tooltip.props.children)).includes("feat/x"), "and the branch name is inside that anchor");
+	const body = text(expand(tooltip.props.label()));
+	assert.ok(body.includes("no pull request"), `the card still renders: ${body}`);
+	assert.ok(!body.includes("action"), "with no action row, because there is no token");
 });
 
 test("the card names the linked worktrees the session is NOT following", () => {
@@ -301,27 +316,19 @@ test("the card names the linked worktrees the session is NOT following", () => {
 	assert.ok(!quiet.includes("none registered"), `no row without a count: ${quiet}`);
 });
 
-test("the branch hover lists the commits this branch adds", () => {
-	// the BranchCommitsList body is the tooltip's label function — exercised the
-	// same way the card body is
+test("the leading card carries the branch's lineage, including its commits", () => {
+	// The lineage is no longer a SEPARATE card: it is the bottom half of the one
+	// card the leading cluster opens. Identify that label by its commit hashes.
 	const client = createClient({ tooltip: true, hover: true });
 	const rendered = client.rawChip(BASE, DETAIL);
-	const tooltip = elements(expand(rendered)).filter((el) => el.type === "Tooltip");
-	const labels = tooltip.map((el) => text(expand(el.props.label())));
-	// the branch hover carries the lineage: upstream, sync in words, the commits
-	// this branch adds, and the pull request
-	// the card's action row ALSO says "upstream"/"commits" (the /gh sync
-	// what-comment), so identify the lineage label by its upstream VALUE
-	// no "commits" heading anymore — the lineage label is identified by its
-	// upstream value and its commit hashes
-	const branchLabel = labels.find((l) => l.includes("abc1234"));
-	assert.ok(branchLabel !== void 0, `expected the lineage label: ${JSON.stringify(labels)}`);
+	const labels = elements(expand(rendered)).filter((el) => el.type === "Tooltip").map((el) => text(expand(el.props.label())));
+	const leading = labels.find((l) => l.includes("abc1234"));
+	assert.ok(leading !== void 0, `expected the lineage label: ${JSON.stringify(labels)}`);
 	// the merge axis is the ONLY lineage row now, and it always renders
-	assert.ok(branchLabel.includes("merge"), "the merge row");
-	assert.ok(!branchLabel.includes("origin/main"), "upstream row is gone — redundant with merge");
-	assert.ok(!branchLabel.includes("\u2191"), "sync arrows are gone — same fact, said in words");
-	assert.ok(branchLabel.includes("abc1234"), "the branch's commits, no heading — the lines are the label");
-	assert.ok(!branchLabel.includes("2 staged"), "no card content bleeds into it");
+	assert.ok(leading.includes("merge"), "the merge row");
+	assert.ok(!leading.includes("origin/main"), "upstream row is gone — redundant with merge");
+	assert.ok(!leading.includes("\u2191"), "sync arrows are gone — same fact, said in words");
+	assert.ok(leading.includes("abc1234"), "the branch's commits, no heading — the lines are the label");
 });
 
 test("the chip card's next row is the SERVER's verdict, and its action row mirrors the icon", () => {
@@ -548,17 +555,17 @@ test("the row's token glyph hides while the session is running a turn", () => {
 	// exactly when a suggestion is noise: the checkout is still moving.
 	const client = createClient();
 	const idle = client.leading(ROW_AHEAD, { useSessions: sessionsWithRunning(false) });
-	assert.equal(text(idle), "\u2191", `expected the glyph while idle: ${text(idle)}`);
+	assert.ok(elements(idle).some((el) => el.type === "svg"), `expected the arrow while idle: ${text(idle)}`);
 	const busy = client.leading(ROW_AHEAD, { useSessions: sessionsWithRunning(true) });
-	assert.equal(busy, null, "no glyph while a turn is running");
+	assert.equal(busy, null, "no icon while a turn is running");
 });
 
 test("without the standard-kit hook the row is unchanged, and the console says so", () => {
 	// Absent means "cannot know", never "running": a shell that seeds no useSessions
 	// must keep the glyph exactly as it was rather than blanking it.
 	const client = createClient();
-	const rendered = text(client.leading(ROW_AHEAD));
-	assert.equal(rendered, "\u2191", `expected the glyph unchanged: ${rendered}`);
+	const rendered = client.leading(ROW_AHEAD);
+	assert.ok(elements(rendered).some((el) => el.type === "svg"), `expected the icon unchanged: ${text(rendered)}`);
 	assert.ok(
 		client.logs.some((line) => line.includes("session-row idle gate = off")),
 		`expected the off report: ${JSON.stringify(client.logs)}`

@@ -48,6 +48,21 @@ npm. 0.6.0 is the first release recorded here.
   client holds one severity-to-colour map instead of a token-to-colour map, so
   the chip and the row agree about how loud a state is. No pixel changes: the
   severity of each token keeps the colour that token had.
+- **The glyph is the ONLY icon.** The drawn disc/tree mark is gone. Both surfaces
+  show the node half's token icon: the input chip at the head of its leading
+  cluster, the sidebar row in its 16px leading cell. A checkout with no token —
+  clean and in sync — draws NOTHING, because there is no action to name. The four
+  hairline tokens (`push`, `pull`, `sync`, `update`) are DRAWN as 12x12 arrows in
+  `currentColor`, because `↑ ↓ ⇄ ↻` are hairline strokes in the shell's font and no
+  weight makes them as solid as `✚ ✓ ✗ ◆`. The six text glyphs sit at 13px, and the
+  card's action-row glyph is bold for every token.
+- **The chip card is ONE card.** The retired mark was the card's only anchor, so
+  the checkout's verdict rows and the branch's lineage rows merged into one card
+  on the leading cluster (glyph and branch together). Hovering either opens it,
+  and a clean checkout opens it from the branch name.
+- **The PR token's state glyph is coloured.** The `✓`/`✗`/`…` that follows
+  `PR#142` takes the CI colour (green passing, red failing, amber running). The
+  number and the link keep the chip's own muted colour, so only the state shouts.
 - **The install has one step again.** The session row no longer uses a patched
   seat, so there is no `npx dsh-git-badge apply` and no `postinstall` hook. The
   leading glyph and the hover card are upstream's own seats.
@@ -60,6 +75,11 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Removed
 
+- **The drawn status mark.** `StatusMark`, `badgeStatus`, `MARK_FILL` and
+  `STATUS_LABEL` are gone from the client, with the disc/tree geometry, the
+  three-state colour rule and the `git: <status>` accessible names. Worktree-ness
+  is named in the card's `worktree` row rather than drawn. With it went the
+  `mark`, `markShape` and `markFill` test helpers.
 - **The seam patcher.** `seam/anchors.js`, `seam/patch.js`, `seam/stub-index.js`
   and the patch half of `seam/apply.js` are gone, together with the repo's
   `seam/` snapshots and its `apply.sh` / `make-patch.sh` wrappers. The package's

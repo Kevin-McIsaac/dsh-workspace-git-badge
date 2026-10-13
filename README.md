@@ -12,11 +12,11 @@ awareness directly into your workflow:
 
 1. **At-a-glance session status**: branch, file counts and PR/CI state on the input box. When the session is working in a linked [`git worktree`](#Worktrees), the badge follows that tree rather than the main checkout.
 
-![Dark-mode input chip: a tree mark with the worktree branch feat/worktree-aware-chip and a passing PR#18, above a main checkout showing sync and file counts and a failing check](docs/images/chip.svg)
+![Dark-mode input chip: the action glyph with the worktree branch feat/worktree-aware-chip and a passing PR#18, above a main checkout showing sync and file counts and a failing check](docs/images/chip.svg)
 
-2. **Actionable session overview**: pinpoints the session requiring attention. The session row status icon is extended to show what git actions are needed, e.g., push, merge. The row's hover card lists this icon, the action and the reason (`↑ push — no upstream configured`).
+2. **Actionable session overview**: pinpoints the session requiring attention. The session row status icon is extended to show what git actions are needed, e.g., push, merge. The row's hover card lists this icon, the action and the reason (`↑ push — no upstream configured`). The chip leads with the same glyph, and a checkout with nothing to do shows no icon at all.
 
-![Dark-mode sidebar session rows: a green tick in the leading cell for a merge-ready pull request, a red cross for failing CI, and a green status dot when there is nothing to do](docs/images/session-rows.svg)
+![Dark-mode sidebar session rows: a green tick in the leading cell for a merge-ready pull request, a red cross for failing CI, and an empty leading cell when there is nothing to do](docs/images/session-rows.svg)
 
 Both are updated within seconds of any commit, checkout, stage or file
 edit — including inside a linked  [worktree](#Worktrees) for safe isolation of parallel dhs working session.
