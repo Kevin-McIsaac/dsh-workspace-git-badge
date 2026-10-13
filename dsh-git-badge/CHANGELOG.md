@@ -10,6 +10,8 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-10-13
+
 ### Fixed
 
 - **The row's token survives a status dot.** Upstream mounts the leading seat

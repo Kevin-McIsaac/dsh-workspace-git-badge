@@ -1,6 +1,6 @@
 {
   "name": "dsh-git-badge",
-  "version": "0.20.0",
+  "version": "0.20.1",
   "description": "Git status badges for DeepSeek Harness: an input-row chip and a sidebar session-row action glyph, on every install — no patch and no manual step. Event-driven freshness over SSE.",
   "type": "module",
   "main": "lib/index.js",
