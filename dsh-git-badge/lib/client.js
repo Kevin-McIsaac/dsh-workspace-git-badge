@@ -504,33 +504,28 @@ window.__ModuleLoader__.load({
 		 * below reuses THIS request rather than issuing its own.
 		 */
 		/**
-		 * Action -> colour. Colour here means SEVERITY — how much this needs you —
-		 * rather than identity: a broken build and a conflict are the loud ones, a
-		 * requested review is a nudge, `merge` is the all-clear, and routine sync is
-		 * the quiet end of the same ramp rather than outside it. That last move is
-		 * deliberate: grey put `push` below the threshold of notice, so the one row
-		 * that wanted a decision read as a timestamp. The WORD remains the channel
-		 * (colour only reinforces it), and the tokens are the app's own, so both
-		 * themes work.
+		 * Severity -> colour. The NODE half decides the severity
+		 * (`error` | `warn` | `success` | `business`) and every surface paints from
+		 * that one field, so the chip and the row cannot disagree about how loud a
+		 * state is. Colour here means SEVERITY — how much this needs you — rather
+		 * than identity: a broken build and a conflict are the loud ones, a requested
+		 * review is a nudge, `merge` is the all-clear, and routine work is the quiet
+		 * blue end of the same ramp rather than outside it. The WORD remains the
+		 * channel (colour only reinforces it), and the tokens are the app's own, so
+		 * both themes work.
 		 */
-		const ACTION_COLOUR = {
-			resume: "var(--dsw-alias-state-error-primary, #e5484d)",
-			resolve: "var(--dsw-alias-state-error-primary, #e5484d)",
-			"fix CI": "var(--dsw-alias-state-error-primary, #e5484d)",
-			review: "var(--dsw-alias-state-warn-primary, #d29922)",
-			merge: "var(--dsw-alias-state-success-primary, #30a46c)",
-			sync: "var(--dsw-alias-state-business-primary, #3b82f6)",
-			pull: "var(--dsw-alias-state-business-primary, #3b82f6)",
-			update: "var(--dsw-alias-state-business-primary, #3b82f6)",
-			push: "var(--dsw-alias-state-business-primary, #3b82f6)",
-			commit: "var(--dsw-alias-state-business-primary, #3b82f6)"
+		const SEVERITY_FILL = {
+			error: "var(--dsw-alias-state-error-primary, #e5484d)",
+			warn: "var(--dsw-alias-state-warn-primary, #d29922)",
+			success: "var(--dsw-alias-state-success-primary, #30a46c)",
+			business: "var(--dsw-alias-state-business-primary, #3b82f6)"
 		};
 
 		/**
 		 * Action -> glyph. The SHAPE channel, beside the colour: a glyph makes the
 		 * row readable before the word is parsed, and it survives a monochrome or
-		 * colour-blind view where the tint alone would not. Keys mirror
-		 * ACTION_COLOUR exactly; a missing entry degrades to the bare word.
+		 * colour-blind view where the tint alone would not. Keys are the row tokens;
+		 * a missing entry degrades to the bare word.
 		 */
 		const ACTION_GLYPH = {
 			resume: "\u23F5",
@@ -611,7 +606,7 @@ window.__ModuleLoader__.load({
 			if (sessionId === void 0 || info === void 0 || info.git !== true) return null;
 			const token = info.rowToken;
 			if (typeof token === "string" && token !== "") {
-				const colour = ACTION_COLOUR[token];
+				const colour = SEVERITY_FILL[info.rowSeverity];
 				const glyph = ACTION_GLYPH[token];
 				return react_jsx_runtime.jsx("span", {
 					role: "img",
@@ -662,7 +657,7 @@ window.__ModuleLoader__.load({
 			const token = info?.rowToken;
 			if (typeof token !== "string" || token === "") return void 0;
 			const why = typeof info.rowTokenWhy === "string" && info.rowTokenWhy !== "" ? info.rowTokenWhy : void 0;
-			const colour = ACTION_COLOUR[token];
+			const colour = SEVERITY_FILL[info.rowSeverity];
 			const glyph = ACTION_GLYPH[token];
 			const value = [];
 			if (glyph !== void 0) {

@@ -161,12 +161,14 @@ test("the action list rides only the pr=1 payload", async (t) => {
 	assert.equal(row.actions, void 0, "rows never pay for the picker's list");
 	assert.equal(typeof row.next?.args, "string", "the suggestion is available to every surface");
 	assert.equal(row.rowToken, "push", "and so is the row's token");
+	assert.equal(row.rowSeverity, "business", "and the colour role that token paints with");
 	// the chip's request serves the list, and its verdict matches the row's
 	const chip = JSON.parse((await get(routes, `?workspace=${WORKSPACE_ID}&pr=1`)).text());
 	assert.ok(Array.isArray(chip.actions), "pr=1 carries the list");
 	assert.equal(chip.actions.at(-1).args, "clean", "including the flagged, untracked-only entry");
 	assert.deepEqual(chip.next, row.next, "one verdict, whichever surface asks");
 	assert.equal(chip.rowToken, row.rowToken, "and one row token");
+	assert.equal(chip.rowSeverity, row.rowSeverity, "and one severity");
 });
 
 test("rowToken rides every response and is omitted for a clean checkout", async (t) => {
@@ -175,15 +177,18 @@ test("rowToken rides every response and is omitted for a clean checkout", async 
 	const clean = JSON.parse((await get(routes, `?workspace=${WORKSPACE_ID}`)).text());
 	assert.equal(clean.next, void 0, "no suggestion");
 	assert.equal(clean.rowToken, void 0, "and no token");
+	assert.equal(clean.rowSeverity, void 0, "and no colour role to paint");
 	// a dirty tree is the simplest rule; no remote means it publishes first
 	await repo.write("untracked.txt", "x\n");
 	const row = JSON.parse((await get(routes, `?workspace=${WORKSPACE_ID}`)).text());
 	assert.equal(typeof row.rowToken, "string", "the token rides the base response");
 	assert.equal(row.rowTokenWhy, "no upstream configured", "and so does the winning rule's reason");
+	assert.equal(row.rowSeverity, "business", "and the winning rule's colour role");
 	// and it is identical on the pr=1 payload, with actions still pr-only
 	const chip = JSON.parse((await get(routes, `?workspace=${WORKSPACE_ID}&pr=1`)).text());
 	assert.equal(chip.rowToken, row.rowToken, "the same token on both responses");
 	assert.equal(chip.rowTokenWhy, row.rowTokenWhy, "and the same reason");
+	assert.equal(chip.rowSeverity, row.rowSeverity, "and the same colour role");
 	assert.equal("actions" in row, false, "the list stays pr=1-only");
 });
 

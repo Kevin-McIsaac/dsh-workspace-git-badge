@@ -43,8 +43,11 @@ const TOKENS = [
 	["commit", "\u271A", "business"]
 ];
 
+/** token -> severity, from the table above, so a fixture and its colour agree. */
+const SEVERITY = Object.fromEntries(TOKENS.map(([token, , severity]) => [token, severity]));
+
 /** A row payload carrying one token, so the leading cell has something to draw. */
-const withToken = (token) => ({ ...MAIN, rowToken: token });
+const withToken = (token) => ({ ...MAIN, rowToken: token, rowSeverity: SEVERITY[token] });
 
 test("the mark belongs to the CHIP, and to the leading cell when there is no token", () => {
 	// The chip is the surface for "where am I / what is the state", so it keeps
@@ -99,11 +102,11 @@ test("the row's leading glyph NEVER shows the branch", () => {
 	// `checkout:` line — the glyph never does.
 	const client = createClient();
 	for (const base of [MAIN, WORKTREE]) {
-		const glyph = text(client.leading({ ...base, branch: "SECRET/BRANCH", rowToken: "merge" }));
+		const glyph = text(client.leading({ ...base, branch: "SECRET/BRANCH", rowToken: "merge", rowSeverity: "success" }));
 		assert.ok(!glyph.includes("SECRET/BRANCH"), `the branch leaked into the glyph: ${glyph}`);
 	}
 	// a MAIN checkout's card has no tree to name, so the branch stays out of it too
-	const card = text(client.rowDetail({ ...MAIN, branch: "SECRET/BRANCH", rowToken: "merge" }));
+	const card = text(client.rowDetail({ ...MAIN, branch: "SECRET/BRANCH", rowToken: "merge", rowSeverity: "success" }));
 	assert.ok(!card.includes("SECRET/BRANCH"), `the branch leaked into the card: ${card}`);
 });
 
@@ -114,7 +117,7 @@ test("the leading cell shows the token glyph, or the status mark when there is n
 	assert.equal(text(empty), "", "a mark has no text");
 	assert.ok(mark(empty) !== null, "the tokenless cell falls back to the status mark");
 	// a token: the glyph alone — no word, no mark, no PR number
-	const merge = client.leading({ ...WORKTREE, worktreeName: "hotfix-tree", rowToken: "merge" });
+	const merge = client.leading({ ...WORKTREE, worktreeName: "hotfix-tree", rowToken: "merge", rowSeverity: "success" });
 	assert.equal(text(merge), "\u2713");
 	assert.equal(mark(merge), null, "a token replaces the mark");
 	assert.ok(!text(merge).includes("391"), "and the cell never carries the PR number");
@@ -281,7 +284,7 @@ test("an INFERRED checkout says so in the mark's accessible name", () => {
 
 test("neither surface still renders the emoji dot or the old worktree glyph", () => {
 	const client = createClient();
-	const rendered = text(client.leading({ ...WORKTREE, rowToken: "push" })) + text(client.chip({ ...WORKTREE, dirty: true }));
+	const rendered = text(client.leading({ ...WORKTREE, rowToken: "push", rowSeverity: "business" })) + text(client.chip({ ...WORKTREE, dirty: true }));
 	assert.ok(!/[\u{1F534}\u{1F7E1}\u{1F7E2}]/u.test(rendered), "the emoji status dot must be gone");
 	assert.ok(!rendered.includes("\u2442"), "the ⑂ worktree glyph must be gone");
 });
@@ -324,20 +327,20 @@ test("the row's hover card explains the glyph, using the row's own hover", () =>
 	// uses. Word and reason come from the same node-half rule, and the card's
 	// action row leads with the token GLYPH in the token's colour.
 	const client = createClient();
-	const withGlyph = client.rowDetail({ ...MAIN, rowToken: "push", rowTokenWhy: "no upstream configured" });
+	const withGlyph = client.rowDetail({ ...MAIN, rowToken: "push", rowSeverity: "business", rowTokenWhy: "no upstream configured" });
 	assert.deepEqual(rows(withGlyph), [{ label: "action", value: "\u2191 push \u2014 no upstream configured" }]);
 	const glyph = elements(withGlyph).find((element) => element.props?.["aria-hidden"] === true);
 	assert.ok(glyph !== void 0, "the glyph is decoration; the word follows it");
 	assert.equal(text(glyph), "\u2191 ", "the glyph and a space");
 	assert.match(glyph.props.style.color, /state-business-primary/, "painted in the token's own colour");
 	// no reason from the node half still names the action
-	assert.deepEqual(rows(client.rowDetail({ ...MAIN, rowToken: "push" })), [{ label: "action", value: "\u2191 push" }]);
+	assert.deepEqual(rows(client.rowDetail({ ...MAIN, rowToken: "push", rowSeverity: "business" })), [{ label: "action", value: "\u2191 push" }]);
 	// action first, then the checkout; and nothing at all when the row has neither
 	// a token nor anything else to name
 	assert.deepEqual(
 		rows(client.rowDetail({
 			branch: "feat/x", isWorktree: true, worktreeName: "hotfix-tree",
-			rowToken: "merge", rowTokenWhy: "pull request 9 is ready to merge"
+			rowToken: "merge", rowSeverity: "success", rowTokenWhy: "pull request 9 is ready to merge"
 		})),
 		[
 			{ label: "action", value: "\u2713 merge \u2014 pull request 9 is ready to merge" },
@@ -356,7 +359,7 @@ test("the row card FILLS the hover card, so its values wrap instead of overflowi
 		isWorktree: true,
 		worktreeName: "global-skills-tiering",
 		worktreeFollowed: true,
-		rowToken: "push",
+		rowToken: "push", rowSeverity: "business",
 		rowTokenWhy: "1 ahead of origin/chore/global-skills-tiering",
 		pr: { number: 391, state: "passing" }
 	});
@@ -376,7 +379,7 @@ test("the chip card and the row card render the SAME action row", () => {
 	const client = createClient({ tooltip: true });
 	const info = {
 		...MAIN,
-		rowToken: "push",
+		rowToken: "push", rowSeverity: "business",
 		rowTokenWhy: "no upstream configured",
 		next: { args: "push", why: "no upstream configured", what: "publish feat/x for the first time", primary: true }
 	};
@@ -406,7 +409,7 @@ test("LeadingTokenGlyph asks for session AND PR state, once", () => {
 	client.leading(withToken("push"));
 	assert.deepEqual(client.requests, ["session=s-1&pr=1"], "one session+PR request, nothing else");
 	// and the PR token it receives is what the card shows
-	assert.equal(text(client.leading({ ...MAIN, rowToken: "merge" })), "\u2713", "a PR token reaches the glyph");
+	assert.equal(text(client.leading({ ...MAIN, rowToken: "merge", rowSeverity: "success" })), "\u2713", "a PR token reaches the glyph");
 });
 
 test("LeadingTokenGlyph hides while the session runs a turn", () => {

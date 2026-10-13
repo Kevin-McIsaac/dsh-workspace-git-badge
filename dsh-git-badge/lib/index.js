@@ -797,7 +797,7 @@ function nextOrder() {
  * Clean, synced, nothing failing → null: the row is omitted entirely, because
  * "no suggestion" is also a suggestion.
  *
- * @returns {{ args: string|null, cat: string, command: string|undefined, why: string, what: string, token: string|null } | null}
+ * @returns {{ args: string|null, cat: string, command: string|undefined, why: string, what: string, token: string|null, severity: string|null } | null}
  */
 function nextStepRules(info) {
 	if (info === void 0 || info === null || info.git !== true) return null;
@@ -813,7 +813,10 @@ function nextStepRules(info) {
 	// `args` is the `/gh` invocation, or null for a ROW-ONLY rule the `gh` skill
 	// has no verb for (the picker must not offer a verb that does not exist).
 	// `token` is the row's one-word imperative for the rule, or null.
-	const add = (cat, args, why, what, command, token) => rules.push({ cat, args, why, what, command, token });
+	// `severity` is the ONE colour role every surface paints the icon with:
+	// error | warn | success | business. The client holds no token-to-colour map,
+	// so the chip and the row cannot disagree about how loud a state is.
+	const add = (cat, args, why, what, command, token, severity) => rules.push({ cat, args, why, what, command, token, severity });
 
 	if (info.operation !== void 0 && info.operation !== null) {
 		const op = String(info.operation);
@@ -823,20 +826,21 @@ function nextStepRules(info) {
 				: `a ${op} is paused mid-operation`,
 			`resume the paused ${op}`,
 			OPERATION_NEXT[op],
-			"resume");
+			"resume",
+			"error");
 	}
 	if (unmerged > 0) {
-		add("unmerged", "next", `${unmerged} unmerged file${plural(unmerged)} to resolve`, "resolve the unmerged files (with you)", "git status", "resolve");
+		add("unmerged", "next", `${unmerged} unmerged file${plural(unmerged)} to resolve`, "resolve the unmerged files (with you)", "git status", "resolve", "error");
 	}
 	if (behind > 0 && ahead > 0) {
-		add("sync", "sync", `${ahead} ahead, ${behind} behind — diverged`, "rebase your commits onto upstream and push (asks before any force)", void 0, "sync");
+		add("sync", "sync", `${ahead} ahead, ${behind} behind — diverged`, "rebase your commits onto upstream and push (asks before any force)", void 0, "sync", "business");
 	} else if (behind > 0) {
-		add("sync", "pull", `${behind} behind ${info.upstream ?? "upstream"}`, "update this branch from upstream", "git pull --ff-only", "pull");
+		add("sync", "pull", `${behind} behind ${info.upstream ?? "upstream"}`, "update this branch from upstream", "git pull --ff-only", "pull", "business");
 	}
 	if (info.upstream === void 0 && dirty > 0) {
-		add("publish", "push", "no upstream configured", `publish ${info.branch} for the first time`, `git push -u origin ${info.branch}`, "push");
+		add("publish", "push", "no upstream configured", `publish ${info.branch} for the first time`, `git push -u origin ${info.branch}`, "push", "business");
 	} else if (ahead > 0) {
-		add("publish", "push", `${ahead} ahead of ${info.upstream ?? "upstream"}`, "push local commits to the remote", "git push", "push");
+		add("publish", "push", `${ahead} ahead of ${info.upstream ?? "upstream"}`, "push local commits to the remote", "git push", "push", "business");
 	}
 	const pr = info.pr === void 0 || info.pr === null ? void 0 : info.pr;
 	// PR states no `/gh` verb covers: ROW-ONLY rules. They carry the row's token
@@ -845,20 +849,20 @@ function nextStepRules(info) {
 	// else, so a row-only rule can sit above the first picker-eligible one.
 	if (pr !== void 0 && pr.number !== void 0 && pr.open !== false) {
 		if (pr.mergeState === "DIRTY") {
-			add("conflict", null, `pull request ${pr.number} conflicts with its base`, `resolve the conflict on pull request ${pr.number}`, void 0, "resolve");
+			add("conflict", null, `pull request ${pr.number} conflicts with its base`, `resolve the conflict on pull request ${pr.number}`, void 0, "resolve", "error");
 		}
 		if (pr.review === "CHANGES_REQUESTED") {
-			add("review", null, `changes requested on pull request ${pr.number}`, `address the review on pull request ${pr.number}`, void 0, "review");
+			add("review", null, `changes requested on pull request ${pr.number}`, `address the review on pull request ${pr.number}`, void 0, "review", "warn");
 		} else if (pr.review === "REVIEW_REQUIRED") {
-			add("review", null, `pull request ${pr.number} needs a review`, `get pull request ${pr.number} reviewed`, void 0, "review");
+			add("review", null, `pull request ${pr.number} needs a review`, `get pull request ${pr.number} reviewed`, void 0, "review", "warn");
 		}
 		if (pr.mergeState === "BEHIND") {
-			add("sync", null, `pull request ${pr.number} is behind its base`, `update pull request ${pr.number} from its base`, void 0, "update");
+			add("sync", null, `pull request ${pr.number} is behind its base`, `update pull request ${pr.number} from its base`, void 0, "update", "business");
 		}
 	}
 	if (pr !== void 0 && pr.number !== void 0 && pr.open !== false
 		&& (pr.mergeState === "CLEAN" || (pr.state === "passing" && pr.review === "APPROVED"))) {
-		add("merge", `merge ${pr.number}`, `pull request ${pr.number} is ready to merge`, `merge pull request ${pr.number} (squash)`, void 0, "merge");
+		add("merge", `merge ${pr.number}`, `pull request ${pr.number} is ready to merge`, `merge pull request ${pr.number} (squash)`, void 0, "merge", "success");
 	}
 	if (dirty > 0) {
 		const parts = [
@@ -871,10 +875,10 @@ function nextStepRules(info) {
 			: untracked > 0 && unstaged === 0
 				? "git add -A && git commit"
 				: "git add -p && git commit";
-		add("commit", "commit", `work to commit: ${parts}`, staged > 0 ? "commit the staged changes" : "stage and commit the working changes", command, "commit");
+		add("commit", "commit", `work to commit: ${parts}`, staged > 0 ? "commit the staged changes" : "stage and commit the working changes", command, "commit", "business");
 	}
 	if (pr !== void 0 && pr.number !== void 0 && pr.state === "failing") {
-		add("checks", `checks ${pr.number}`, `checks failing on #${pr.number}`, "watch the CI checks on pull request " + pr.number, `gh pr checks ${pr.number} --watch`, "fix CI");
+		add("checks", `checks ${pr.number}`, `checks failing on #${pr.number}`, "watch the CI checks on pull request " + pr.number, `gh pr checks ${pr.number} --watch`, "fix CI", "error");
 	}
 
 	// STANDING options: never ranked, never the primary suggestion — they are
@@ -927,13 +931,14 @@ function nextStepRules(info) {
  * `token`. It may name a ROW-ONLY rule (a PR conflict, a requested review) that
  * never enters `actions`, so the row triages while the chip and picker offer
  * only real actions. `rowWhy` is that same rule's reason, so a surface with no
- * room for the word (the leading glyph) can say WHY on hover.
+ * room for the word (the leading glyph) can say WHY on hover. `rowSeverity` is
+ * the same rule's colour role, so every surface paints the icon the same way.
  *
- * @returns {{ actions: Array<{args, why, what, command?, danger?, primary?}>, next: object|null, rowToken: string|null, rowWhy: string|null }}
+ * @returns {{ actions: Array<{args, why, what, command?, danger?, primary?}>, next: object|null, rowToken: string|null, rowWhy: string|null, rowSeverity: string|null }}
  */
 function nextActions(info) {
 	const built = nextStepRules(info);
-	if (built === null) return { actions: [], next: null, rowToken: null, rowWhy: null };
+	if (built === null) return { actions: [], next: null, rowToken: null, rowWhy: null, rowSeverity: null };
 	const { ranked, standing } = built;
 	// Row-only rules carry `args: null` and are dropped here: the picker must
 	// never offer a `/gh` verb the skill does not have.
@@ -949,10 +954,16 @@ function nextActions(info) {
 		...standing
 	];
 	const primary = actions.find((action) => action.primary === true) ?? null;
-	// The winning row rule supplies BOTH the token and its reason, so the two
-	// can never describe different rules.
+	// The winning row rule supplies the token, its reason AND its severity, so the
+	// three can never describe different rules.
 	const rowRule = ranked.find((rule) => rule.token !== null && rule.token !== void 0) ?? null;
-	return { actions, next: primary, rowToken: rowRule?.token ?? null, rowWhy: rowRule?.why ?? null };
+	return {
+		actions,
+		next: primary,
+		rowToken: rowRule?.token ?? null,
+		rowWhy: rowRule?.why ?? null,
+		rowSeverity: rowRule?.severity ?? null
+	};
 }
 
 /**
@@ -1196,10 +1207,11 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 	// pure derivation, and the sidebar row now reads the node half's token
 	// instead of re-deriving it); the full action list is sent only for `pr=1`,
 	// the surfaces that have a picker, so a row's payload stays lean.
-	const { actions, next, rowToken, rowWhy } = nextActions(info);
+	const { actions, next, rowToken, rowWhy, rowSeverity } = nextActions(info);
 	if (next !== null) info.next = next;
 	if (rowToken !== null) info.rowToken = rowToken;
 	if (rowWhy !== null) info.rowTokenWhy = rowWhy;
+	if (rowSeverity !== null) info.rowSeverity = rowSeverity;
 	if (wantPr && actions.length > 0) info.actions = actions;
 	return info;
 }

@@ -340,7 +340,7 @@ test("the chip card's next row is the SERVER's verdict, and its action row mirro
 		...clean,
 		dirty: true,
 		stagedFiles: 2,
-		rowToken: "commit",
+		rowToken: "commit", rowSeverity: "business",
 		rowTokenWhy: "work to commit: 2 staged",
 		next: { args: "commit", why: "work to commit: 2 staged", what: "commit the staged changes" }
 	};
@@ -528,7 +528,7 @@ test("the session row shows a GLYPH, never a PR token or a branch", () => {
 	// The row's job is triage, so it shows the node half's token as one glyph. The
 	// PR number and CI state live on the row's hover line; the chip keeps both.
 	const client = createClient();
-	const rendered = text(client.leading({ branch: "SECRET/BRANCH", dirty: false, rowToken: "fix CI", pr: { number: 142, state: "failing" } }));
+	const rendered = text(client.leading({ branch: "SECRET/BRANCH", dirty: false, rowToken: "fix CI", rowSeverity: "error", pr: { number: 142, state: "failing" } }));
 	assert.equal(rendered, "\u2717", `expected the glyph alone: ${rendered}`);
 	assert.ok(!rendered.includes("PR#"), "the token belongs to the chip now");
 	assert.ok(!rendered.includes("SECRET/BRANCH"), `the row must not name the branch: ${rendered}`);
@@ -537,7 +537,7 @@ test("the session row shows a GLYPH, never a PR token or a branch", () => {
 //#region the row's idle gate
 
 /** One commit ahead of upstream, which the node half turns into the token `push`. */
-const ROW_AHEAD = { branch: "feat/x", ahead: 1, rowToken: "push" };
+const ROW_AHEAD = { branch: "feat/x", ahead: 1, rowToken: "push", rowSeverity: "business" };
 
 /** A stand-in for the shell's standard kit: a selector hook over the sessions store. */
 const sessionsWithRunning = (running) => (select) => select({ byId: { "s-1": { running } } });
