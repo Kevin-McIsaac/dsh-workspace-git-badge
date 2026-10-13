@@ -104,22 +104,23 @@ test("the leading cluster wires a pointer-enter, which is what unlocks the card'
 	assert.ok(markEl !== void 0, "without this the lazy fetch could never start");
 });
 
-test("the PR token wires its own pointer-enter, so its hover can fetch its commits", () => {
-	// The token's hover renders `prCommits`, which is detail-only. The mark's
-	// pointer-enter is not enough: a pointer that goes STRAIGHT to the token has
-	// rested on nothing that fetches, so the detail request was never made and the
-	// hover could not open at all. Both forms must gate the fetch themselves — the
-	// link (a GitHub PR URL) and the plain span (no gh, or no GitHub remote).
+test("the PR token wires only the link underline, not a hover fetch", () => {
+	// The token keeps its number, CI state and link, but has no hover card of its
+	// own: the chip/branch card already lists the branch's commits. So the plain
+	// token wires no pointer handler, and the linked token underlines only.
 	const client = createClient({ tooltip: true });
 	const tokenFor = (pr) => elements(expand(client.rawChip({ ...BASE, pr })))
 		.find((el) => typeof el.props?.["aria-label"] === "string" && el.props["aria-label"].startsWith("pull request 47"));
 	const plain = tokenFor({ number: 47, state: "passing", open: true });
 	assert.ok(plain !== void 0, "the plain token must be in the tree");
-	assert.equal(typeof plain.props.onPointerEnter, "function", "the plain token must enable the detail fetch itself");
+	assert.equal(plain.props.onPointerEnter, void 0, "the plain token has no hover, so no pointer handler");
 	const link = tokenFor({ number: 47, state: "passing", open: true, url: "https://github.com/o/r/pull/47" });
 	assert.ok(link !== void 0, "the linked token must be in the tree");
-	assert.equal(typeof link.props.onPointerEnter, "function", "the linked token must enable the detail fetch itself");
-});
+	assert.equal(typeof link.props.onPointerEnter, "function", "the link underlines on pointer enter");
+	assert.equal(typeof link.props.onPointerLeave, "function", "and clears on leave");
+	assert.equal(typeof link.props.onFocus, "function", "and on focus");
+	assert.equal(typeof link.props.onBlur, "function", "and on blur");
+})
 
 test("the client tags an id safely, so a crafted id cannot forge a second parameter", () => {
 	const { targetQuery } = createClient().internals;
@@ -161,18 +162,17 @@ test("every hover surface is wrapped before its data lands, so the first hover o
 	// and opens on the CHILD's mouseenter. A wrapper mounted only after the lazy
 	// detail arrives therefore cannot open for the pointer that fetched it — the
 	// pointer has to leave and return, which was reported as "the first hover does
-	// nothing, the second works". So all THREE wrappers must exist with NO detail
+	// nothing, the second works". So BOTH wrappers must exist with NO detail
 	// payload (hover: false), and each label must degrade to the base response
-	// rather than claim an empty list.
+	// rather than claim an empty list. The PR token has no wrapper at all.
 	const client = createClient({ tooltip: true });
 	const base = { ...BASE };
 	const wrappers = elements(expand(client.rawChip(base))).filter((el) => el.type === "Tooltip");
-	assert.equal(wrappers.length, 3, "leading cluster + count + PR token are all wrapped");
+	assert.equal(wrappers.length, 2, "only the leading cluster and the count are wrapped");
 	const labels = wrappers.map((el) => text(expand(el.props.label()))).join(" | ");
 	assert.ok(labels.includes("2 staged"), `the count names the breakdown: ${labels}`);
 	assert.ok(!labels.includes("no changed files"), "not a false empty-list claim before the names arrive");
-	assert.ok(labels.includes("#142"), `the token names the PR while its commits load: ${labels}`);
-	assert.ok(!labels.includes("no commits beyond the base branch"), "not a false empty-PR claim before the commits arrive");
+	assert.ok(!labels.includes("#142"), `no wrapper carries the PR token: ${labels}`);
 
 	// and the leading cluster's child keeps its element type once detail lands: a
 	// span -> anchor swap would remount the node under the resting pointer
@@ -379,67 +379,23 @@ test("the chip card leads with the action header, and the server's verdict is th
 	assert.ok(!parsed.some((row) => row.label === "action"), "the action moved out of the row list");
 });
 
-test("the PR token's hover lists only the commits in that PR", () => {
+test("the PR token has no tooltip of its own", () => {
+	// The chip/branch card already lists the branch's commits, so the token
+	// carries the number, the CI state and the link only. A detail payload that
+	// still names prCommits must not open anything from the token.
 	const client = createClient({ tooltip: true, hover: true });
 	const base = { ...BASE, pr: { number: 47, state: "passing", open: true } };
 	const detail = {
 		...base,
-		prCommits: [
-			{ hash: "aaa1111", subject: "first in the PR", when: "3 hours ago" },
-			{ hash: "bbb2222", subject: "second in the PR", when: "5 minutes ago" }
-		],
+		prCommits: [{ hash: "aaa1111", subject: "first in the PR", when: "3 hours ago" }],
 		prCommitsTotal: 4
 	};
-	const labels = elements(expand(client.rawChip(base, detail)))
-		.filter((el) => el.type === "Tooltip")
-		.map((el) => text(expand(el.props.label())));
-	const prLabel = labels.find((l) => l.includes("aaa1111"));
-	assert.ok(prLabel !== void 0, `expected a commits label on the token: ${JSON.stringify(labels)}`);
-	assert.ok(prLabel.includes("first in the PR") && prLabel.includes("second in the PR"), "only this PR's commits");
-	assert.match(prLabel, /\u2026 and 2 more/, "4 total - 2 shown = 2 more");
-	assert.ok(!prLabel.includes("state"), "nothing else rides the token's hover");
-	assert.ok(!prLabel.includes("files"), "no card content bleeds in");
-	// the token itself is still rendered
-	assert.ok(text(expand(client.chip(base, detail))).includes("PR#47"));
-	// no commits in the PR (nothing beyond the base) → the token stays plain
-	const plain = elements(expand(client.rawChip(base, { ...base })))
-		.filter((el) => el.type === "Tooltip")
-		.map((el) => text(expand(el.props.label())));
-	assert.equal(plain.some((l) => l.includes("PR#47")), false, "no tooltip without commits");
-});
-
-test("the PR hover's commit lines align exactly like the branch hover's", () => {
-	// The visible contract: a FIXED-WIDTH hash cell, so every description starts on
-	// the same column in both lists. Both now come from one renderer (CommitLine),
-	// because the PR list had drifted — it put the hash in the card's label style,
-	// whose minWidth/flex only apply inside a flex row, so on an inline span they
-	// did nothing: no gap after the hash, and the descriptions never lined up.
-	const client = createClient({ tooltip: true, hover: true });
-	const base = { ...BASE, pr: { number: 47, state: "passing", open: true } };
-	const detail = {
-		...base,
-		branchCommits: [{ sign: "+", hash: "aaa1111", subject: "on this branch", when: "3 hours ago" }],
-		prCommits: [{ hash: "bbb2222", subject: "in this PR", when: "5 minutes ago" }],
-		prCommitsTotal: 1
-	};
-	const labels = elements(expand(client.rawChip(base, detail)))
-		.filter((el) => el.type === "Tooltip")
-		.map((el) => expand(el.props.label()));
-	const cellIn = (mentions, hashText) => {
-		const label = labels.find((l) => text(l).includes(mentions));
-		assert.ok(label !== void 0, `expected a hover mentioning "${mentions}": ${JSON.stringify(labels.map(text))}`);
-		const cell = elements(label).find((el) => text(el) === hashText);
-		assert.ok(cell !== void 0, `expected a hash cell for ${hashText}`);
-		return cell;
-	};
-	const branchCell = cellIn("on this branch", "+aaa1111");
-	const prCell = cellIn("in this PR", "bbb2222");
-	// the mechanism, asserted on the PR cell directly (not just "both are equal",
-	// which two equally-broken cells would also satisfy)
-	assert.equal(prCell.props.style.fontFamily, "monospace", "a monospace hash keeps the column stable");
-	assert.equal(prCell.props.style.display, "inline-block", "minWidth needs a non-inline box to apply");
-	assert.equal(prCell.props.style.minWidth, "68px", "the fixed column every description starts on");
-	assert.deepEqual(prCell.props.style, branchCell.props.style, "the branch hover's cell, exactly");
+	const wrappers = elements(expand(client.rawChip(base, detail))).filter((el) => el.type === "Tooltip");
+	assert.equal(wrappers.length, 2, "only the leading cluster and the count are wrapped");
+	const labels = wrappers.map((el) => text(expand(el.props.label()))).join(" | ");
+	assert.ok(!labels.includes("first in the PR"), `the token's commits are not a tooltip: ${labels}`);
+	assert.ok(!labels.includes("#47"), `no tooltip carries the PR token: ${labels}`);
+	assert.ok(text(expand(client.chip(base, detail))).includes("PR#47"), "the token still renders its number");
 });
 
 test("the detail fields appear only once detail has been fetched", () => {

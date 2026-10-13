@@ -851,38 +851,6 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * The PR token's own hover body — the commits IN THIS PULL REQUEST
-		 * (`base..HEAD`), and nothing else: the token already says the number and
-		 * CI state, so the one question left is "what is in it?". Same line format
-		 * as the branch hover's commit list (see CommitLine — one renderer, so the
-		 * columns line up in both by construction), and the card's own width
-		 * behaviour: full-width lines, nowrap, ellipsis.
-		 */
-		function PrCommitsList({ info, pending = false }) {
-			const commits = info?.prCommits;
-			if (!Array.isArray(commits) || commits.length === 0) {
-				// `pending`: the detail payload has not landed yet, so "no commits"
-				// would be a false negative — name the pull request the token points
-				// at instead, the way the mark's card degrades to the base response.
-				if (pending) {
-					return react_jsx_runtime.jsx("span", { style: CARD_CONTAINER, children: formatPrDetail(info?.pr) ?? "loading\u2026" });
-				}
-				return react_jsx_runtime.jsx("span", { style: CARD_CONTAINER, children: "no commits beyond the base branch" });
-			}
-			return react_jsx_runtime.jsxs("div", { style: CARD_CONTAINER, children: [
-				react_jsx_runtime.jsxs("div", {
-					style: { display: "flex", flexDirection: "column", gap: "2px", minWidth: 0 },
-					children: [
-						...commits.map((commit) => react_jsx_runtime.jsx(CommitLine, { commit }, commit.hash)),
-						(typeof info.prCommitsTotal === "number" && info.prCommitsTotal > commits.length
-							? "\u2026 and " + (info.prCommitsTotal - commits.length) + " more"
-							: null)
-					]
-				})
-			] });
-		}
-
-		/**
 		 * The ✎n count's own hover body — the changed-file lists and NOTHING
 		 * else: the full card stays on the status mark, and this tooltip answers
 		 * the one question the count poses ("what are these?"). One stacked
@@ -1266,12 +1234,12 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * The PR token, with its own hover: the commits IN THIS PR. The token is its
-		 * OWN detail gate: resting on it (or focusing it) enables the same `detail=1`
-		 * fetch the mark and the branch do. ONE element, split so the STATE GLYPH can
-		 * take the CI colour while the number keeps the chip's muted colour.
+		 * The PR token: the number, the CI state glyph and the GitHub link, and
+		 * nothing else. It has NO hover card of its own — the chip/branch card
+		 * already lists the branch's commits. ONE element, split so the STATE GLYPH
+		 * can take the CI colour while the number keeps the chip's muted colour.
 		 */
-		function chipPrTokenHover(info, detail, hoveredLink, setHovered, setHoveredLink) {
+		function chipPrTokenHover(info, hoveredLink, setHoveredLink) {
 			const prParts = prTokenParts(info);
 			const prToken = prParts === null ? null : [
 				prParts.number,
@@ -1283,26 +1251,25 @@ window.__ModuleLoader__.load({
 				prParts.draft
 			];
 			const prUrl = prLinkUrl(info);
-			const token = prUrl === void 0
-				? react_jsx_runtime.jsx("span", {
+			if (prUrl === void 0) {
+				// plain token: no hover, so it wires no pointer handlers
+				return react_jsx_runtime.jsx("span", {
 					// the glyph is not the only channel: the token says what the CI state IS
 					"aria-label": prTokenLabel(info),
-					onPointerEnter: () => setHovered(true),
 					style: { cursor: "default" },
 					children: prToken
-				})
-				: chipAnchor({
-					href: prUrl,
-					ariaLabel: prTokenLabel(info) + ", opens on GitHub in a new tab",
-					underline: hoveredLink === "pr",
-					onPointerEnter: () => { setHovered(true); setHoveredLink("pr"); },
-					onPointerLeave: () => setHoveredLink(null),
-					onFocus: () => { setHovered(true); setHoveredLink("pr"); },
-					onBlur: () => setHoveredLink(null),
-					children: prToken
 				});
-			const pending = detail === void 0 || detail === null;
-			return withTooltip(token, () => react_jsx_runtime.jsx(PrCommitsList, { info: detail ?? info, pending }), 480);
+			}
+			return chipAnchor({
+				href: prUrl,
+				ariaLabel: prTokenLabel(info) + ", opens on GitHub in a new tab",
+				underline: hoveredLink === "pr",
+				onPointerEnter: () => setHoveredLink("pr"),
+				onPointerLeave: () => setHoveredLink(null),
+				onFocus: () => setHoveredLink("pr"),
+				onBlur: () => setHoveredLink(null),
+				children: prToken
+			});
 		}
 
 		/** The chip row itself: leading cluster, operation text, count and PR token. */
@@ -1369,7 +1336,7 @@ window.__ModuleLoader__.load({
 			const leadingHover = chipLeadingHover(info, detail, tokenGlyph, branchInner, isBranchLink, setHovered);
 			const text = formatOperationToken(info);
 			const countHover = chipCountHover(info, detail, setHovered);
-			const prTokenHover = chipPrTokenHover(info, detail, hoveredLink, setHovered, setHoveredLink);
+			const prTokenHover = chipPrTokenHover(info, hoveredLink, setHoveredLink);
 			const chip = chipAssemble(leadingHover, text, countHover, prTokenHover);
 			// No Tooltip primitive (a shell that does not seed it): the leading cluster
 			// renders bare and the badge still works — the card is an enhancement.

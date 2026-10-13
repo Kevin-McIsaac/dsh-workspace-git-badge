@@ -1255,18 +1255,6 @@ async function gitStatusUncached(dir, wantDetail, wantPr) {
 		const pr = prStatusFor(toplevel, parsed.branch, notifyChange);
 		if (pr !== void 0) info.pr = pr;
 	}
-	if (baseRef !== null && info.pr !== void 0 && info.pr !== null && info.pr.number !== void 0
-		&& info.pr.open !== false && (info.mainAhead || 0) > 0) {
-		// The PR's OWN commits (base..HEAD) — the token's hover answers "what is in
-		// this pull request", so it lists exactly that: not the branch's recent
-		// history, nothing else. Hover-gated with the rest of detail=1, and the
-		// total is the ahead count already computed above (no second rev-list).
-		const prOut = await runGit(toplevel, ["log", "-10", "--format=%h%x09%s%x09%cr", baseRef + "..HEAD"]);
-		if (prOut.stdout !== null && prOut.stdout.trim() !== "") {
-			info.prCommits = parseCommitLines(prOut.stdout);
-			info.prCommitsTotal = info.mainAhead;
-		}
-	}
 	// The ranked suggestion AND the row's token ride EVERY response (both are
 	// pure derivation, and the sidebar row now reads the node half's token
 	// instead of re-deriving it); the full action list is sent only for `pr=1`,
