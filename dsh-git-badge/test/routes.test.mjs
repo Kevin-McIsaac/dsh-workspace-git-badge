@@ -171,13 +171,15 @@ test("the action list rides only the pr=1 payload", async (t) => {
 	assert.equal(chip.rowSeverity, row.rowSeverity, "and one severity");
 });
 
-test("rowToken rides every response and is omitted for a clean checkout", async (t) => {
+test("rowToken rides every response, including the idle in-sync verdict", async (t) => {
 	const { routes, repo } = await setup(t);
-	// the fixture starts clean and synced: no rule fires, so no token (and no next)
+	// the fixture starts clean and synced: no rule fires, so the row gets the IDLE
+	// verdict — an icon and a reason, but still no picker suggestion
 	const clean = JSON.parse((await get(routes, `?workspace=${WORKSPACE_ID}`)).text());
 	assert.equal(clean.next, void 0, "no suggestion");
-	assert.equal(clean.rowToken, void 0, "and no token");
-	assert.equal(clean.rowSeverity, void 0, "and no colour role to paint");
+	assert.equal(clean.rowToken, "in sync", "the idle token");
+	assert.equal(clean.rowTokenWhy, "clean and matching the remote", "with its reason");
+	assert.equal(clean.rowSeverity, "success", "and the success colour role");
 	// a dirty tree is the simplest rule; no remote means it publishes first
 	await repo.write("untracked.txt", "x\n");
 	const row = JSON.parse((await get(routes, `?workspace=${WORKSPACE_ID}`)).text());

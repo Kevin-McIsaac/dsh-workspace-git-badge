@@ -4,11 +4,13 @@ The badge shows an **action icon**, your **branch name**, and sometimes
 **small numbers** like `↑2 ↓1 ✎3`. Here's what each piece means.
 
 There is ONE icon system. The node half of the plugin ranks your checkout's
-state and picks the single action it needs — `push`, `merge`, `commit`, `review`
-and so on. That action appears as a **coloured glyph**: at the head of the input
-chip, and in a sidebar row's leading cell (`✓`, `✗`, `◆`, …). With nothing to do
-there is **no icon at all**, because there is no action to name. A hover card
-explains the icon in words, on both surfaces.
+state and picks the single thing it needs — `push`, `merge`, `commit`, `review`
+and so on. That appears as a **coloured icon**: at the head of the input chip,
+and in a sidebar row's leading cell (`✓`, `✗`, `◆`, …). With nothing to do the
+node says `in sync`, so a session is never iconless: a **disc**, green when the
+branch is the default branch or its work is merged, amber when commits are not yet
+merged. A hover
+card explains the icon in words, on both surfaces.
 
 ## The action icon — "is there something I need to do?"
 
@@ -19,12 +21,14 @@ The icon summarizes the ONE thing your checkout needs. Its colour is the
 |--------|----------|----------|------------|
 | 🔴 **Red** | error | a merge conflict, a paused rebase, failing checks | Resolve the conflict, finish the operation, or fix the build first |
 | 🟡 **Amber** | warn | a review requested or required | Answer the review |
-| 🟢 **Green** | success | the pull request is ready to merge | Merge it |
+| 🟢 **Green** | success | the pull request is ready to merge, or `in sync` with nothing outstanding | Merge it, or nothing at all |
 | 🔵 **Blue** | business | routine work: push, pull, sync, update, commit | Do it when convenient |
 
 Severity is not identity: several routine actions share the blue, and the WORD on
 the hover card says which one. Red never means merely "behind" — that is routine
-blue.
+blue. The `in sync` disc is the idle state: a clean checkout that matches its
+remote. It is green when the branch is the default branch or its work is merged,
+and amber when commits are still unmerged.
 
 ## The numbers — three separate things
 
@@ -68,11 +72,11 @@ continue or undo it (`git rebase --continue`, `git rebase --abort`, …).
 
 Only the chip in the input box shows the token. A sidebar row shows the one
 **action** that conversation needs — `resume`, `resolve`, `sync`, `pull`,
-`update`, `push`, `merge`, `commit`, `review`, `fix CI` — or nothing
-at all, and never the branch. Each word has a glyph too:
+`update`, `push`, `merge`, `commit`, `review`, `fix CI`, or `in sync` when
+there is nothing to do. Each word has an icon too:
 
-| Word | Glyph | When it appears |
-|------|-------|-----------------|
+| Word | Icon | When it appears |
+|------|------|-----------------|
 | `resume` | ⏵ | a merge, rebase, cherry-pick, revert, squash or bisect is paused |
 | `resolve` | ! | unmerged files, or a pull request that conflicts with its base |
 | `review` | ◆ | review changes requested, or a review still required |
@@ -80,16 +84,24 @@ at all, and never the branch. Each word has a glyph too:
 | `pull` | ↓ | you are behind the remote |
 | `update` | ↻ | the pull request is behind its base branch |
 | `push` | ↑ | the branch has no upstream yet, or you have commits the remote does not |
-| `merge` | ✓ | GitHub reports the pull request ready to merge |
+| `merge` | merge glyph | GitHub reports the pull request ready to merge |
 | `commit` | ✚ | uncommitted work (staged, unstaged or untracked) |
 | `fix CI` | ✗ | the pull request's checks are failing |
+| `in sync` | ● | clean and matching the remote; green when merged, amber when not |
 
-The row shows the token as its glyph in the leading cell, with the word as its
+Six icons are **drawn**, not typed: the four arrows `↑ ↓ ⇄ ↻`, the idle disc, and
+the merge glyph. The font's arrows are hairlines, and Unicode has no merge symbol
+at all, so the merge icon is Remix Icon's `git-merge-line`, vendored as inline SVG
+at 16px: the branch-into-a-trunk shape that GitHub, VS Code, Font Awesome and
+Material all use. No icon font is involved.
+
+The row shows the token as its icon in the leading cell, with the word as its
 accessible name. Rest the pointer on that row and its usual hover card opens a
 label/value list: the action with its reason (`↑ push — no upstream configured`),
-the checkout, and the pull request. The input chip leads with the SAME glyph, so
-the two surfaces agree. When there is no token — clean and in sync — both draw no
-icon at all.
+the checkout, and the pull request. The input chip leads with the SAME icon, so
+the two surfaces agree. When there is nothing to do, the node says `in sync` and
+both surfaces show the disc — green when nothing is outstanding, amber when commits
+are not yet merged.
 
 ## A worked example
 
@@ -110,7 +122,8 @@ failing build.
 
 | You see | What it means | What to do |
 |---------|--------------|------------|
-| main | All clean, fully synced | Nothing |
+| 🟢 main | All clean, fully synced | Nothing — the green `in sync` disc |
+| 🟡 feat/x | Clean and pushed, commits not merged | Open a pull request when ready — the amber `in sync` disc |
 | ↓ main ↓1 | Your files are fine, remote is 1 commit ahead | `git pull` when convenient |
 | ✚ main ✎2 | 2 files changed, not committed | `git add` + `git commit` |
 | 🟡 main ✎2 ↓1 | Uncommitted edits *and* behind | `git add` + `git commit`, then `git pull` |

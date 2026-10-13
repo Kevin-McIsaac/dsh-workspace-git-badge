@@ -422,8 +422,20 @@ test("rowToken: every state in the token table derives its word AND its severity
 	}
 });
 
-test("rowToken: a clean checkout and a non-repository derive no token and no severity", () => {
-	for (const [info, label] of [[ROW_BASE, "clean and synced"], [void 0, "no input"], [{ git: false }, "not a repository"]]) {
+test("rowToken: a clean checkout derives the idle verdict; a non-repository derives nothing", () => {
+	const clean = nextActions(ROW_BASE);
+	assert.equal(clean.rowToken, "in sync", "clean and synced");
+	assert.equal(clean.rowWhy, "clean and matching the remote", "with its reason");
+	assert.equal(clean.rowSeverity, "success", "and the success colour role");
+	// work that its base does not have turns the disc AMBER: the word stays honest
+	// about the remote, and the colour carries the merge fact
+	const unmerged = nextActions({ ...ROW_BASE, mainAhead: 2 });
+	assert.equal(unmerged.rowToken, "in sync", "the same word");
+	assert.equal(unmerged.rowWhy, "2 commits not merged", "but the merge fact in the reason");
+	assert.equal(unmerged.rowSeverity, "warn", "and the warn colour role");
+	assert.equal(nextActions({ ...ROW_BASE, mainAhead: 1 }).rowWhy, "1 commit not merged", "singular");
+	assert.equal(nextActions({ ...ROW_BASE, mainAhead: 0 }).rowSeverity, "success", "zero ahead is green");
+	for (const [info, label] of [[void 0, "no input"], [{ git: false }, "not a repository"]]) {
 		const result = nextActions(info);
 		assert.equal(result.rowToken, null, label);
 		assert.equal(result.rowSeverity, null, label);
@@ -461,17 +473,48 @@ test("rowWhy carries the winning row rule's reason, for a glyph with no room for
 		nextActions({ ...ROW_BASE, pr: { number: 7, state: "passing", mergeState: "DIRTY", open: true } }).rowWhy,
 		"pull request 7 conflicts with its base"
 	);
-	// no token (clean, or not a repository) means no reason either
-	assert.equal(nextActions(ROW_BASE).rowWhy, null, "clean and synced");
+	// a non-repository has no token and no reason; a CLEAN checkout carries the idle
+	// verdict, so the row still has an icon to draw
+	assert.equal(nextActions(ROW_BASE).rowWhy, "clean and matching the remote", "clean and synced");
 	assert.equal(nextActions({ git: false }).rowWhy, null, "not a repository");
 	assert.equal(nextActions(void 0).rowWhy, null, "no input");
 });
 
-test("a clean repository response omits rowToken as well as next", async (t) => {
+test("a clean repository response carries the idle rowToken", async (t) => {
 	const repo = await makeRepo(t);
 	await repo.commit("initial");
 	const info = await gitStatus(repo.root);
-	assert.equal(info.rowToken, void 0, "nothing to do, so no token");
+	assert.equal(info.rowToken, "in sync", "nothing to do, so the idle verdict");
+	assert.equal(info.rowTokenWhy, "clean and matching the remote", "with its reason");
+	assert.equal(info.rowSeverity, "success", "and its colour role");
+});
+
+test("the branch-vs-base relation rides the BASE response, so the idle colour matches the card", async (t) => {
+	// Regression: `mainAhead` used to be detail-only, so the chip and the row drew a
+	// GREEN idle disc while the hover card (detail=1) drew AMBER for the same
+	// checkout. The relation is cached and attached to every response now.
+	const repo = await makeRepo(t);
+	await repo.commit("base");
+	await repo.git(["remote", "add", "origin", "https://github.com/me/repo.git"]);
+	await runGit(repo.root, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
+	await runGit(repo.root, ["checkout", "-b", "feat/ahead"]);
+	await repo.commit("one commit its base does not have");
+	// the lookup is out of band: poll, like the default-branch test above
+	let seen;
+	for (let attempt = 0; attempt < 40 && seen === void 0; attempt += 1) {
+		const info = await gitStatus(repo.root);
+		if (info.mainAhead === 1) seen = info;
+		else await new Promise((resolve) => setTimeout(resolve, 25));
+	}
+	assert.equal(seen?.mainAhead, 1, "a BASE response carries the count");
+	const verdict = nextActions(seen);
+	assert.equal(verdict.rowToken, "in sync");
+	assert.equal(verdict.rowSeverity, "warn", "so the idle disc is amber on every surface");
+	assert.equal(verdict.rowWhy, "1 commit not merged");
+	// and the DETAIL response agrees with the base one
+	const detail = await gitStatus(repo.root, true);
+	assert.equal(detail.mainAhead, seen.mainAhead, "the card reads the same count");
+	assert.equal(nextActions(detail).rowSeverity, "warn", "and the same colour");
 });
 
 test("the detail payload vouches a https compare URL", async (t) => {
