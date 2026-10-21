@@ -227,7 +227,16 @@ BUNDLE_URL="$(grep -oE '"id":"dsh-git-badge"[^}]{0,200}' "$SHELL_HTML" \
 	| grep -oE '"url":"[^"]+"' | head -1 | sed 's/"url":"//; s/"$//; s/&amp;/\&/g' || true)"
 [[ -n "$BUNDLE_URL" ]] || fail "dsh-git-badge absent from the boot graph — the client scanner did not compose it"
 
-CODE="$(curl -s -L -b "$COOKIE_JAR" -o "$BUNDLE_JS" -w '%{http_code}' "http://127.0.0.1:${PORT}${BUNDLE_URL}")"
+# The boot payload advertises the bundle URL either absolute ("/plugins/…") or
+# relative ("plugins/…"). dsh 0.2.1-rc.2 serves it RELATIVE, so a plain
+# "${PORT}${URL}" concatenation produced "127.0.0.1:3100plugins/…" and curl
+# refused the URL — the clean-profile run aborted right after "server answered".
+case "$BUNDLE_URL" in
+	http*) BUNDLE_HREF="$BUNDLE_URL" ;;
+	/*)    BUNDLE_HREF="http://127.0.0.1:${PORT}${BUNDLE_URL}" ;;
+	*)     BUNDLE_HREF="http://127.0.0.1:${PORT}/${BUNDLE_URL}" ;;
+esac
+CODE="$(curl -s -L -b "$COOKIE_JAR" -o "$BUNDLE_JS" -w '%{http_code}' "$BUNDLE_HREF")"
 [[ "$CODE" == "200" ]] || fail "advertised bundle ${BUNDLE_URL} returned ${CODE}, expected 200"
 grep -q "dsh-git-badge" "$BUNDLE_JS" \
 	|| fail "advertised bundle served but does not contain the dsh-git-badge module"
