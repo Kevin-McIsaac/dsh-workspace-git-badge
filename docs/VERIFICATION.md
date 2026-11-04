@@ -14,14 +14,16 @@ contract updated 2026-09 for server-side resolution):
 #    Take an id from a plugin SSE notification (its payload is
 #    {path, workspace}) or from the GUI's workspaces store.
 #
+#    Both routes ride the authenticated /api transport, so send the shell's
+#    session cookie. Without it the answer is 401, not the plugin's JSON.
 #    For a repo with a remote, the response comes from the LOCAL
 #    remote-tracking refs and a TTL-bounded fetch runs out of band — so
 #    ahead/behind may lag by up to one fetch. To compare against freshly
 #    fetched refs, `git fetch` yourself first, then curl:
-curl -s "http://127.0.0.1:3080/api/git-badge?workspace=<workspaceId>"
+curl -s -b <cookie-jar> "http://127.0.0.1:3080/api/git-badge?workspace=<workspaceId>"
 
 # Unknown target — the stable error shape that replaced the old path 403:
-curl -s "http://127.0.0.1:3080/api/git-badge?session=__no_such_session__"
+curl -s -b <cookie-jar> "http://127.0.0.1:3080/api/git-badge?session=__no_such_session__"
 #   → {"git":false,"error":{"code":"session-not-found","message":"…"}}
 
 # 2. Ground truth:
@@ -42,7 +44,7 @@ Compare `ahead`/`behind`/`dirty`/file counts field by field. Notes:
   `~/.dsh/profiles/web/node_modules/dsh-git-badge`); the profile's node half
   runs **in-memory code from boot**, so a stale response may mean the process
   predates an install — check process start time vs install time, or run the
-  installed module directly with a stubbed ctx (webServer/workspaceRegistry)
+  installed module directly with a stubbed ctx (connection/workspaceRegistry)
   before trusting any endpoint output.
 - `git status --porcelain=v2 --branch` prints `# branch.ab +ahead -behind` —
   when parsing, element 0 of `.slice(12).trim().split(" ")` is `+ahead`,
@@ -54,36 +56,35 @@ Compare `ahead`/`behind`/`dirty`/file counts field by field. Notes:
 
 ## Verifying the worktree-aware badge
 
-A **session** target may describe a linked worktree rather than the directory the
-conversation is actually in. Two extra fields say so, and only a session target
-can carry them:
+A **session** target may describe a checkout other than the one its workspace
+owns. DSH records the session's working directory, and the node half reads that
+projection. Two fields say so, and only a session target can carry them:
 
-- `worktreeInferred: true` — the checkout below was chosen by inference (it is the
-  repository's one linked worktree whose branch has an open PR), not because the
-  conversation lives there.
+- `worktreeFollowed: true` — the status describes a checkout other than the
+  workspace's own.
 - `checkout: { branch, dirty, changedFiles, untrackedFiles, ahead, behind }` — the
-  conversation's OWN directory, present only with `detail=1` (hover). It exists so
+  workspace's OWN directory, present only with `detail=1` (hover). It exists so
   the main checkout's state is still visible once the chip follows a tree.
 
 ```bash
 S=<session in this workspace>; W=<the workspace id>
 B=http://127.0.0.1:3080/api/git-badge
+J=<cookie jar from the authenticated shell fetch>
 
-# precondition — WITHOUT BOTH OF THESE THE SWAP IS CORRECTLY ABSENT:
-git -C <repo> worktree list          # a linked worktree, not just the main one
-gh pr list --state open              # its branch must have an OPEN PR
-# exactly one such worktree is a candidate; two is a reason to say nothing
+# precondition — change the session's directory with the working_directory tool
+# (or `cd`), then confirm git agrees:
+git -C <the new directory> rev-parse --show-toplevel
 
-curl -s "$B?session=$S&pr=1" | python3 -m json.tool     # → the worktree's branch,
-#   isWorktree, worktreeName, worktreeInferred, pr
-curl -s "$B?workspace=$W&pr=1" | python3 -m json.tool   # → the workspace's own
-#   checkout, no `pr`, no `worktreeInferred` — a row never follows a tree
-curl -s "$B?session=$S&pr=1&detail=1" | python3 -m json.tool   # adds `checkout`
+curl -s -b "$J" "$B?session=$S&pr=1" | python3 -m json.tool     # → the working
+#   directory's branch, isWorktree, worktreeName, worktreeFollowed, pr
+curl -s -b "$J" "$B?workspace=$W&pr=1" | python3 -m json.tool   # → the workspace's
+#   own checkout, no `pr`, no `worktreeFollowed` — a row never follows a session
+curl -s -b "$J" "$B?session=$S&pr=1&detail=1" | python3 -m json.tool   # adds `checkout`
 ```
 
-Ground truth for the swap is the worktree list plus `gh pr list`, not the PR alone:
-a merged PR (#391 in the session that motivated this) leaves the badge on the main
-checkout, which is correct and looks identical to "the feature is broken".
+Ground truth is `git rev-parse --show-toplevel` in the session's new directory and
+in the workspace directory. A subdirectory of the same repository is not a follow.
+A projection that names the workspace checkout is not a follow.
 
-`config.worktreeStatus = "off"` disables the inference; a repository with no linked
-worktree never even spawns `gh` for it.
+`config.worktreeStatus = "off"` disables the feature; a workspace target never
+follows a session at all.

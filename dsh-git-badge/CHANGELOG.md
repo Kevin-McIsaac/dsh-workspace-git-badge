@@ -10,6 +10,34 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-11-04
+
+### Changed
+
+- **The badge follows the session's working directory.** DSH records it with
+  `dsh-working-directory`; the `working_directory` tool and the worktree tool
+  commit a change, and the node half reads the `workingDirectory` projection
+  through `sessionController.projections()`. A session that enters a linked
+  worktree or another repository now updates the chip, the row and the hover
+  card. The old assumption that the session cwd is immutable is gone.
+- **Both routes ride the authenticated `/api` transport.** The plugin registers
+  `ctx.connection.fetch` routes instead of exact `webServer` routes, so the
+  Host/Origin fence and the session cookie apply. An unauthenticated request now
+  gets 401. The client URLs are unchanged.
+- **The `/gh` skill is registered at runtime.** `ctx.skills.register()` replaces
+  the boot-time copy into `$DSH_HOME/skills/gh`. The skill follows the plugin
+  version and needs no writable home.
+
+### Removed
+
+- The `dsh-git-badge checkout` CLI, the `dsh-git-badge-checkout` bin, the
+  `seam/` directory, and the `session-checkouts.json` store. DSH owns the
+  session directory now. This is a breaking change for anyone who ran the old
+  registration command; require DSH 0.2.1 or newer.
+- The `linkedWorktrees` card copy no longer suggests the retired command. It
+  reports how many worktrees exist while the session stays in the workspace.
+
+
 ## [0.20.1] - 2026-10-13
 
 ### Fixed

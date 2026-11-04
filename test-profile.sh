@@ -9,12 +9,13 @@
 #   2. Stops any server already running the target profile (in-memory code
 #      from a previous install would poison the test).
 #   3. Deletes the old profile directory and recreates it via `dsh plugin add`.
-#   4. Adds the web app bundle (the node half boot-FAILS without webServer/
+#   4. Adds the web app bundle (the node half boot-FAILS without connection/
 #      workspaceRegistry) and pins the plugin version if requested.
 #   5. Verifies the install on disk: exports map, both lib halves, version.
 #   6. Boots headless and verifies over HTTP: the plugin is present in the
-#      composed client graph and its advertised bundle is served, plus the
-#      refusal of an unresolvable target (404 session-not-found).
+#      composed client graph and its advertised bundle is served, the status
+#      route refuses an unauthenticated caller (401), and with the session
+#      cookie it refuses an unresolvable target (404 session-not-found).
 #
 # Usage:
 #   ./test-profile.sh                 # latest npm version, profile "test", port 3100
@@ -111,7 +112,7 @@ fi
 # ---
 
 # --- --- 4. web app bundle + optional version pin -------------------------
-# The node half injects [webServer, workspaceRegistry]; without the web app in
+# The node half injects [connection, workspaceRegistry]; without the web app in
 # the bundle stack boot FAILS LOUDLY. Insert it right after dsh-base.
 PKG_FILE="$PROFILE_DIR/package.json" node <<'NODE'
 const fs = require("fs");
@@ -240,17 +241,20 @@ CODE="$(curl -s -L -b "$COOKIE_JAR" -o "$BUNDLE_JS" -w '%{http_code}' "$BUNDLE_H
 [[ "$CODE" == "200" ]] || fail "advertised bundle ${BUNDLE_URL} returned ${CODE}, expected 200"
 grep -q "dsh-git-badge" "$BUNDLE_JS" \
 	|| fail "advertised bundle served but does not contain the dsh-git-badge module"
-rm -f "$COOKIE_JAR" "$SHELL_HTML" "$BUNDLE_JS"
 
-# (c) the node half answers and refuses a target it cannot resolve. There is no
-#     path surface any more — the caller names a session or workspace id and the
-#     server resolves the directory. An unknown session is the cheapest such
-#     probe, and the 404 is the EXPECTED outcome, so do not use curl -f.
-#     Retry: the server answering / does not mean the plugin's route is
-#     registered yet (boot race — observed as a transient 404).
+# (c) the node half rides the authenticated /api transport. Without the session
+#     cookie the fence must answer 401, BEFORE the plugin's route runs. This is
+#     the check that the unauthenticated surface is really gone.
+UNAUTH="$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/api/git-badge?session=__no_such_session__")"
+[[ "$UNAUTH" == "401" ]] || fail "unauthenticated status probe returned ${UNAUTH}, expected 401"
+
+#     With the cookie, an unknown session is the cheapest probe. The 404 is the
+#     EXPECTED outcome, so do not use curl -f. Retry: the server answering /
+#     does not mean the plugin's route is registered yet (boot race — observed
+#     as a transient 404).
 BODY=""
 for _ in $(seq 1 15); do
-	CODE="$(curl -s -o /tmp/gb-target.json -w '%{http_code}' "http://127.0.0.1:${PORT}/api/git-badge?session=__no_such_session__")"
+	CODE="$(curl -s -b "$COOKIE_JAR" -o /tmp/gb-target.json -w '%{http_code}' "http://127.0.0.1:${PORT}/api/git-badge?session=__no_such_session__")"
 	BODY="$(cat /tmp/gb-target.json)"
 	[[ "$CODE" == "404" ]] && [[ "$BODY" == *'"git":false'* && "$BODY" == *'session-not-found'* ]] && break
 	kill -0 "$SERVER_PID" 2>/dev/null || fail "server process died — see ${LOG_FILE}"
@@ -259,11 +263,26 @@ done
 [[ "$CODE" == "404" ]] || fail "target-resolution probe returned HTTP ${CODE}, expected 404"
 [[ "$BODY" == *'"git":false'* && "$BODY" == *'session-not-found'* ]] \
 	|| fail "target-resolution check unexpected (HTTP ${CODE}): ${BODY}"
-rm -f /tmp/gb-target.json
+# (d) the change feed streams over the same authenticated channel. The first
+#     comment frame arrives immediately; --max-time then ends the read.
+curl -s -N -b "$COOKIE_JAR" --max-time 3 -D /tmp/gb-sse-headers.txt -o /tmp/gb-sse.txt \
+	"http://127.0.0.1:${PORT}/api/git-badge/events" || true
+grep -qi 'content-type: text/event-stream' /tmp/gb-sse-headers.txt \
+	|| fail "change feed did not answer as text/event-stream"
+grep -q ': connected' /tmp/gb-sse.txt \
+	|| fail "change feed did not flush its opening frame"
+rm -f "$COOKIE_JAR" "$SHELL_HTML" "$BUNDLE_JS" /tmp/gb-target.json /tmp/gb-sse-headers.txt /tmp/gb-sse.txt
+
+# (e) startup reports: the runtime skill registration and the mounted seats.
+grep -q 'gh skill: registered' "$LOG_FILE" \
+	|| fail "the gh skill did not register at runtime — see ${LOG_FILE}"
 
 CLEANUP_ON_EXIT=0
 log "OK — all checks passed:"
 log "  client bundle advertised in the boot graph and served: ${BUNDLE_URL}"
+log "  unauthenticated status probe refused (401)"
+log "  change feed streamed over the authenticated channel"
+log "  gh skill registered at runtime"
 log "  unknown-target resolution refused (404 session-not-found)"
 log ""
 log "Server left running on http://127.0.0.1:${PORT} (pid ${SERVER_PID}, log ${LOG_FILE})."

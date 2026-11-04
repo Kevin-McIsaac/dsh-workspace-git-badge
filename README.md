@@ -56,21 +56,21 @@ A worktree isolates each session to ensure it does not step on another
 sessions work, e.g., change or delete the branch, modify the same file.
 
 ### The challenge
-A DSH session remembers the directory it was created in and that
-value can't be changed. After moving a session to a worktree there is no native method 
-for the status badge to identify which worktree the session maps to. This
-means the status badge reports the wrong branch, the wrong counts, 
-the wrong pull request. 
+A session can enter a worktree that is not its original workspace. Without
+the session's current directory, the badge would keep reporting the main
+checkout: the wrong branch, the wrong counts, the wrong pull request.
 
 ### The solution
-When we switch to a worktree, we create an entry in the register, that
-is stored on disk. To ensure this is done properly we use the included
-worktree skill
+DSH records the session's working directory. The `working_directory` tool and
+the worktree tool commit the change, and the badge reads that projection on
+every request. Enter the worktree with the tool (or `cd`) and the badge follows
+it. No plugin registration and no file on disk are involved. A workspace-targeted
+row still reports the checkout the registry owns.
 
 ## Requirements
 
 - Node.js ≥ 20, `git` on PATH
-- DSH with the `web` profile (any install)
+- DSH 0.2.1 or newer with the `web` profile
 - `gh` on PATH, authenticated, for the PR/CI token and the row's `merge`/`review`
   actions — otherwise those are silently absent and everything else still works
 

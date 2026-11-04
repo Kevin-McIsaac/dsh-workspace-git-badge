@@ -25,7 +25,8 @@ const CLAIMS = [
 	["the leading-cell seat", /sidebar\.session\.row\.leading/],
 	["the hover-card seat", /sidebar\.session\.row\.hover/],
 	["the hover example", /↑ push — no upstream configured/],
-	["the no-patch statement", /(no|nothing to) (seam )?patch/i]
+	["the no-patch statement", /(no|nothing to) (seam )?patch/i],
+	["the working-directory source", /working directory|workingDirectory/i]
 ];
 
 test("both READMEs state the claims a user acts on", () => {
@@ -41,6 +42,15 @@ test("neither README presents the retired patch as a step to run", () => {
 	for (const [name, text] of [["root", ROOT], ["package", PKG]]) {
 		assert.ok(!/npx dsh-git-badge apply/.test(text), `${name} README must not instruct \`apply\``);
 		assert.ok(!/dsh-git-badge-seam apply/.test(text), `${name} README must not instruct the seam bin`);
+	}
+});
+
+test("neither README presents the retired checkout CLI as a step to run", () => {
+	// DSH owns the session working directory now. The plugin ships no bin, so a
+	// README that tells a user to run the old verb is stale and misleading.
+	for (const [name, text] of [["root", ROOT], ["package", PKG]]) {
+		assert.ok(!/npx dsh-git-badge (checkout|apply)/.test(text), `${name} README must not instruct the retired CLI`);
+		assert.ok(!/dsh-git-badge-checkout/.test(text), `${name} README must not name the retired bin`);
 	}
 });
 

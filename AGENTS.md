@@ -12,8 +12,9 @@ which checkout the conversation is working in; the hover card rides
 upstream's own `sidebar.session.row.hover` seat.
 
 **No patch is needed, and the patcher is gone.** Every surface rides an upstream
-seat. The package's only CLI verb is `checkout` (the worktree registration);
-there is no `apply`, `status` or `revert`, and no anchor patch anywhere.
+seat. The package has no CLI and no anchor patch. Which checkout a session is in
+comes from DSH's own `workingDirectory` projection; the `/gh` skill is registered
+at runtime, not copied into the user's home.
 
 ## Read first
 
@@ -40,11 +41,11 @@ there is no `apply`, `status` or `revert`, and no anchor patch anywhere.
    changes usually need only a browser refresh, but any patch/bundle-graph change
    requires a restart before refreshing (bundle URLs are rev-pinned at boot).
 2. **There is no seam patch — do not add one.** The plugin uses only upstream
-   seats. The retired `sidebar.workspaces.sessionRow` patch and its patcher
-   (`anchors.js`, `patch.js`, `stub-index.js`, `apply.js`, the old `postinstall`)
-   were deleted. What remains under `seam/` is the checkout CLI, the skill
-   installer and the session-checkout store. If an installed DSH package still
-   carries the old patch, reinstall DSH to restore pristine bytes:
+   seats. The retired `sidebar.workspaces.sessionRow` patch, its patcher
+   (`anchors.js`, `patch.js`, `stub-index.js`, `apply.js`, the old `postinstall`),
+   and the later checkout CLI and session-checkout store were all deleted; the
+   `seam/` directory is gone. If an installed DSH package still carries the old
+   patch, reinstall DSH to restore pristine bytes:
    `npm i -g @deepseek-ai/dsh@latest`. The installed DSH lives at
    `~/.config/nvm/versions/node/v22.23.2/lib/node_modules/@deepseek-ai/dsh`.
 3. The user's instance runs the **unpatched** setup. A clean-profile customer
@@ -102,3 +103,8 @@ there is no `apply`, `status` or `revert`, and no anchor patch anywhere.
    tracks `origin/main`, run `git push origin HEAD` then
    `git branch --set-upstream-to=origin/feat/x`.
 
+13. **Update the todo list at each milestone.** The list is not enforced by the
+    harness, so treat it as part of the work. When one todo is done, the NEXT tool
+    call is `todo_write`, before the next edit. Do not batch three completed steps
+    and update the list at the end. The todo tool writes a `todo/write` snapshot to
+    the session log, so a stale list is visible in the record.

@@ -90,13 +90,12 @@ unstaged / untracked / unmerged), plus any in-progress operation marker
   what is dirty and confirm the switch when work would carry over. Unknown
   branch → say so and list the closest local names.
 
-  If the switch lands you in — or out of — a linked worktree, register where you
-  are so the session badge follows the right checkout:
-  `npx dsh-git-badge checkout "$(git rev-parse --show-toplevel)"` (best effort;
-  ignore failure). Clearing back to the main checkout is the same command run
-  against the main worktree — the badge treats the main checkout as the default.
-  A session's cwd is fixed at creation, so this registration is the ONLY signal
-  the badge has.
+  If the switch lands you in — or out of — a linked worktree, change the
+  session's working directory to where you are, so the badge follows the right
+  checkout. Use the `working_directory` tool with the new path (or `cd`). DSH
+  records the directory, and the badge reads it from DSH. No plugin registration
+  is needed. If that tool is unavailable, leave the directory alone and say the
+  badge may still describe the main checkout.
 
 - **`/gh clean [<path>...]`** — remove untracked files, and only with the user's
   explicit yes for the exact list. It appears in the `/gh` menu whenever

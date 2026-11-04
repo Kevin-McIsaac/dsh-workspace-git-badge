@@ -51,20 +51,22 @@ function emitter() {
 }
 
 /**
- * Fake cordis ctx: captures every webServer.register() route by path and every
- * disposer returned by effect(), so a test can drive routes directly and
- * simulate a plugin unload with disposeAll().
+ * Fake cordis ctx: captures every `connection.fetch.register()` route by path
+ * and every disposer returned by effect(), so a test can drive routes directly
+ * and simulate a plugin unload with disposeAll().
  *
  * `workspaces` entries may be a bare path or `{ id, path, sessionIds }`. The
  * entities mirror the REAL registry surface — `WorkspaceEntity` exposes public
  * `id`, `path` and `sessionIds`, and its `record` is private — so a test cannot
  * accidentally pass by reading a field the plugin must not touch. Ids default to
  * `ws-<index>`. `sessions` maps a session id to a live-session stand-in
- * (`{ header: { cwd } }`) for the pre-attach fallback.
+ * (`{ header: { cwd } }`) for the pre-attach fallback. `sessionCwd` supplies the
+ * working-directory projection: a string, or a function of the session id.
  */
-export function fakeCtx({ workspaces = [], sessions = {}, resolveByPath = true } = {}) {
+export function fakeCtx({ workspaces = [], sessions = {}, resolveByPath = true, sessionCwd, skills } = {}) {
 	const routes = new Map();
 	const disposers = [];
+	const registeredSkills = [];
 	const entities = workspaces.map((entry, index) => {
 		if (typeof entry === "string") return { id: `ws-${index}`, path: entry, sessionIds: [] };
 		return {
@@ -74,6 +76,16 @@ export function fakeCtx({ workspaces = [], sessions = {}, resolveByPath = true }
 		};
 	});
 	const ctx = {
+		connection: {
+			fetch: {
+				register(route) {
+					routes.set(route.path, route);
+					return async () => {
+						routes.delete(route.path);
+					};
+				}
+			}
+		},
 		workspaceRegistry: {
 			list: () => entities,
 			// the real signature is async, rejects for a missing path, and resolves
@@ -83,13 +95,44 @@ export function fakeCtx({ workspaces = [], sessions = {}, resolveByPath = true }
 				: {})
 		},
 		sessions: { get: (id) => sessions[id] },
-		// the optional service is read through ctx.get(), never injected
-		get: (name) => (name === "sessions" ? ctx.sessions : void 0),
-		webServer: {
-			register(route) {
-				routes.set(route.path, route);
-				return () => routes.delete(route.path);
+		...(sessionCwd === void 0
+			? {}
+			: {
+					sessionController: {
+						async projections({ sessionId }) {
+							const cwd = typeof sessionCwd === "function" ? sessionCwd(sessionId) : sessionCwd;
+							return cwd === void 0 ? null : { kind: "sequenced", asOfSeq: 0, values: { workingDirectory: cwd } };
+						}
+					}
+				}),
+		workingDirectory: {
+			get(session) {
+				return session?.header?.cwd;
 			}
+		},
+		...(skills === void 0
+			? {}
+			: {
+					skills: {
+						register(skill) {
+							registeredSkills.push(skill);
+							return () => {
+								const index = registeredSkills.indexOf(skill);
+								if (index >= 0) registeredSkills.splice(index, 1);
+							};
+						}
+					}
+				}),
+		// the optional services are read through ctx.get(), never injected
+		get(name) {
+			if (name === "sessions") return ctx.sessions;
+			if (name === "sessionController") return ctx.sessionController;
+			if (name === "workingDirectory") return ctx.workingDirectory;
+			return void 0;
+		},
+		inject(names, callback) {
+			if (names.every((name) => ctx[name] !== void 0)) return callback(ctx);
+			return void 0;
 		},
 		effect(fn) {
 			const dispose = fn();
@@ -101,54 +144,59 @@ export function fakeCtx({ workspaces = [], sessions = {}, resolveByPath = true }
 		ctx,
 		routes,
 		entities,
+		registeredSkills,
 		disposeAll() {
 			for (const dispose of disposers.splice(0)) dispose();
 		}
 	};
 }
 
-/** Fake incoming request: only `url`, `method` and the close event are used. */
-export function fakeReq({ url = "/", method = "GET" } = {}) {
-	return Object.assign(emitter(), { url, method });
+/** Drive GET /api/git-badge through a captured route set. */
+export async function get(routes, query) {
+	const route = routes.get("/api/git-badge");
+	if (route === void 0) throw new Error("status route is not registered");
+	const response = await route.fetch(new Request(`http://dsh.internal/api/git-badge${query}`));
+	const text = await response.text();
+	return {
+		status: response.status,
+		headers: Object.fromEntries(response.headers.entries()),
+		text: () => text
+	};
 }
 
 /**
- * Fake ServerResponse. `end()` fires `close` exactly once, like a real socket,
- * so the double-cleanup paths are exercised without recursing.
+ * Open the SSE route and read it in the background. `abort()` disconnects like a
+ * browser tab close; `ended` flips when the stream completes.
  */
-export function fakeStream() {
-	const e = emitter();
-	return Object.assign(e, {
-		chunks: [],
-		status: 0,
-		headers: null,
+export async function openSse(routes, path = "/api/git-badge/events") {
+	const route = routes.get(path);
+	if (route === void 0) throw new Error("event route is not registered");
+	const controller = new AbortController();
+	const response = await route.fetch(new Request(`http://dsh.internal${path}`, { signal: controller.signal }));
+	const reader = response.body.getReader();
+	const decoder = new TextDecoder();
+	let text = "";
+	const stream = {
+		response,
 		ended: false,
-		writeHead(status, headers) {
-			this.status = status;
-			this.headers = headers;
-		},
-		write(chunk) {
-			this.chunks.push(String(chunk));
-			return true;
-		},
-		end(chunk) {
-			if (chunk !== undefined) this.chunks.push(String(chunk));
-			if (this.ended) return;
-			this.ended = true;
-			e.emit("close");
-		},
-		text() {
-			return this.chunks.join("");
+		controller,
+		text: () => text,
+		abort: () => controller.abort()
+	};
+	stream.read = (async () => {
+		try {
+			for (;;) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				text += decoder.decode(value, { stream: true });
+			}
+		} catch {
+			/* aborted or closed */
+		} finally {
+			stream.ended = true;
 		}
-	});
-}
-
-/** Drive GET /api/git-badge through a captured route set. */
-export async function get(routes, query) {
-	const req = fakeReq({ url: `/api/git-badge${query}` });
-	const res = fakeStream();
-	await routes.get("/api/git-badge").handler(req, res);
-	return res;
+	})();
+	return stream;
 }
 
 /** SSE text → [{ event, data }]; comment-only frames surface as message/''. */
