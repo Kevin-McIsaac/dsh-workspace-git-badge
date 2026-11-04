@@ -14,7 +14,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { apply, config, gitStatus, prState, prStatusFor, readPrStatus, summarizeChecks, summarizePr } from "../lib/index.js";
-import { fakeCtx, fakeReq, fakeStream, waitFor } from "../test-support/harness.mjs";
+import { fakeCtx, get as getRoute, waitFor } from "../test-support/harness.mjs";
 import { githubRepo, makeRepo } from "../test-support/repo.mjs";
 
 const WORKSPACE_ID = "ws-pr";
@@ -384,9 +384,8 @@ test("the route refuses to wait for the forge", async (t) => {
 	const { ctx, routes, disposeAll } = fakeCtx({ workspaces: [{ id: WORKSPACE_ID, path: repo.root }] });
 	apply(ctx);
 	t.after(() => disposeAll());
-	const res = fakeStream();
 	// the gh call never answers; the route must still answer
-	await routes.get("/api/git-badge").handler(fakeReq({ url: `/api/git-badge?workspace=${WORKSPACE_ID}&pr=1` }), res);
+	const res = await getRoute(routes, `?workspace=${WORKSPACE_ID}&pr=1`);
 	assert.equal(res.status, 200);
 	const body = JSON.parse(res.text());
 	assert.equal(body.git, true);
@@ -402,13 +401,7 @@ test("the route serves a cached PR, and a row request never spawns gh", async (t
 	const { ctx, routes, disposeAll } = fakeCtx({ workspaces: [{ id: WORKSPACE_ID, path: repo.root }] });
 	apply(ctx);
 	t.after(() => disposeAll());
-	const get = (query) => {
-		const res = fakeStream();
-		return routes
-			.get("/api/git-badge")
-			.handler(fakeReq({ url: `/api/git-badge${query}` }), res)
-			.then(() => res);
-	};
+	const get = (query) => getRoute(routes, query);
 	// a row request (no pr=1) must not touch the forge
 	await get(`?workspace=${WORKSPACE_ID}`);
 	assert.equal(calls.length, 0);

@@ -9,10 +9,14 @@
  *       a session id; the server resolves the directory itself. `?path=` was
  *       removed precisely so a caller cannot aim the route at a directory of
  *       its choosing, even one inside the registry.
- *     - the route is intentionally unauthenticated (it is a local, read-only
- *       status feed), so resolution must never assume the caller is honest.
- *       Workspace ids are generated uuids and session ids are opaque, so the
- *       surface no longer offers anything to enumerate.
+ *     - both routes ride the host's authenticated `/api` transport
+ *       (`ctx.connection.fetch`), so the Host/Origin fence and the session
+ *       cookie apply. The caller names a workspace or session id, never a path.
+ *     - a SESSION-targeted request follows the session's current working
+ *       directory when DSH records one that is a different git checkout. DSH
+ *       owns that directory now (`dsh-working-directory` and the
+ *       `working_directory` tool), so the plugin reads the projection instead
+ *       of keeping its own registration store.
  *     - one git invocation per sample: `git --no-optional-locks status
  *       --porcelain=v2 --branch --untracked-files=all` yields branch,
  *       ahead/behind, and the changed / untracked counts in a single call
@@ -62,17 +66,11 @@
  *       pipeline. A MAIN worktree's git dir is `<root>/.git` and so is covered
  *       by the root watch; a LINKED worktree's is not, so its git dir gets a
  *       second watcher (see the watcher region).
- *
- * When upstream lands a workspace-metadata service, this half is deleted and
- * the client half re-points at it — the seam contract does not change.
  */
 import { execFile } from "node:child_process";
 import { watch, existsSync, readFileSync } from "node:fs";
 import { basename, isAbsolute, join, resolve } from "node:path";
-import { SESSION_CHECKOUT_TTL_MS, readSessionCheckouts } from "../seam/store.js";
-import { installSkill } from "../seam/skill.js";
-
-const inject = ["webServer", "workspaceRegistry"];
+const inject = ["connection", "workspaceRegistry"];
 const name = "dsh-git-badge";
 
 /**
@@ -83,11 +81,8 @@ const name = "dsh-git-badge";
  * single documented seam.
  */
 const config = {
-	/**
-	 * Test seam: the session-checkout registrations file. Null (the default)
-	 * resolves it under the plugin's data dir (SEAM_DATA_DIR-aware store.js).
-	 */
-	sessionCheckoutsFile: null,
+	/** budget for reading the session working-directory projection */
+	projectionTimeoutMs: 2000,
 	/** Test seam: resolves the schema lib the settings namespace is built from. */
 	settingsSchemaLoader: async () => (await import("@deepseek-ai/schemastery")).default,
 	/** budget for every git invocation; an expired call is killed */
@@ -1321,11 +1316,8 @@ function notifyChange(key) {
  * source of truth for "still open".
  */
 function closeStream(stream) {
-	if (!openStreams.delete(stream)) return;
-	changeListeners.delete(stream.send);
-	clearInterval(stream.heartbeat);
 	try {
-		stream.res.end();
+		stream.close();
 	} catch {
 		/* already gone */
 	}
@@ -1523,46 +1515,64 @@ function watchWorkspace(root, key, workspaceId) {
 }
 
 /**
- * Workspace path -> { worktreePath, workspaceId, owned } for the worktree a
- * session badge is currently following. One per workspace: a session follows at
- * most one tree, so following a different tree (or none) retires the previous
- * entry here.
+ * Session id (or, for a bare workspace follow, its path) -> the checkout that
+ * session is working in. A session has one current checkout, so following a
+ * different one retires the previous entry. Several sessions may share a
+ * checkout; the watcher is idempotent and its events carry the workspace id the
+ * requesting client matches.
  */
 const selectedWorktrees = new Map();
 
 /**
- * Keep the watcher set aligned with the worktree a session badge has been told to
- * follow.
+ * Keep the watcher set aligned with the checkout a session badge follows.
  *
- * A selected worktree is usually NOT a registered workspace, so nothing else
- * watches it — and freshness would then depend on the owning checkout's recursive
- * watch happening to cover it (true for a worktree nested inside the repository,
- * false for a sibling directory). Its events must also carry the OWNING workspace
- * id, because that is what a session-targeted client matches its events against:
- * `notifyChange` reads the id off the watcher record for the path it watched.
+ * A followed checkout is usually NOT a registered workspace, so nothing else
+ * watches it — and freshness would then depend on the owning checkout's
+ * recursive watch happening to cover it (true for a worktree nested inside the
+ * repository, false for a sibling directory). Its events must also carry the
+ * OWNING workspace id, because that is what a session-targeted client matches
+ * its events against: `notifyChange` reads the id off the watcher record for
+ * the path it watched.
  *
- * `owned` records whether this call created the watcher. A worktree can itself be
- * a registered workspace (someone may have opened one as a workspace), and
+ * `owned` records whether this call created the watcher. A worktree can itself
+ * be a registered workspace (someone may have opened one as a workspace), and
  * retiring the selection must never tear down a watcher the registry owns.
  *
  * Idempotent and cheap: called on every session request, and a no-op while the
  * selection is unchanged. `chosenPath === undefined` retires whatever was
- * selected — the "the worktree is gone, or its PR closed" path.
+ * selected — the "the session moved back, or the directory is gone" path.
  */
-function selectWorktreeWatch(ownerPath, workspaceId, chosenPath) {
-	const previous = selectedWorktrees.get(ownerPath);
-	if (previous !== void 0 && previous.worktreePath === chosenPath) {
+function selectWorktreeWatch(ownerPath, workspaceId, chosenPath, sessionId) {
+	const key = sessionId ?? ownerPath;
+	const previous = selectedWorktrees.get(key);
+	if (previous !== void 0 && previous.checkoutPath === chosenPath) {
 		previous.workspaceId = workspaceId;
+		previous.ownerPath = ownerPath;
 		return;
 	}
 	if (previous !== void 0) {
-		if (previous.owned) unwatchWorkspace(previous.worktreePath);
-		selectedWorktrees.delete(ownerPath);
+		selectedWorktrees.delete(key);
+		retireCheckout(previous);
 	}
 	if (chosenPath === undefined) return;
 	const owned = !watchers.has(chosenPath);
 	watchWorkspace(chosenPath, chosenPath, workspaceId);
-	selectedWorktrees.set(ownerPath, { worktreePath: chosenPath, workspaceId, owned });
+	selectedWorktrees.set(key, { checkoutPath: chosenPath, workspaceId, ownerPath, owned });
+}
+
+/**
+ * Release one retired follow's watcher. A shared checkout keeps its watcher and
+ * hands ownership to the next follower, so the last one out tears it down.
+ */
+function retireCheckout(retired) {
+	if (!retired.owned) return;
+	for (const entry of selectedWorktrees.values()) {
+		if (entry.checkoutPath === retired.checkoutPath) {
+			entry.owned = true;
+			return;
+		}
+	}
+	unwatchWorkspace(retired.checkoutPath);
 }
 
 /** The registry entities whose public surface carries a string `path`. */
@@ -1573,21 +1583,29 @@ function listEntities(ctx) {
 /** Reconcile the watcher set with the current workspace registry. */
 function syncWatchers(ctx) {
 	const wanted = new Set();
+	const registryPaths = new Set();
 	for (const entity of listEntities(ctx)) {
 		// `path` and `id` are the entity's public surface; its `record` is private
 		wanted.add(entity.path);
+		registryPaths.add(entity.path);
 		watchWorkspace(entity.path, entity.path, entity.id === void 0 ? void 0 : String(entity.id));
 	}
-	// An inferred worktree is watched because a session request selected it, not
-	// because the registry owns it. Keep the ones whose owner is still registered
-	// and retire the rest, so this reconcile never tears down a live selection.
-	for (const [ownerPath, entry] of selectedWorktrees) {
-		if (!wanted.has(ownerPath)) {
-			if (entry.owned) unwatchWorkspace(entry.worktreePath);
-			selectedWorktrees.delete(ownerPath);
+	// A checkout that became a registered workspace is now registry-owned; a
+	// retiring follow must not tear its watcher down.
+	for (const entry of selectedWorktrees.values()) {
+		if (registryPaths.has(entry.checkoutPath)) entry.owned = false;
+	}
+	// A followed checkout is watched because a session request selected it, not
+	// because the registry owns it. Keep the ones whose owner workspace is still
+	// registered and retire the rest, so this reconcile never tears down a live
+	// selection.
+	for (const [key, entry] of selectedWorktrees) {
+		if (!wanted.has(entry.ownerPath)) {
+			selectedWorktrees.delete(key);
+			retireCheckout(entry);
 			continue;
 		}
-		wanted.add(entry.worktreePath);
+		wanted.add(entry.checkoutPath);
 	}
 	for (const key of [...watchers.keys()]) if (!wanted.has(key)) unwatchWorkspace(key);
 }
@@ -1642,78 +1660,96 @@ async function resolveWorkspace(ctx, params) {
 }
 
 /**
- * The checkout a session registered for itself, or undefined.
+ * The session's current working directory, as DSH records it.
  *
- * This is the ONLY source for "which worktree is this session using", and it has
- * to be explicit: DSH records no session→worktree link (a session's cwd is
- * immutable creation metadata and always the main checkout), so nothing in the
- * host can answer it. The agent writes the registration with
- * `dsh-git-badge-checkout <path>`; the file is advisory, so it is validated
- * here before it is believed — the path must be a worktree git itself lists,
- * the entry must be fresher than SESSION_CHECKOUT_TTL_MS, and the name/branch
- * come from git rather than from the file. A stale, hand-edited or removed
- * registration can therefore only fail to resolve, never point the badge at a
- * directory that is not a worktree of this repository.
+ * DSH owns the directory now: the `working_directory` tool and the experimental
+ * worktree tool commit a `working-directory/change` event, and the
+ * `workingDirectory` projection carries the result. A session's immutable header
+ * `cwd` is its ORIGINAL project, not where the agent is working.
+ *
+ * Read the projection through the session controller, which answers for live and
+ * cold sessions without activating an agent. Fall back to the live session's
+ * projected value, then to the header. The value is a server-side host fact; the
+ * caller never supplies a path.
+ *
+ * @returns the absolute directory, or undefined when the session is unknown.
  */
-function sessionCheckouts() {
-	// The store owns the file's shape; the test seam only redirects the path.
-	return readSessionCheckouts(config.sessionCheckoutsFile ?? undefined);
+async function sessionWorkingDirectory(ctx, sessionId) {
+	if (typeof sessionId !== "string" || sessionId === "") return void 0;
+	const controller = ctx.get("sessionController");
+	if (controller !== void 0 && typeof controller.projections === "function") {
+		try {
+			const signal = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(config.projectionTimeoutMs) : new AbortController().signal;
+			const value = await controller.projections({ sessionId }, signal);
+			const cwd = value?.values?.workingDirectory;
+			if (typeof cwd === "string" && cwd !== "") return cwd;
+		} catch {
+			// a missing projection, a refused read, or a timeout: use the fallbacks
+		}
+	}
+	const session = ctx.get("sessions")?.get?.(sessionId);
+	if (session !== void 0) {
+		const working = ctx.get("workingDirectory");
+		if (working !== void 0 && typeof working.get === "function") {
+			try {
+				const cwd = working.get(session);
+				if (typeof cwd === "string" && cwd !== "") return cwd;
+			} catch {
+				// fall through to the header
+			}
+		}
+		if (typeof session?.header?.cwd === "string" && session.header.cwd !== "") return session.header.cwd;
+	}
+	return void 0;
 }
 
-async function registeredCheckout(target, sessionId) {
-	if (typeof sessionId !== "string" || sessionId === "") return void 0;
-	const entry = sessionCheckouts()[sessionId];
-	if (entry === void 0 || typeof entry?.path !== "string") return void 0;
-	const at = Date.parse(String(entry.at ?? ""));
-	if (!Number.isFinite(at) || Date.now() - at > SESSION_CHECKOUT_TTL_MS) return void 0;
-	const { toplevel, worktrees } = await worktreesFor(target.path);
-	// Git lists the main worktree first, and a registration only means something
-	// when the session's own directory IS that main checkout: a session already
-	// inside a linked worktree is its own answer and is never swapped sideways.
-	const main = worktrees[0];
-	if (toplevel === "" || main === void 0 || main.path !== toplevel || target.path !== toplevel || worktrees.length <= 1) return void 0;
-	const found = worktrees.find((tree) => tree.path === entry.path);
-	if (found === void 0 || found.path === toplevel) return void 0;
-	return { path: found.path, name: found.name, branch: found.branch };
+/** In-flight toplevel probes, so a burst of rows shares one `rev-parse`. */
+const toplevelInFlight = new Map();
+
+/** The git toplevel for dir, or "" when it is not a repository. */
+function toplevelFor(dir) {
+	return singleFlight(toplevelInFlight, dir, {}, async () => {
+		const out = await runGit(dir, ["rev-parse", "--show-toplevel"]);
+		return out.stdout === null ? "" : out.stdout.trim();
+	});
 }
 
 /**
  * The directory a request is ABOUT.
  *
- * A SESSION-targeted chip follows the checkout that session REGISTERED — the one
- * signal that knows where the agent is actually working. Without a registration
- * the request stays on the session's own directory: the plugin never guesses a
- * worktree from pull requests (an earlier build inferred one from the branch
- * with the open PR; the guess was invisible to the session that made it and
- * silently wrong whenever two trees were in play).
+ * A SESSION-targeted chip follows the session's current working directory when
+ * DSH records one that resolves to a different git checkout — the worktree, or
+ * another repository, the agent actually entered. The projection is a host fact,
+ * so nothing is guessed and no client path is trusted.
  *
- * A WORKSPACE-targeted row never follows a worktree: a row surveys the checkout
+ * A WORKSPACE-targeted row never follows a session: a row surveys the checkout
  * the registry owns, and substituting a tree would make the row lie about the
  * branch it is on.
+ *
+ * @returns `{ id, path, followed }` where `followed` marks a status that
+ *   describes a checkout other than the workspace's own.
  */
-async function effectiveTarget(target, sessionId) {
+async function effectiveTarget(ctx, target, sessionId) {
 	const bySession = typeof sessionId === "string" && sessionId !== "";
-	if (config.worktreeStatus !== "off") {
-		const registered = bySession ? await registeredCheckout(target, sessionId) : void 0;
-		if (registered !== void 0) {
-			selectWorktreeWatch(target.path, target.id, registered.path);
-			// The name and branch travel; the PATH never does (AGENTS.md rule 7).
-			return { id: target.id, path: registered.path, worktree: { name: registered.name, branch: registered.branch } };
+	if (config.worktreeStatus !== "off" && bySession) {
+		const cwd = await sessionWorkingDirectory(ctx, sessionId);
+		if (cwd !== void 0) {
+			const [ownTop, sessionTop] = await Promise.all([toplevelFor(target.path), toplevelFor(cwd)]);
+			if (sessionTop !== "" && sessionTop !== ownTop) {
+				selectWorktreeWatch(target.path, target.id, sessionTop, sessionId);
+				return { id: target.id, path: cwd, followed: true };
+			}
 		}
 	}
-	// No registration (or a stale one): retire any follow this workspace had, so
-	// clearing the registration actually stops the extra watcher.
-	selectWorktreeWatch(target.path, target.id, void 0);
-	return { id: target.id, path: target.path };
+	// No usable directory, or the same checkout: retire any follow this session
+	// had, so moving back actually stops the extra watcher.
+	selectWorktreeWatch(target.path, target.id, void 0, bySession ? sessionId : void 0);
+	return { id: target.id, path: target.path, followed: false };
 }
 
 /** Host plugin body — register the status route and the SSE change feed. */
 function apply(ctx) {
-	// The /gh skill must exist in the user's skills catalog for the commands
-	// menu to find it. Installing it here (not only from a CLI run) means a
-	// market install gets /gh on the next boot. installSkill() never throws: it
-	// returns a reason string, so a read-only home degrades to a console line.
-	console.log(`[dsh-git-badge] gh skill: ${installSkill()}`);
+	registerSkill(ctx);
 	// The ranking order lives in this plugin's own settings namespace: declared
 	// with a schema so the host validates it, stored in the user's settings
 	// document, and observed live — a change applies to the next status read
@@ -1748,129 +1784,219 @@ function apply(ctx) {
 			console.error("[dsh-git-badge] settings namespace unavailable, using the legacy order file:", error);
 		}
 	}
-	ctx.effect(() => ctx.webServer.register({
-		kind: "exact",
-		path: "/api/git-badge",
-		handler: async (req, res) => {
-			try {
-				const url = new URL(req.url, "http://localhost");
-				const target = await resolveWorkspace(ctx, url.searchParams);
-				if (target.error !== void 0) {
-					res.writeHead(target.status, { "content-type": "application/json" });
-					res.end(JSON.stringify({ git: false, error: target.error }));
-					return;
-				}
-				const detail = url.searchParams.get("detail") === "1";
-				const pr = url.searchParams.get("pr") === "1";
-				// WHO asked decides whether a linked worktree may stand in for the
-				// session's own directory — see effectiveTarget. A workspace-targeted
-				// row never leaves the checkout the registry owns.
-				const session = url.searchParams.get("session");
-				const effective = await effectiveTarget(target, session ?? void 0);
-				const info = await gitStatus(effective.path, detail, pr);
-				const body = { ...info, workspace: target.id };
-				if (effective.worktree !== void 0 && info.git === true) {
-					// The status describes a worktree the SESSION's directory does not
-					// name. Saying so is the whole honesty of the feature: the chip's
-					// mark says "worktree", its name says which, and this flag tells the
-					// card why the checkout below differs from the branch beside it.
-					body.worktreeFollowed = true;
-					if (detail) {
-						// The session's OWN directory, for the card's `checkout` row, so the
-						// main checkout stays visible once the badge follows a tree. Gated
-						// by detail=1 (a pointer resting on the chip), so nothing at rest
-						// pays for the second read.
-						const own = await gitStatus(target.path, false, false);
-						if (own.git === true) {
-							body.checkout = {
-								branch: own.branch,
-								dirty: own.dirty,
-								changedFiles: own.changedFiles,
-								untrackedFiles: own.untrackedFiles,
-								ahead: own.ahead,
-								behind: own.behind
-							};
-						}
-					}
-				}
-				if (detail && info.git === true && session !== null && effective.worktree === void 0) {
-					// No registration is in effect, so the badge describes the session's OWN
-					// checkout. When this repository also has LINKED worktrees, that is the one
-					// state worth naming: a registration write that failed (a file sandbox, a
-					// read-only home) looks exactly like a session with nothing to follow, and
-					// the agent's work then sits in a tree the badge never mentions. Gated on
-					// detail=1 (a pointer resting on the chip), so nothing at rest pays for the
-					// extra `git worktree list`.
-					const { worktrees } = await worktreesFor(target.path);
-					if (worktrees.length > 1) body.linkedWorktrees = worktrees.length - 1;
-				}
-				// Echo the resolved workspace id. SSE events identify the workspace,
-				// not the session, so a session-targeted client has no other way to
-				// tell whether an event belongs to it — without this the input chip
-				// only ever refreshed on remount or the 60s poll.
-				res.writeHead(200, { "content-type": "application/json" });
-				res.end(JSON.stringify(body));
-			} catch (error) {
-				res.writeHead(400, { "content-type": "application/json" });
-				res.end(JSON.stringify({ git: false, error: { code: "bad-request", message: String(error?.message ?? error) } }));
-			}
-		}
-	}));
+	// Both routes ride the authenticated /api transport: the caller is a
+	// browser peer, so the Host/Origin fence and the session cookie apply. The
+	// exact paths leave the client's URLs unchanged.
 	ctx.effect(() => {
-		const dispose = ctx.webServer.register({
-			kind: "exact",
+		const dispose = ctx.connection.fetch.register({
+			path: "/api/git-badge",
+			methods: ["GET"],
+			requestBody: "buffered",
+			fetch: (request) => statusResponse(ctx, request)
+		});
+		return () => {
+			void dispose();
+		};
+	}, "dsh-git-badge: status route");
+	ctx.effect(() => {
+		const dispose = ctx.connection.fetch.register({
 			path: "/api/git-badge/events",
-			handler: async (req, res) => {
-				// keep the watcher set aligned with the live registry on every connect
-				syncWatchers(ctx);
-				res.writeHead(200, {
-					"content-type": "text/event-stream",
-					"cache-control": "no-cache",
-					connection: "keep-alive",
-					// proxies (nginx et al) buffer responses by default, which holds
-					// event frames back until the buffer fills
-					"x-accel-buffering": "no"
-				});
-				// flush immediately: staged headers only hit the wire on first write,
-				// and the first real event may be minutes away
-				res.write(": connected\n\n");
-				const stream = {
-					res,
-					heartbeat: null,
-					send: (payload) => {
-						try {
-							// NAMED frame: the client subscribes with
-							// addEventListener("change", …), which never sees an
-							// unnamed message
-							res.write(`event: change\ndata: ${JSON.stringify(payload)}\n\n`);
-						} catch {
-							/* socket gone; the close handler cleans up */
-						}
-					}
-				};
-				changeListeners.add(stream.send);
-				// comment-only heartbeat keeps proxies from idling the stream out
-				stream.heartbeat = setInterval(() => {
-					try {
-						res.write(": hb\n\n");
-					} catch {
-						/* ignore */
-					}
-				}, config.heartbeatMs);
-				openStreams.add(stream);
-				// both fire on a client disconnect; closeStream is idempotent
-				req.on("close", () => closeStream(stream));
-				res.on("close", () => closeStream(stream));
-			}
+			methods: ["GET"],
+			requestBody: "buffered",
+			fetch: (request) => eventStreamResponse(ctx, request)
 		});
 		// unloading the plugin must not leave subscribers holding dead streams,
 		// nor keep process-wide watchers alive
 		return () => {
-			dispose();
+			void dispose();
 			for (const stream of [...openStreams]) closeStream(stream);
 			for (const key of [...watchers.keys()]) unwatchWorkspace(key);
 		};
+	}, "dsh-git-badge: change feed");
+}
+
+/** One JSON response for the status route. */
+function jsonResponse(body, status = 200) {
+	return new Response(JSON.stringify(body), {
+		status,
+		headers: { "content-type": "application/json" }
 	});
+}
+
+/** Answer one status request from the shared /api transport. */
+async function statusResponse(ctx, request) {
+	try {
+		const url = new URL(request.url);
+		const target = await resolveWorkspace(ctx, url.searchParams);
+		if (target.error !== void 0) {
+			return jsonResponse({ git: false, error: target.error }, target.status);
+		}
+		const detail = url.searchParams.get("detail") === "1";
+		const pr = url.searchParams.get("pr") === "1";
+		// WHO asked decides whether the session's working directory may stand in
+		// for the checkout the workspace owns — see effectiveTarget. A
+		// workspace-targeted row never leaves the checkout the registry owns.
+		const session = url.searchParams.get("session");
+		const effective = await effectiveTarget(ctx, target, session ?? void 0);
+		const info = await gitStatus(effective.path, detail, pr);
+		const body = { ...info, workspace: target.id };
+		if (effective.followed === true && info.git === true) {
+			// The status describes a checkout the SESSION's workspace does not
+			// name. Saying so is the whole honesty of the feature: the chip's mark
+			// says "worktree", its name says which, and this flag tells the card
+			// why the checkout below differs from the branch beside it.
+			body.worktreeFollowed = true;
+			if (detail) {
+				// The workspace's OWN directory, for the card's `own checkout` row,
+				// so the main checkout stays visible once the badge follows the
+				// session. Gated by detail=1 (a pointer resting on the chip), so
+				// nothing at rest pays for the second read.
+				const own = await gitStatus(target.path, false, false);
+				if (own.git === true) {
+					body.checkout = {
+						branch: own.branch,
+						dirty: own.dirty,
+						changedFiles: own.changedFiles,
+						untrackedFiles: own.untrackedFiles,
+						ahead: own.ahead,
+						behind: own.behind
+					};
+				}
+			}
+		}
+		if (detail && info.git === true && session !== null && effective.followed !== true) {
+			// The badge describes the workspace's checkout. When this repository
+			// also has LINKED worktrees, that is the one state worth naming: a
+			// session that has not entered one looks exactly like a session with
+			// nothing to follow. Gated on detail=1 (a pointer resting on the chip),
+			// so nothing at rest pays for the extra `git worktree list`.
+			const { worktrees } = await worktreesFor(target.path);
+			if (worktrees.length > 1) body.linkedWorktrees = worktrees.length - 1;
+		}
+		// Echo the resolved workspace id. SSE events identify the workspace, not
+		// the session, so a session-targeted client has no other way to tell
+		// whether an event belongs to it — without this the input chip only ever
+		// refreshed on remount or the 60s poll.
+		return jsonResponse(body);
+	} catch (error) {
+		return jsonResponse({ git: false, error: { code: "bad-request", message: String(error?.message ?? error) } }, 400);
+	}
+}
+
+/** One SSE response with the same frame shape the node route used. */
+function eventStreamResponse(ctx, request) {
+	const encoder = new TextEncoder();
+	let record;
+	const body = new ReadableStream({
+		start(controller) {
+			const send = (payload) => {
+				try {
+					// NAMED frame: the client subscribes with
+					// addEventListener("change", …), which never sees an unnamed message
+					controller.enqueue(encoder.encode(`event: change\ndata: ${JSON.stringify(payload)}\n\n`));
+				} catch {
+					/* the stream is gone; the close handler cleans up */
+				}
+			};
+			// comment-only heartbeat keeps proxies from idling the stream out
+			const heartbeat = setInterval(() => {
+				try {
+					controller.enqueue(encoder.encode(": hb\n\n"));
+				} catch {
+					/* ignore */
+				}
+			}, config.heartbeatMs);
+			const close = () => {
+				if (record === void 0 || !openStreams.delete(record)) return;
+				changeListeners.delete(send);
+				clearInterval(heartbeat);
+				try {
+					controller.close();
+				} catch {
+					/* already closed */
+				}
+			};
+			record = { send, heartbeat, close };
+			openStreams.add(record);
+			changeListeners.add(send);
+			// the browser's request signal aborts on disconnect; the bridge owns it
+			request.signal.addEventListener("abort", close, { once: true });
+			// keep the watcher set aligned with the live registry on every connect
+			try {
+				syncWatchers(ctx);
+			} catch (error) {
+				console.error("[dsh-git-badge] watcher sync failed:", error);
+			}
+			// flush immediately: the first real event may be minutes away
+			controller.enqueue(encoder.encode(": connected\n\n"));
+		},
+		cancel() {
+			record?.close();
+		}
+	});
+	return new Response(body, {
+		headers: {
+			"content-type": "text/event-stream",
+			"cache-control": "no-cache",
+			connection: "keep-alive",
+			// proxies (nginx et al) buffer responses by default, which holds event
+			// frames back until the buffer fills
+			"x-accel-buffering": "no"
+		}
+	});
+}
+
+/** The packaged gh skill's frontmatter and body, or undefined. */
+function readPackagedSkill() {
+	try {
+		const raw = readFileSync(new URL("../skill/gh/SKILL.md", import.meta.url), "utf8");
+		const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(raw);
+		const meta = {};
+		for (const line of (match?.[1] ?? "").split(/\r?\n/)) {
+			const field = /^([A-Za-z][A-Za-z0-9]*):\s*(.*)$/.exec(line);
+			if (field !== null) meta[field[1]] = field[2].trim();
+		}
+		const description = meta.description ?? "";
+		if (description === "") return void 0;
+		return {
+			name: meta.name ?? "gh",
+			description,
+			...(meta.whenToUse === void 0 ? {} : { whenToUse: meta.whenToUse }),
+			content: match === null ? raw : raw.slice(match[0].length)
+		};
+	} catch (error) {
+		console.error("[dsh-git-badge] packaged gh skill unavailable:", error);
+		return void 0;
+	}
+}
+
+/**
+ * Register the /gh skill with the host's skill registry. Runtime registration
+ * follows the plugin version and needs no write to the user's home, so a
+ * read-only deployment still gets the skill.
+ */
+function registerSkill(ctx) {
+	const skill = readPackagedSkill();
+	if (skill === void 0) return;
+	if (typeof ctx.inject !== "function") {
+		console.warn("[dsh-git-badge] skill registry unavailable; /gh prose is absent");
+		return;
+	}
+	try {
+		ctx.inject(["skills"], (skillsCtx) => {
+			skillsCtx.effect(() => {
+				try {
+					return skillsCtx.skills.register(skill);
+				} catch (error) {
+					console.error("[dsh-git-badge] gh skill registration failed:", error);
+					return () => {};
+				}
+			}, "dsh-git-badge: gh skill");
+			console.log("[dsh-git-badge] gh skill: registered");
+		});
+	} catch (error) {
+		console.error("[dsh-git-badge] skill registry unavailable:", error);
+	}
 }
 
 export { apply, inject, name };

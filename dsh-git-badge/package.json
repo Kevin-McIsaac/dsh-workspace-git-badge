@@ -1,13 +1,9 @@
 {
   "name": "dsh-git-badge",
-  "version": "0.20.1",
+  "version": "0.21.0",
   "description": "Git status badges for DeepSeek Harness: an input-row chip and a sidebar session-row action glyph, on every install — no patch and no manual step. Event-driven freshness over SSE.",
   "type": "module",
   "main": "lib/index.js",
-  "bin": {
-    "dsh-git-badge": "seam/cli.js",
-    "dsh-git-badge-checkout": "seam/checkout.js"
-  },
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
@@ -51,10 +47,6 @@
     "lib/client.js",
     "lib/index.js",
     "package.json",
-    "seam/checkout.js",
-    "seam/cli.js",
-    "seam/skill.js",
-    "seam/store.js",
     "skill/gh/SKILL.md"
   ],
   "dependencies": {

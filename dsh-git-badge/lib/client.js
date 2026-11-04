@@ -1012,20 +1012,17 @@ window.__ModuleLoader__.load({
 
 		/**
 		 * The `worktrees` row: how many LINKED worktrees this repository has while
-		 * the badge follows none of them.
+		 * the badge describes the workspace checkout.
 		 *
-		 * It earns its place on one thing only — the failure it makes visible. A
-		 * registration is written outside the repository, so a file sandbox or a
-		 * read-only home can refuse it. When that happens the badge silently keeps
-		 * describing the session's own checkout, and the agent's work sits in a tree
-		 * the UI never names. That state is indistinguishable from a session with
-		 * nothing to follow, so the card is the only place it can be said. The node
-		 * half computes it under `detail=1` only, so nothing at rest pays for it.
+		 * It names the gap the card can otherwise not show. A session that has not
+		 * entered a worktree is indistinguishable from one whose working directory
+		 * never changed, so the count says what is available. The node half computes
+		 * it under `detail=1` only, so nothing at rest pays for it.
 		 */
 		function linkedWorktreesDetail(info) {
 			const linked = info?.linkedWorktrees;
 			if (typeof linked !== "number" || linked <= 0) return void 0;
-			return linked + " linked \u00B7 none registered \u2014 npx dsh-git-badge checkout <path>";
+			return linked + " linked \u00B7 this session stays in the workspace checkout";
 		}
 
 		/**

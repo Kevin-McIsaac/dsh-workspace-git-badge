@@ -118,23 +118,17 @@ test("the clean risk gate carries every field the host's confirmation renders", 
 // the default branch: no pull request is ever suggested FROM main
 // ---------------------------------------------------------------------------
 
-test("the plugin's apply() installs the /gh skill into the catalog", async (t) => {
-	// The skill install moved from the retired postinstall/patcher CLI into the
-	// plugin itself, so a market install gets /gh on the next boot. installSkill()
-	// never throws: this pins that apply() actually calls it.
-	const home = mkdtempSync(join(tmpdir(), "dsh-git-badge-apply-skill-"));
-	const previous = process.env.DSH_HOME;
-	process.env.DSH_HOME = home;
-	t.after(() => {
-		if (previous === void 0) delete process.env.DSH_HOME;
-		else process.env.DSH_HOME = previous;
-	});
+test("the plugin's apply() registers the /gh skill with the host registry", async (t) => {
+	// Runtime registration follows the plugin version and needs no write to the
+	// user's home. This pins that apply() actually registers the packaged body.
 	const { apply } = await import("../lib/index.js");
-	const { ctx, disposeAll } = fakeCtx({ workspaces: [] });
+	const { ctx, registeredSkills, disposeAll } = fakeCtx({ workspaces: [], skills: {} });
 	apply(ctx);
-	disposeAll();
-	const target = join(home, "skills", "gh", "SKILL.md");
-	assert.ok(existsSync(target), "apply() installs /gh");
-	assert.match(readFileSync(target, "utf8"), /^name: gh$/m, "and it is the packaged skill");
+	t.after(() => disposeAll());
+	assert.equal(registeredSkills.length, 1, "apply() registers exactly one skill");
+	assert.equal(registeredSkills[0].name, "gh");
+	assert.match(registeredSkills[0].description, /Git and GitHub operations/);
+	assert.match(registeredSkills[0].content, /^# gh/m, "the body is the packaged markdown");
+	assert.equal(registeredSkills[0].content.startsWith("---"), false, "frontmatter is stripped from the body");
 });
 

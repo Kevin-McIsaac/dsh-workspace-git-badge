@@ -104,21 +104,17 @@ that workspace yourself: the token is *supposed* to be invisible when `gh` canno
 answer. `config.prRunner` substitutes for the CLI in the suite, so no test needs
 `gh`, a network or a forge.
 
-**Worktree selection rides the same TTL, with one more input.** A SESSION-targeted
-badge may follow the one linked worktree whose branch has an open PR: the route
-resolves the session to its workspace, then — only when the repository actually has
-a linked worktree *and* the caller asked for PR state — swaps the status directory
-for that worktree's. Two consequences are easy to miss. The selected worktree is
-watched like a workspace is, and its events carry the **owning** workspace id,
-because that is what a session-targeted client matches its events against; and a
-repository with no linked worktree must spawn **no** `gh` process at all (asserted,
-because the probe runs before the forge is consulted). The probe is
-`rev-parse --show-toplevel` plus `worktree list --porcelain`, both local, collapsed
-for concurrent callers like `gitStatus`. `selectSessionWorktree` is pure and takes
-the worktree list plus the branch→PR map, so every ambiguity case — two candidates,
-a detached/bare/prunable entry, the checkout itself, a branch with no PR — is a
-one-line unit test with no repository at all. `config.worktreeStatus = "off"`
-removes the feature entirely and is the switch's own test.
+**Worktree selection reads the session working directory.** DSH records each
+session's current directory in the `workingDirectory` projection. A
+SESSION-targeted badge asks `ctx.sessionController.projections()` for it, then
+compares its git toplevel with the workspace checkout. A different toplevel wins,
+and the route sets `worktreeFollowed`. The selected checkout is watched like a
+workspace is, and its events carry the **owning** workspace id, because that is
+what a session-targeted client matches its events against. A subdirectory of the
+same repository is not a follow. A workspace with no projection stays on its own
+checkout. `config.worktreeStatus = "off"` removes the feature entirely and is the
+switch's own test. There is no registration file, no TTL, and no inference from
+pull requests.
 
 Pattern credit: the fake-ctx / fake-stream / temp-repo shape is adapted from
 `@wongzexu/dsh-git-status` (MIT).
@@ -143,9 +139,11 @@ The feature has three independently testable layers:
 removes the old profile, stops any server running it, installs from npm
 (optionally pinned to `[version]`), adds the web bundle, verifies the exports
 map and both lib halves on disk, boots headless, then verifies the plugin is in
-the composed **client** graph and that its advertised bundle is served, plus the
-refusal of an unresolvable target. Leaves the server running and prints the
-cleanup command.
+the composed **client** graph and that its advertised bundle is served. It also
+checks the status route refuses an unauthenticated caller (401), that the
+authenticated route refuses an unresolvable target (404), that the change feed
+streams as `text/event-stream`, and that the `/gh` skill registered at runtime.
+Leaves the server running and prints the cleanup command.
 
 Env overrides:
 
@@ -170,7 +168,7 @@ Manual procedure (what the script automates), for reference:
 A DSH profile is just a bundle stack under `$DSH_HOME/profiles/<name>`:
 `package.json` → `dsh.profile.bundles` plus its own config. Fresh profiles
 boot **headless** by default — the plugin's node half waits for
-`webServer`/`workspaceRegistry` and boot FAILS LOUDLY until the web app is
+`connection`/`workspaceRegistry` and boot FAILS LOUDLY until the web app is
 in the stack:
 
 ```bash
@@ -195,10 +193,13 @@ curl -sL -c /tmp/jar -b /tmp/jar "http://127.0.0.1:3100/?token=$TOKEN" \
   | grep -o '"id":"dsh-git-badge"[^}]*'   # {"id":"dsh-git-badge","url":"/plugins/??dsh-git-badge/client.js&rev=…"}
 # fetch that advertised url with the same cookie jar → 200 and the module body
 
-# node half, unauthenticated on purpose. There is no path surface: the caller
-# names a session or workspace id. An unknown session is the cheapest probe and
-# the 404 IS the expected result:
-curl -s "http://127.0.0.1:3100/api/git-badge?session=__no_such_session__"
+# The node half rides the authenticated /api transport. Without the session
+# cookie it must answer 401, never the plugin's JSON:
+curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:3100/api/git-badge?session=x"
+#   → 401
+# With the cookie jar from the shell fetch, an unknown session is the cheapest
+# probe and the 404 IS the expected result:
+curl -s -b /tmp/jar "http://127.0.0.1:3100/api/git-badge?session=__no_such_session__"
 #   → 404 {"git":false,"error":{"code":"session-not-found","message":"…"}}
 ```
 
@@ -241,32 +242,20 @@ the checkout and the pull request rides upstream's own
   request to carry `pr=1` only. And `pr=1` requires `gh` on PATH, authenticated,
   and a `github.com` `origin` — verify with `gh pr view` in the same directory
   before concluding the token is broken.
-- **Worktree selection changed** → the suite covers the parser, the registration
-  guardrails (24h TTL, git validation, the main-checkout precondition, the
-  never-swapped-sideways rule), the watcher a follow needs, and the route's
-  session/workspace split. There is **no inference from pull requests** any more —
-  the badge never guesses a worktree — so the live proof has a precondition that
-  is easy to trip over: the session must have **registered** the worktree.
-  Without a registration the badge correctly stays on the session's own checkout
-  (the main one), so "no swap" is not evidence of a bug. Register first, then
-  compare a session target against a workspace target (`docs/VERIFICATION.md`).
+- **Worktree selection changed** → the suite covers the parser, the
+  working-directory projection, the same-checkout and subdirectory cases, the
+  watcher a follow needs, and the route's session/workspace split. The live proof
+  needs one step: change the session's directory with the `working_directory` tool
+  (or `cd` to the worktree), then compare a session target against a workspace
+  target (`docs/VERIFICATION.md`). Without a working-directory change the badge
+  correctly stays on the workspace checkout, so "no swap" is not evidence of a bug.
+  The hover card names the gap as `N linked · this session stays in the workspace
+  checkout`, under `detail=1` like the card's other extras.
 
-  **The registration needs a writable `$DSH_HOME`, and an agent sandbox often
-  does not allow one.** `npx dsh-git-badge checkout <path>` writes
-  `$DSH_HOME/git-badge-seam/session-checkouts.json`, so under a file sandbox that
-  permits writes only inside the session workspace it exits 1, naming the target
-  file, the errno, and the three ways out. Under `workspace-write` that is
-  expected, not a bug. The BADGE side is what to check when it happens: a refused
-  registration leaves the badge describing the session's own checkout, and the
-  chip's hover card names the gap — `N linked · none registered — npx
-  dsh-git-badge checkout <path>`. That row is the on-screen difference between
-  "nothing to follow" and "the registration could not be written"; it rides
-  `detail=1` like the card's other extras.
-
-  To make the badge follow instead, do one of three things: grant that one
-  command write access to the store, register from a shell that has it, or add the
-  worktree as its own workspace — a session created there needs no registration at
-  all, because its cwd already IS the tree.
+  **A cold session still answers.** `sessionController.projections()` reads the
+  persisted projection without activating an agent. If the read fails or the
+  projection is absent, the node half falls back to the live session's projected
+  value and then to the immutable header cwd.
 
 ## Publishing a new version
 
