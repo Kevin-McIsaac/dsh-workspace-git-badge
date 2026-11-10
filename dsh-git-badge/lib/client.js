@@ -1331,6 +1331,16 @@ window.__ModuleLoader__.load({
 		 * thunk the Tooltip calls only when it opens, so the card's element tree
 		 * stays out of closed tooltips.
 		 *
+		 * `portal: true` is REQUIRED, not cosmetic. The bubble is
+		 * `position: fixed`, and the composer seat sets `will-change: transform`
+		 * while a conversation is active (and uses `position: sticky` at the page
+		 * bottom). A transformed ancestor becomes the bubble's containing block,
+		 * so its viewport coordinates are applied relative to the seat: at the
+		 * bottom of the page the card lands below the fold, and the scroll body
+		 * clips it. Portaling moves the bubble to `document.body`, which restores
+		 * viewport coordinates. The shell's own composer controls portal for the
+		 * same reason.
+		 *
 		 * ALWAYS mount the wrapper — never conditionally, once its data arrives.
 		 * The primitive is uncontrolled (it has no `open` prop) and opens on the
 		 * CHILD's mouseenter, so a wrapper mounted after the pointer is already
@@ -1339,7 +1349,7 @@ window.__ModuleLoader__.load({
 		 */
 		function withTooltip(node, label, maxWidth) {
 			if (Tooltip === void 0) return node;
-			return react_jsx_runtime.jsx(Tooltip, { side: "top", maxWidth, label, children: node });
+			return react_jsx_runtime.jsx(Tooltip, { side: "top", portal: true, maxWidth, label, children: node });
 		}
 
 		/**
