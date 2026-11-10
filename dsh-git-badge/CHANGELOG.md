@@ -10,6 +10,8 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-11-10
+
 ### Added
 
 - **A worktree tree beside the branch on the input chip.** A linked worktree
