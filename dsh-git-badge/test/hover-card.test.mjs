@@ -187,6 +187,21 @@ test("every hover surface is wrapped before its data lands, so the first hover o
 	assert.ok(elements(stated.props.children).some((el) => el.type === "a"), "while the anchor itself is nested INSIDE that stable span");
 });
 
+test("the chip's hover cards are PORTALED out of the composer", () => {
+	// The composer's seat sets `will-change: transform` while a turn runs. That
+	// makes the seat a containing block for `position: fixed` descendants, which
+	// is how the shell's Tooltip bubble is placed. Rendered in place, the bubble's
+	// viewport coordinates are applied relative to the seat at the page bottom, so
+	// the card lands below the fold (or is clipped by the scroll body). The shell's
+	// own composer tooltips portal for exactly this reason.
+	const client = createClient({ tooltip: true });
+	const wrappers = elements(expand(client.rawChip(BASE))).filter((el) => el.type === "Tooltip");
+	assert.equal(wrappers.length, 2, "the leading cluster and the count");
+	for (const wrapper of wrappers) {
+		assert.equal(wrapper.props.portal, true, "a non-portaled tooltip is positioned against the composer seat, not the viewport");
+	}
+});
+
 test("the boot log says which hover-card path was taken", () => {
 	// the primitive comes from the SHELL, so a missing seed must be REPORTED rather
 	// than looking like a missing feature — the try/catch keeps the badge working,
