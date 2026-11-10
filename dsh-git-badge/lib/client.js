@@ -368,7 +368,7 @@ window.__ModuleLoader__.load({
 
 		/**
 		 * NOTE: a worktree's NAME is deliberately NOT part of the chip's text. It is
-		 * long, it competes with the branch for the same glance, and the monochrome
+		 * long, it competes with the branch for the same glance, and the full-colour
 		 * tree beside the branch (chipWorktreeMark) already says THAT the checkout is
 		 * a linked worktree. WHICH tree it is belongs to the hover card's `worktree`
 		 * row — see worktreeDetail. (The old append-unless-redundant rule lived here;
@@ -1505,14 +1505,16 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * The WORKTREE mark: a monochrome tree between the branch name and the
-		 * sync suffix. It sits with the branch it describes, before the upstream
-		 * arrows, the file count and the PR token. WHICH tree it is stays in the
-		 * hover card's `worktree` row; the name is only the accessible label and
-		 * the native title here.
+		 * The WORKTREE mark: a compact full-colour tree between the branch name
+		 * and the sync suffix. It sits with the branch it describes, before the
+		 * upstream arrows, the file count and the PR token. WHICH tree it is stays
+		 * in the hover card's `worktree` row; the name is only the accessible label
+		 * and the native title here.
 		 *
-		 * The whole tree uses `currentColor`, so it follows the chip's secondary
-		 * text colour in both themes.
+		 * The trunk uses `currentColor`, so it follows the chip's secondary text
+		 * colour in both themes. The branch nodes keep their hues. The 15px box
+		 * stays, so the tree aligns with the status icons; a wider viewBox scales
+		 * the drawing to 75% inside that box.
 		 */
 		function chipWorktreeMark(info) {
 			if (info === void 0 || info === null || info.isWorktree !== true) return null;
@@ -1543,10 +1545,10 @@ window.__ModuleLoader__.load({
 				title: label,
 				style: { display: "inline-flex", alignItems: "center", flex: "none", color: "inherit" },
 				children: react_jsx_runtime.jsxs("svg", {
-					// Crop the empty 10% margin around the drawing so the 15px box is
-					// filled the way the status icons fill theirs. Without this the tree
-					// reads smaller and sits high against the action glyph.
-					viewBox: "6 3 90 90",
+					// The 90-unit drawing centred in a 120-unit viewBox is drawn at
+					// 75% inside the same 15px box: a 25% reduction that keeps the
+					// icon's top and bottom aligned with the status icons.
+					viewBox: "-9 -12 120 120",
 					width: 15,
 					height: 15,
 					"aria-hidden": "true",
@@ -1555,19 +1557,19 @@ window.__ModuleLoader__.load({
 					children: [
 						path("trunk", "M50 90V40", ink, 5),
 						path("left-stem", "M50 70C45 70 40 70 35 70", ink),
-						path("left-branch", "M35 70H22", ink),
-						node("left-node", 15, 70, 7, ink),
+						path("left-branch", "M35 70H22", "#a855f7"),
+						node("left-node", 15, 70, 7, "#a855f7"),
 						path("upper-stem", "M50 52L40 42H28", ink),
-						path("upper-left-branch", "M28 42V34H20", ink),
-						node("upper-left-node", 14, 34, 6, ink),
-						path("top-branch", "M50 40V22", ink),
-						node("top-node", 50, 14, 8, ink),
+						path("upper-left-branch", "M28 42V34H20", "#f97316"),
+						node("upper-left-node", 14, 34, 6, "#f97316"),
+						path("top-branch", "M50 40V22", "#fb923c"),
+						node("top-node", 50, 14, 8, "#fb923c"),
 						path("right-stem", "M50 60L58 52H66L74 46", ink),
-						path("upper-right-branch", "M62 46L70 34H78", ink),
-						node("upper-right-node", 86, 34, 8, ink),
+						path("upper-right-branch", "M62 46L70 34H78", "#22c55e"),
+						node("upper-right-node", 86, 34, 8, "#22c55e"),
 						path("lower-stem", "M50 78C55 78 60 78 65 78", ink),
-						path("lower-right-branch", "M65 78H76", ink),
-						node("lower-right-node", 84, 78, 8, ink)
+						path("lower-right-branch", "M65 78H76", "#ef4444"),
+						node("lower-right-node", 84, 78, 8, "#ef4444")
 					]
 				}, "tree")
 			}, "worktree");

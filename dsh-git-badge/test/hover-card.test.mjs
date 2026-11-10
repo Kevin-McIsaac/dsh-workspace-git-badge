@@ -443,7 +443,7 @@ test("the card names WHICH worktree the badge describes", () => {
 	assert.ok(!card(client, BASE).includes("worktree"));
 });
 
-test("the chip puts a monochrome tree between the branch name and the sync suffix", () => {
+test("the chip puts a compact full-colour tree between the branch name and the sync suffix", () => {
 	// The tree says THAT the checkout is a linked worktree. The name stays out of
 	// the chip text; it is the accessible label and the hover card's job.
 	const client = createClient();
@@ -467,14 +467,17 @@ test("the chip puts a monochrome tree between the branch name and the sync suffi
 	assert.equal(mark.props["aria-label"], "linked worktree auth-fix");
 	assert.equal(mark.props.title, "linked worktree auth-fix");
 	assert.match(contents[2], /↑3 ↓1/, "the sync suffix follows the tree, not the branch");
-	// 15px matches the action glyph and the workspace chip's lock icon; 18px made
-	// the tree the loudest thing on the line. The cropped viewBox fills that box.
+	// The 15px box matches the action glyph and the workspace chip's lock icon.
+	// The 120-unit viewBox draws the 90-unit tree at 75% inside that box.
 	assert.equal(mark.props.children.props.width, 15);
 	assert.equal(mark.props.children.props.height, 15);
-	assert.equal(mark.props.children.props.viewBox, "6 3 90 90");
+	assert.equal(mark.props.children.props.viewBox, "-9 -12 120 120");
 	const drawn = elements(mark);
 	const strokes = new Set(drawn.map((element) => element.props?.stroke).filter(Boolean));
-	assert.deepEqual([...strokes], ["currentColor"], "every stroke follows the chip colour in both themes");
+	assert.ok(strokes.has("currentColor"), "the trunk follows the chip colour in both themes");
+	for (const colour of ["#a855f7", "#f97316", "#fb923c", "#22c55e", "#ef4444"]) {
+		assert.ok(strokes.has(colour), `the full-colour tree keeps ${colour}`);
+	}
 });
 
 test("a main checkout has no worktree mark", () => {
