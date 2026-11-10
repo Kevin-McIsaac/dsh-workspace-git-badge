@@ -368,9 +368,9 @@ window.__ModuleLoader__.load({
 
 		/**
 		 * NOTE: a worktree's NAME is deliberately NOT part of the chip's text. It is
-		 * long, it competes with the branch for the same glance, and the leading
-		 * full-colour tree (chipWorktreeMark) already says THAT the checkout is a
-		 * linked worktree. WHICH tree it is belongs to the hover card's `worktree`
+		 * long, it competes with the branch for the same glance, and the full-colour
+		 * tree beside the branch (chipWorktreeMark) already says THAT the checkout is
+		 * a linked worktree. WHICH tree it is belongs to the hover card's `worktree`
 		 * row — see worktreeDetail. (The old append-unless-redundant rule lived here;
 		 * it is gone with the name.)
 		 */
@@ -1001,8 +1001,8 @@ window.__ModuleLoader__.load({
 		/**
 		 * The `worktree` row: WHICH linked worktree the badge is describing. The chip
 		 * names only the branch (see the note above formatOperationToken), so the
-		 * card is the one place a tree is identified — the leading tree can only
-		 * say *that* the checkout is a worktree, never which.
+		 * card is the one place a tree is identified — the tree beside the branch
+		 * can only say *that* the checkout is a worktree, never which.
 		 */
 		function worktreeDetail(info) {
 			if (info === void 0 || info === null || info.isWorktree !== true) return void 0;
@@ -1491,11 +1491,11 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * The leading WORKTREE mark: a full-colour tree at the start of the chip.
-		 * It says THAT the checkout is a linked worktree before the status
-		 * cluster, so the action glyph keeps its own place inside that cluster.
-		 * WHICH tree it is stays in the hover card's `worktree` row; the name is
-		 * only the accessible label and the native title here.
+		 * The WORKTREE mark: a full-colour tree directly after the branch name.
+		 * It sits with the branch it describes, before the operation text, the
+		 * file count and the PR token. WHICH tree it is stays in the hover card's
+		 * `worktree` row; the name is only the accessible label and the native
+		 * title here.
 		 *
 		 * The trunk uses `currentColor`, so it follows the chip's secondary text
 		 * colour in both themes. The branch nodes keep their hues.
@@ -1555,7 +1555,7 @@ window.__ModuleLoader__.load({
 			}, "worktree");
 		}
 
-		/** The chip row itself: worktree mark, leading cluster, operation text, count and PR token. */
+		/** The chip row itself: leading cluster, worktree mark, operation text, count and PR token. */
 		function chipAssemble(leadingHover, text, countHover, prTokenHover, worktreeMark) {
 			return react_jsx_runtime.jsxs("span", {
 				style: {
@@ -1573,8 +1573,8 @@ window.__ModuleLoader__.load({
 					cursor: "default"
 				},
 				children: [
-					worktreeMark,
 					leadingHover,
+					worktreeMark,
 					react_jsx_runtime.jsx("span", { key: "text", children: text }),
 					countHover,
 					prTokenHover

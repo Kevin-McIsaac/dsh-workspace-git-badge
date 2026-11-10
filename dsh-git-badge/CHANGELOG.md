@@ -12,9 +12,9 @@ npm. 0.6.0 is the first release recorded here.
 
 ### Added
 
-- **A leading worktree tree on the input chip.** A linked worktree now starts the
-  chip with a full-colour tree. The trunk follows the theme's text colour and
-  the branch nodes keep their hues. Hovering it shows the worktree name; the
+- **A worktree tree beside the branch on the input chip.** A linked worktree
+  now puts a full-colour tree directly after the branch name. The trunk follows
+  the theme's text colour and the branch nodes keep their hues. Hovering it shows the worktree name; the
   existing hover card's `worktree` row remains the full explanation.
 
 ### Fixed
