@@ -443,16 +443,27 @@ test("the card names WHICH worktree the badge describes", () => {
 	assert.ok(!card(client, BASE).includes("worktree"));
 });
 
-test("the chip puts a full-colour tree directly after the branch", () => {
+test("the chip puts a full-colour tree between the branch name and the sync suffix", () => {
 	// The tree says THAT the checkout is a linked worktree. The name stays out of
 	// the chip text; it is the accessible label and the hover card's job.
 	const client = createClient();
-	const tree = { ...BASE, isWorktree: true, worktreeName: "auth-fix" };
+	const tree = {
+		...BASE,
+		branch: "feat/auth-fix",
+		mainAhead: 3,
+		mainBehind: 1,
+		isWorktree: true,
+		worktreeName: "auth-fix"
+	};
 	const raw = client.rawChip(tree);
-	const mark = raw.props.children.at(1);
-	assert.equal(mark?.props?.role, "img", "the mark is the second chip child, after the branch cluster");
+	const branchSpan = raw.props.children[0].props.children[1];
+	const contents = branchSpan.props.children;
+	assert.equal(contents[0], "feat/auth-fix", "the branch name comes first");
+	const mark = contents[1];
+	assert.equal(mark?.props?.role, "img", "the tree follows the branch name");
 	assert.equal(mark.props["aria-label"], "linked worktree auth-fix");
 	assert.equal(mark.props.title, "linked worktree auth-fix");
+	assert.match(contents[2], /↑3 ↓1/, "the sync suffix follows the tree, not the branch");
 	// 15px matches the action glyph and the workspace chip's lock icon; 18px made
 	// the tree the loudest thing on the line.
 	assert.equal(mark.props.children.props.width, 15);
@@ -465,10 +476,11 @@ test("the chip puts a full-colour tree directly after the branch", () => {
 	assert.ok(strokes.has("currentColor"), "the trunk follows the chip colour in both themes");
 });
 
-test("a main checkout has no worktree mark after the branch", () => {
+test("a main checkout has no worktree mark", () => {
 	const client = createClient();
 	const raw = client.rawChip(BASE);
-	assert.equal(raw.props.children.at(1), null, "no tree for the main checkout");
+	const marks = elements(raw).filter((element) => typeof element.props?.["aria-label"] === "string" && element.props["aria-label"].startsWith("linked worktree"));
+	assert.deepEqual(marks, [], "no tree for the main checkout");
 });
 
 test("the card names the conversation's OWN checkout when the badge followed a worktree", () => {

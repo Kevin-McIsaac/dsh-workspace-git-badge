@@ -1398,13 +1398,15 @@ window.__ModuleLoader__.load({
 
 		/**
 		 * The branch name, as a compare anchor when the detail payload vouches an
-		 * http(s) URL. The sync arrows ride WITH the branch: they are the branch's
-		 * standing against its upstream, so the same hover and the same link cover
-		 * them. The ✎n count keeps its own surface.
+		 * http(s) URL. The worktree tree sits between the branch name and the sync
+		 * suffix, so it reads with the branch and not with the upstream. The sync
+		 * arrows ride WITH the branch: they are the branch's standing against its
+		 * upstream, so the same hover and the same link cover them. The ✎n count
+		 * keeps its own surface.
 		 */
-		function chipBranchInner(info, detail, isBranchLink, hoveredLink, setHovered, setHoveredLink) {
+		function chipBranchInner(info, detail, isBranchLink, hoveredLink, setHovered, setHoveredLink, worktreeMark) {
 			const sync = formatBaseSync(info);
-			const branchLabel = info.branch + sync;
+			const branchLabel = worktreeMark === null ? info.branch + sync : [info.branch, worktreeMark, sync];
 			if (!isBranchLink) return branchLabel;
 			return chipAnchor({
 				href: detail.compareUrl,
@@ -1491,11 +1493,11 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * The WORKTREE mark: a full-colour tree directly after the branch name.
-		 * It sits with the branch it describes, before the operation text, the
-		 * file count and the PR token. WHICH tree it is stays in the hover card's
-		 * `worktree` row; the name is only the accessible label and the native
-		 * title here.
+		 * The WORKTREE mark: a full-colour tree between the branch name and the
+		 * sync suffix. It sits with the branch it describes, before the upstream
+		 * arrows, the file count and the PR token. WHICH tree it is stays in the
+		 * hover card's `worktree` row; the name is only the accessible label and
+		 * the native title here.
 		 *
 		 * The trunk uses `currentColor`, so it follows the chip's secondary text
 		 * colour in both themes. The branch nodes keep their hues.
@@ -1555,8 +1557,8 @@ window.__ModuleLoader__.load({
 			}, "worktree");
 		}
 
-		/** The chip row itself: leading cluster, worktree mark, operation text, count and PR token. */
-		function chipAssemble(leadingHover, text, countHover, prTokenHover, worktreeMark) {
+		/** The chip row itself: leading cluster, operation text, count and PR token. */
+		function chipAssemble(leadingHover, text, countHover, prTokenHover) {
 			return react_jsx_runtime.jsxs("span", {
 				style: {
 					display: "inline-flex",
@@ -1574,7 +1576,6 @@ window.__ModuleLoader__.load({
 				},
 				children: [
 					leadingHover,
-					worktreeMark,
 					react_jsx_runtime.jsx("span", { key: "text", children: text }),
 					countHover,
 					prTokenHover
@@ -1614,15 +1615,15 @@ window.__ModuleLoader__.load({
 			// The branch name links to the compare view (base...branch). Vouched http(s)
 			// only; new tab, never navigating the conversation away.
 			const isBranchLink = typeof detail?.compareUrl === "string" && detail.compareUrl.startsWith("https://");
-			const branchInner = chipBranchInner(info, detail, isBranchLink, hoveredLink, setHovered, setHoveredLink);
+			const worktreeMark = chipWorktreeMark(info);
+			const branchInner = chipBranchInner(info, detail, isBranchLink, hoveredLink, setHovered, setHoveredLink, worktreeMark);
 			// The Tooltip's CHILD must not change element type once the detail payload
 			// lands, so the cluster span is the stable hover surface. ALWAYS wrapped.
 			const leadingHover = chipLeadingHover(info, detail, tokenGlyph, branchInner, isBranchLink, setHovered);
 			const text = formatOperationToken(info);
 			const countHover = chipCountHover(info, detail, setHovered);
 			const prTokenHover = chipPrTokenHover(info, hoveredLink, setHoveredLink);
-			const worktreeMark = chipWorktreeMark(info);
-			const chip = chipAssemble(leadingHover, text, countHover, prTokenHover, worktreeMark);
+			const chip = chipAssemble(leadingHover, text, countHover, prTokenHover);
 			// No Tooltip primitive (a shell that does not seed it): the leading cluster
 			// renders bare and the badge still works — the card is an enhancement.
 			return chip;
