@@ -443,6 +443,30 @@ test("the card names WHICH worktree the badge describes", () => {
 	assert.ok(!card(client, BASE).includes("worktree"));
 });
 
+test("the chip ends with a full-colour tree on a linked worktree", () => {
+	// The tree says THAT the checkout is a linked worktree. The name stays out of
+	// the chip text; it is the accessible label and the hover card's job.
+	const client = createClient();
+	const tree = { ...BASE, isWorktree: true, worktreeName: "auth-fix" };
+	const raw = client.rawChip(tree);
+	const mark = raw.props.children.at(-1);
+	assert.equal(mark?.props?.role, "img", "the mark is the last chip child");
+	assert.equal(mark.props["aria-label"], "linked worktree auth-fix");
+	assert.equal(mark.props.title, "linked worktree auth-fix");
+	const drawn = elements(mark);
+	const strokes = new Set(drawn.map((element) => element.props?.stroke).filter(Boolean));
+	for (const colour of ["#a855f7", "#f97316", "#fb923c", "#22c55e", "#ef4444"]) {
+		assert.ok(strokes.has(colour), `the full-colour tree keeps ${colour}`);
+	}
+	assert.ok(strokes.has("currentColor"), "the trunk follows the chip colour in both themes");
+});
+
+test("a main checkout ends the chip without a worktree mark", () => {
+	const client = createClient();
+	const raw = client.rawChip(BASE);
+	assert.equal(raw.props.children.at(-1), null, "no tree for the main checkout");
+});
+
 test("the card names the conversation's OWN checkout when the badge followed a worktree", () => {
 	// Once the chip's branch and counts describe a followed worktree, the
 	// checkout's own state is nowhere else on screen — that is the whole reason

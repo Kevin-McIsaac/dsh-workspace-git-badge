@@ -34,7 +34,7 @@ import {
 	unwatchWorkspace,
 	watchers
 } from "../lib/index.js";
-import { fakeCtx, get, spyOn, waitFor } from "../test-support/harness.mjs";
+import { changeEvents, fakeCtx, get, openSse, spyOn, waitFor } from "../test-support/harness.mjs";
 import { githubRepo } from "../test-support/repo.mjs";
 
 const WORKSPACE_ID = "ws-tree";
@@ -96,16 +96,17 @@ function clearState(t) {
 }
 
 /** Registered-workspace repo plus a mutable working-directory projection. */
-async function setup(t, { cwd, repo: existing } = {}) {
+async function setup(t, { cwd, repo: existing, sessionProjections } = {}) {
 	const repo = existing ?? (await githubRepo(t));
 	const state = { cwd: typeof cwd === "function" ? cwd(repo) : cwd };
-	const { ctx, routes, entities, disposeAll } = fakeCtx({
+	const { ctx, routes, entities, emitProjection, disposeAll } = fakeCtx({
 		workspaces: [{ id: WORKSPACE_ID, path: repo.root, sessionIds: [SESSION_ID] }],
-		sessionCwd: () => state.cwd
+		sessionCwd: () => state.cwd,
+		...(sessionProjections === void 0 ? {} : { sessionProjections })
 	});
 	apply(ctx);
 	t.after(() => disposeAll());
-	return { repo, routes, entities, ctx, state };
+	return { repo, routes, entities, ctx, state, emitProjection };
 }
 
 //#region parsing
@@ -200,6 +201,50 @@ test("a session badge follows its working directory", async (t) => {
 	assert.equal(effective.followed, true);
 	// the follow needs its own watcher: a worktree is usually not a registered workspace
 	assert.ok(watchers.has(await realpath(tree)), "a followed checkout must be watched");
+});
+
+test("a workingDirectory change wakes the owning workspace's clients", async (t) => {
+	// A `create_worktree` or `working_directory` call commits a session event,
+	// not a file edit. The git watcher cannot see it, so the node half forwards it
+	// as the same SSE frame a file edit sends. Without this the chip keeps the old
+	// checkout until the 60-second fallback poll.
+	clearState(t);
+	const repo = await githubRepo(t);
+	const tree = await repo.worktreeAdd({ name: "linked-tree", branch: "feat/tree" });
+	const { routes, emitProjection } = await setup(t, { cwd: tree, repo });
+	const stream = await openSse(routes);
+	t.after(() => stream.abort());
+	await waitFor(() => stream.text().includes(": connected"));
+	emitProjection({ id: SESSION_ID }, "workingDirectory", tree);
+	const events = await waitFor(() => (changeEvents(stream).length > 0 ? changeEvents(stream) : void 0));
+	assert.ok(events !== void 0, "the workingDirectory change must wake the client");
+	assert.ok(
+		events.some((event) => event.workspace === WORKSPACE_ID),
+		`the frame must carry the owning workspace id: ${JSON.stringify(events)}`
+	);
+});
+
+test("an unrelated projection change stays silent", async (t) => {
+	clearState(t);
+	const repo = await githubRepo(t);
+	const { routes, emitProjection } = await setup(t, { cwd: repo.root, repo });
+	const stream = await openSse(routes);
+	t.after(() => stream.abort());
+	await waitFor(() => stream.text().includes(": connected"));
+	emitProjection({ id: SESSION_ID }, "todos", []);
+	await new Promise((resolve) => setTimeout(resolve, 100));
+	assert.deepEqual(changeEvents(stream), []);
+});
+
+test("a host without the projection feed still serves the badge", async (t) => {
+	// The projection service is optional. A host that composes none keeps the
+	// status route and the fallback poll, and apply() must not throw.
+	clearState(t);
+	const repo = await githubRepo(t);
+	const { routes } = await setup(t, { cwd: repo.root, repo, sessionProjections: false });
+	const response = await get(routes, `?session=${SESSION_ID}`);
+	assert.equal(response.status, 200);
+	assert.equal(JSON.parse(response.text()).git, true);
 });
 
 test("without a working-directory projection the badge stays on the workspace", async (t) => {

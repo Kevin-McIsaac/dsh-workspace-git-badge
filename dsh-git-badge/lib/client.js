@@ -368,10 +368,11 @@ window.__ModuleLoader__.load({
 
 		/**
 		 * NOTE: a worktree's NAME is deliberately NOT part of the chip's text. It is
-		 * long, it competes with the branch for the same glance, and the chip already
-		 * says THAT the checkout is a worktree through the mark's shape. WHICH tree it
-		 * is belongs to the hover card's `worktree` row — see worktreeDetail. (The
-		 * old append-unless-redundant rule lived here; it is gone with the name.)
+		 * long, it competes with the branch for the same glance, and the trailing
+		 * full-colour tree (chipWorktreeMark) already says THAT the checkout is a
+		 * linked worktree. WHICH tree it is belongs to the hover card's `worktree`
+		 * row — see worktreeDetail. (The old append-unless-redundant rule lived here;
+		 * it is gone with the name.)
 		 */
 
 		const META_STYLE = {
@@ -1000,8 +1001,8 @@ window.__ModuleLoader__.load({
 		/**
 		 * The `worktree` row: WHICH linked worktree the badge is describing. The chip
 		 * names only the branch (see the note above formatOperationToken), so the
-		 * card is the one place a tree is identified — the mark's shape can only say
-		 * *that* the checkout is a worktree, never which.
+		 * card is the one place a tree is identified — the trailing tree can only
+		 * say *that* the checkout is a worktree, never which.
 		 */
 		function worktreeDetail(info) {
 			if (info === void 0 || info === null || info.isWorktree !== true) return void 0;
@@ -1489,8 +1490,73 @@ window.__ModuleLoader__.load({
 			});
 		}
 
-		/** The chip row itself: leading cluster, operation text, count and PR token. */
-		function chipAssemble(leadingHover, text, countHover, prTokenHover) {
+		/**
+		 * The trailing WORKTREE mark: a full-colour tree at the end of the chip.
+		 * It says THAT the checkout is a linked worktree without competing with
+		 * the action glyph's severity colour at the head of the line. WHICH tree
+		 * it is stays in the hover card's `worktree` row; the name is only the
+		 * accessible label and the native title here.
+		 *
+		 * The trunk uses `currentColor`, so it follows the chip's secondary text
+		 * colour in both themes. The branch nodes keep their hues.
+		 */
+		function chipWorktreeMark(info) {
+			if (info === void 0 || info === null || info.isWorktree !== true) return null;
+			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
+			const label = name === "" ? "linked worktree" : "linked worktree " + name;
+			const path = (key, d, stroke, width = 4) =>
+				react_jsx_runtime.jsx("path", {
+					d,
+					fill: "none",
+					stroke,
+					strokeWidth: width,
+					strokeLinecap: "round",
+					strokeLinejoin: "round"
+				}, key);
+			const node = (key, cx, cy, r, stroke) =>
+				react_jsx_runtime.jsx("circle", {
+					cx,
+					cy,
+					r,
+					fill: "none",
+					stroke,
+					strokeWidth: 4
+				}, key);
+			return react_jsx_runtime.jsx("span", {
+				role: "img",
+				"aria-label": label,
+				title: label,
+				style: { display: "inline-flex", alignItems: "center", flex: "none", color: "inherit" },
+				children: react_jsx_runtime.jsxs("svg", {
+					viewBox: "0 0 100 100",
+					width: 18,
+					height: 18,
+					"aria-hidden": "true",
+					focusable: "false",
+					style: { display: "block", overflow: "visible" },
+					children: [
+						path("trunk", "M50 90V40", "currentColor", 5),
+						path("left-stem", "M50 70C45 70 40 70 35 70", "currentColor"),
+						path("purple-branch", "M35 70H22", "#a855f7"),
+						node("purple-node", 15, 70, 7, "#a855f7"),
+						path("upper-stem", "M50 52L40 42H28", "currentColor"),
+						path("orange-branch", "M28 42V34H20", "#f97316"),
+						node("orange-node", 14, 34, 6, "#f97316"),
+						path("amber-branch", "M50 40V22", "#fb923c"),
+						node("amber-node", 50, 14, 8, "#fb923c"),
+						path("right-stem", "M50 60L58 52H66L74 46", "currentColor"),
+						path("green-branch", "M62 46L70 34H78", "#22c55e"),
+						node("green-node", 86, 34, 8, "#22c55e"),
+						path("lower-stem", "M50 78C55 78 60 78 65 78", "currentColor"),
+						path("red-branch", "M65 78H76", "#ef4444"),
+						node("red-node", 84, 78, 8, "#ef4444")
+					]
+				}, "tree")
+			}, "worktree");
+		}
+
+		/** The chip row itself: leading cluster, operation text, count, PR token and worktree mark. */
+		function chipAssemble(leadingHover, text, countHover, prTokenHover, worktreeMark) {
 			return react_jsx_runtime.jsxs("span", {
 				style: {
 					display: "inline-flex",
@@ -1510,7 +1576,8 @@ window.__ModuleLoader__.load({
 					leadingHover,
 					react_jsx_runtime.jsx("span", { key: "text", children: text }),
 					countHover,
-					prTokenHover
+					prTokenHover,
+					worktreeMark
 				]
 			});
 		}
@@ -1554,7 +1621,8 @@ window.__ModuleLoader__.load({
 			const text = formatOperationToken(info);
 			const countHover = chipCountHover(info, detail, setHovered);
 			const prTokenHover = chipPrTokenHover(info, hoveredLink, setHoveredLink);
-			const chip = chipAssemble(leadingHover, text, countHover, prTokenHover);
+			const worktreeMark = chipWorktreeMark(info);
+			const chip = chipAssemble(leadingHover, text, countHover, prTokenHover, worktreeMark);
 			// No Tooltip primitive (a shell that does not seed it): the leading cluster
 			// renders bare and the badge still works — the card is an enhancement.
 			return chip;

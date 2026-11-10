@@ -62,11 +62,14 @@ function emitter() {
  * `ws-<index>`. `sessions` maps a session id to a live-session stand-in
  * (`{ header: { cwd } }`) for the pre-attach fallback. `sessionCwd` supplies the
  * working-directory projection: a string, or a function of the session id.
+ * `sessionProjections` (default true) supplies the change feed; pass false to
+ * model a host that composes no projection registry.
  */
-export function fakeCtx({ workspaces = [], sessions = {}, resolveByPath = true, sessionCwd, skills } = {}) {
+export function fakeCtx({ workspaces = [], sessions = {}, resolveByPath = true, sessionCwd, skills, sessionProjections = true } = {}) {
 	const routes = new Map();
 	const disposers = [];
 	const registeredSkills = [];
+	const projectionListeners = new Set();
 	const entities = workspaces.map((entry, index) => {
 		if (typeof entry === "string") return { id: `ws-${index}`, path: entry, sessionIds: [] };
 		return {
@@ -110,6 +113,16 @@ export function fakeCtx({ workspaces = [], sessions = {}, resolveByPath = true, 
 				return session?.header?.cwd;
 			}
 		},
+		...(sessionProjections
+			? {
+					sessionProjections: {
+						onChanged(listener) {
+							projectionListeners.add(listener);
+							return () => projectionListeners.delete(listener);
+						}
+					}
+				}
+			: {}),
 		...(skills === void 0
 			? {}
 			: {
@@ -128,6 +141,7 @@ export function fakeCtx({ workspaces = [], sessions = {}, resolveByPath = true, 
 			if (name === "sessions") return ctx.sessions;
 			if (name === "sessionController") return ctx.sessionController;
 			if (name === "workingDirectory") return ctx.workingDirectory;
+			if (name === "sessionProjections") return ctx.sessionProjections;
 			return void 0;
 		},
 		inject(names, callback) {
@@ -145,6 +159,10 @@ export function fakeCtx({ workspaces = [], sessions = {}, resolveByPath = true, 
 		routes,
 		entities,
 		registeredSkills,
+		/** Fire one projection change the way the real registry does. */
+		emitProjection(session, key, value) {
+			for (const listener of [...projectionListeners]) listener(session, key, value, 0);
+		},
 		disposeAll() {
 			for (const dispose of disposers.splice(0)) dispose();
 		}
