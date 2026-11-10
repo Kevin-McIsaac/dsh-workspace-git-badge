@@ -443,7 +443,7 @@ test("the card names WHICH worktree the badge describes", () => {
 	assert.ok(!card(client, BASE).includes("worktree"));
 });
 
-test("the chip puts a full-colour tree between the branch name and the sync suffix", () => {
+test("the chip puts a monochrome tree between the branch name and the sync suffix", () => {
 	// The tree says THAT the checkout is a linked worktree. The name stays out of
 	// the chip text; it is the accessible label and the hover card's job.
 	const client = createClient();
@@ -474,10 +474,7 @@ test("the chip puts a full-colour tree between the branch name and the sync suff
 	assert.equal(mark.props.children.props.viewBox, "6 3 90 90");
 	const drawn = elements(mark);
 	const strokes = new Set(drawn.map((element) => element.props?.stroke).filter(Boolean));
-	for (const colour of ["#a855f7", "#f97316", "#fb923c", "#22c55e", "#ef4444"]) {
-		assert.ok(strokes.has(colour), `the full-colour tree keeps ${colour}`);
-	}
-	assert.ok(strokes.has("currentColor"), "the trunk follows the chip colour in both themes");
+	assert.deepEqual([...strokes], ["currentColor"], "every stroke follows the chip colour in both themes");
 });
 
 test("a main checkout has no worktree mark", () => {

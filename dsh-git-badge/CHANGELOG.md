@@ -13,9 +13,9 @@ npm. 0.6.0 is the first release recorded here.
 ### Added
 
 - **A worktree tree beside the branch on the input chip.** A linked worktree
-  now puts a full-colour tree between the branch name and the sync suffix. The
-  trunk follows the theme's text colour and the branch nodes keep their hues. Hovering it shows the worktree name; the
-  existing hover card's `worktree` row remains the full explanation.
+  now puts a monochrome tree between the branch name and the sync suffix. The
+  whole tree follows the theme's text colour. Hovering it shows the worktree
+  name; the existing hover card's `worktree` row remains the full explanation.
 
 ### Fixed
 

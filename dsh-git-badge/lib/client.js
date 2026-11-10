@@ -368,7 +368,7 @@ window.__ModuleLoader__.load({
 
 		/**
 		 * NOTE: a worktree's NAME is deliberately NOT part of the chip's text. It is
-		 * long, it competes with the branch for the same glance, and the full-colour
+		 * long, it competes with the branch for the same glance, and the monochrome
 		 * tree beside the branch (chipWorktreeMark) already says THAT the checkout is
 		 * a linked worktree. WHICH tree it is belongs to the hover card's `worktree`
 		 * row — see worktreeDetail. (The old append-unless-redundant rule lived here;
@@ -1505,19 +1505,20 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * The WORKTREE mark: a full-colour tree between the branch name and the
+		 * The WORKTREE mark: a monochrome tree between the branch name and the
 		 * sync suffix. It sits with the branch it describes, before the upstream
 		 * arrows, the file count and the PR token. WHICH tree it is stays in the
 		 * hover card's `worktree` row; the name is only the accessible label and
 		 * the native title here.
 		 *
-		 * The trunk uses `currentColor`, so it follows the chip's secondary text
-		 * colour in both themes. The branch nodes keep their hues.
+		 * The whole tree uses `currentColor`, so it follows the chip's secondary
+		 * text colour in both themes.
 		 */
 		function chipWorktreeMark(info) {
 			if (info === void 0 || info === null || info.isWorktree !== true) return null;
 			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
 			const label = name === "" ? "linked worktree" : "linked worktree " + name;
+			const ink = "currentColor";
 			const path = (key, d, stroke, width = 4) =>
 				react_jsx_runtime.jsx("path", {
 					d,
@@ -1552,21 +1553,21 @@ window.__ModuleLoader__.load({
 					focusable: "false",
 					style: { display: "block", overflow: "visible" },
 					children: [
-						path("trunk", "M50 90V40", "currentColor", 5),
-						path("left-stem", "M50 70C45 70 40 70 35 70", "currentColor"),
-						path("purple-branch", "M35 70H22", "#a855f7"),
-						node("purple-node", 15, 70, 7, "#a855f7"),
-						path("upper-stem", "M50 52L40 42H28", "currentColor"),
-						path("orange-branch", "M28 42V34H20", "#f97316"),
-						node("orange-node", 14, 34, 6, "#f97316"),
-						path("amber-branch", "M50 40V22", "#fb923c"),
-						node("amber-node", 50, 14, 8, "#fb923c"),
-						path("right-stem", "M50 60L58 52H66L74 46", "currentColor"),
-						path("green-branch", "M62 46L70 34H78", "#22c55e"),
-						node("green-node", 86, 34, 8, "#22c55e"),
-						path("lower-stem", "M50 78C55 78 60 78 65 78", "currentColor"),
-						path("red-branch", "M65 78H76", "#ef4444"),
-						node("red-node", 84, 78, 8, "#ef4444")
+						path("trunk", "M50 90V40", ink, 5),
+						path("left-stem", "M50 70C45 70 40 70 35 70", ink),
+						path("left-branch", "M35 70H22", ink),
+						node("left-node", 15, 70, 7, ink),
+						path("upper-stem", "M50 52L40 42H28", ink),
+						path("upper-left-branch", "M28 42V34H20", ink),
+						node("upper-left-node", 14, 34, 6, ink),
+						path("top-branch", "M50 40V22", ink),
+						node("top-node", 50, 14, 8, ink),
+						path("right-stem", "M50 60L58 52H66L74 46", ink),
+						path("upper-right-branch", "M62 46L70 34H78", ink),
+						node("upper-right-node", 86, 34, 8, ink),
+						path("lower-stem", "M50 78C55 78 60 78 65 78", ink),
+						path("lower-right-branch", "M65 78H76", ink),
+						node("lower-right-node", 84, 78, 8, ink)
 					]
 				}, "tree")
 			}, "worktree");
