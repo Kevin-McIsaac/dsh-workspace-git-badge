@@ -1390,7 +1390,8 @@ window.__ModuleLoader__.load({
 				style: {
 					color: "inherit",
 					textDecoration: props.underline ? "underline" : "none",
-					cursor: "pointer"
+					cursor: "pointer",
+					...props.style
 				},
 				children: props.children
 			});
@@ -1406,7 +1407,10 @@ window.__ModuleLoader__.load({
 		 */
 		function chipBranchInner(info, detail, isBranchLink, hoveredLink, setHovered, setHoveredLink, worktreeMark) {
 			const sync = formatBaseSync(info);
-			const branchLabel = worktreeMark === null ? info.branch + sync : [info.branch, worktreeMark, sync];
+			// With a tree, the container's 4px gap supplies the separation. Trim the
+			// sync string's leading space so the tree does not get two gaps.
+			const syncText = worktreeMark === null ? sync : sync.trimStart();
+			const branchLabel = worktreeMark === null ? info.branch + sync : [info.branch, worktreeMark, syncText];
 			if (!isBranchLink) return branchLabel;
 			return chipAnchor({
 				href: detail.compareUrl,
@@ -1416,6 +1420,7 @@ window.__ModuleLoader__.load({
 				onPointerLeave: () => setHoveredLink(null),
 				onFocus: () => { setHovered(true); setHoveredLink("branch"); },
 				onBlur: () => setHoveredLink(null),
+				style: { display: "inline-flex", alignItems: "center", gap: "4px" },
 				children: branchLabel
 			});
 		}
@@ -1430,7 +1435,14 @@ window.__ModuleLoader__.load({
 				react_jsx_runtime.jsx("span", {
 					onPointerEnter: () => setHovered(true),
 					style: { display: "inline-flex", alignItems: "center", gap: "6px", flex: "none", cursor: isBranchLink ? "pointer" : "default" },
-					children: [tokenGlyph, react_jsx_runtime.jsx("span", { key: "branch", children: branchInner })]
+					children: [tokenGlyph, react_jsx_runtime.jsx("span", {
+						key: "branch",
+						// A flex row aligns the branch name, the worktree tree and the sync
+						// suffix on one centre line. The 4px gap is the small breath before
+						// the tree; without it the tree touches the branch text.
+						style: { display: "inline-flex", alignItems: "center", gap: "4px" },
+						children: branchInner
+					})]
 				}),
 				() => react_jsx_runtime.jsx(ChipCard, { info, detail }),
 				600
@@ -1530,7 +1542,10 @@ window.__ModuleLoader__.load({
 				title: label,
 				style: { display: "inline-flex", alignItems: "center", flex: "none", color: "inherit" },
 				children: react_jsx_runtime.jsxs("svg", {
-					viewBox: "0 0 100 100",
+					// Crop the empty 10% margin around the drawing so the 15px box is
+					// filled the way the status icons fill theirs. Without this the tree
+					// reads smaller and sits high against the action glyph.
+					viewBox: "6 3 90 90",
 					width: 15,
 					height: 15,
 					"aria-hidden": "true",
