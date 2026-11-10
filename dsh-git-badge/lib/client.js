@@ -1529,8 +1529,8 @@ window.__ModuleLoader__.load({
 				style: { display: "inline-flex", alignItems: "center", flex: "none", color: "inherit" },
 				children: react_jsx_runtime.jsxs("svg", {
 					viewBox: "0 0 100 100",
-					width: 18,
-					height: 18,
+					width: 15,
+					height: 15,
 					"aria-hidden": "true",
 					focusable: "false",
 					style: { display: "block", overflow: "visible" },

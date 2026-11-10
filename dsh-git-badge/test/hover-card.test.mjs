@@ -453,6 +453,10 @@ test("the chip ends with a full-colour tree on a linked worktree", () => {
 	assert.equal(mark?.props?.role, "img", "the mark is the last chip child");
 	assert.equal(mark.props["aria-label"], "linked worktree auth-fix");
 	assert.equal(mark.props.title, "linked worktree auth-fix");
+	// 15px matches the leading action glyph and the workspace chip's lock icon;
+	// 18px made the tree the loudest thing on the line.
+	assert.equal(mark.props.children.props.width, 15);
+	assert.equal(mark.props.children.props.height, 15);
 	const drawn = elements(mark);
 	const strokes = new Set(drawn.map((element) => element.props?.stroke).filter(Boolean));
 	for (const colour of ["#a855f7", "#f97316", "#fb923c", "#22c55e", "#ef4444"]) {
