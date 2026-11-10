@@ -1747,9 +1747,45 @@ async function effectiveTarget(ctx, target, sessionId) {
 	return { id: target.id, path: target.path, followed: false };
 }
 
+/**
+ * Wake the clients that show a session's badge after DSH records a new working
+ * directory. The projection is the authority, but the git watcher sees files,
+ * not session events: without this the chip keeps the old checkout until the
+ * 60-second fallback poll. The notification carries the OWNING workspace id,
+ * so a session-targeted client can match it against the response it already
+ * holds. A failed wake-up costs one delayed refresh, not the badge.
+ */
+async function notifyWorkingDirectoryChange(ctx, sessionId) {
+	if (typeof sessionId !== "string" || sessionId === "") return;
+	try {
+		const target = await resolveWorkspace(ctx, new URLSearchParams({ session: sessionId }));
+		if (typeof target?.path === "string") notifyChange(target.path);
+	} catch {
+		// the next request or the fallback poll still sees the new directory
+	}
+}
+
 /** Host plugin body — register the status route and the SSE change feed. */
 function apply(ctx) {
 	registerSkill(ctx);
+	// DSH owns the session directory now. A `working_directory` or
+	// `create_worktree` call commits a projection change, not a file change, so
+	// the git watcher cannot see it. Turn that projection change into the same
+	// SSE frame a file edit sends; the client then refetches and effectiveTarget
+	// follows the new checkout. Optional: a host without the projection service
+	// keeps the 60-second fallback.
+	if (typeof ctx.inject === "function") {
+		try {
+			ctx.inject(["sessionProjections"], (projectionsCtx) => {
+				projectionsCtx.effect(() => projectionsCtx.sessionProjections.onChanged((session, key) => {
+					if (key !== "workingDirectory") return;
+					void notifyWorkingDirectoryChange(ctx, session.id);
+				}), "dsh-git-badge: working-directory changes");
+			});
+		} catch (error) {
+			console.error("[dsh-git-badge] working-directory events unavailable:", error);
+		}
+	}
 	// The ranking order lives in this plugin's own settings namespace: declared
 	// with a schema so the host validates it, stored in the user's settings
 	// document, and observed live — a change applies to the next status read

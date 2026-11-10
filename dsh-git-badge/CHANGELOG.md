@@ -10,6 +10,23 @@ npm. 0.6.0 is the first release recorded here.
 
 ## [Unreleased]
 
+### Added
+
+- **A worktree tree beside the branch on the input chip.** A linked worktree
+  now puts a compact full-colour tree between the branch name and the sync
+  suffix. The trunk follows the theme's text colour and the branch nodes keep
+  their hues. Hovering it shows the worktree name; the existing hover card's
+  `worktree` row remains the full explanation.
+
+### Fixed
+
+- **A working-directory change refreshes the badge immediately.** The node half
+  now listens to the `workingDirectory` projection and sends the same SSE frame
+  a file edit sends. Before this, entering a worktree with `create_worktree` or
+  `working_directory` could leave the chip on the old checkout until the
+  60-second fallback poll. A host without the projection service keeps the
+  fallback.
+
 ## [0.21.0] - 2026-11-04
 
 ### Changed

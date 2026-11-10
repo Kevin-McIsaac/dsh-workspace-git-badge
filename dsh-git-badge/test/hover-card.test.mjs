@@ -443,6 +443,76 @@ test("the card names WHICH worktree the badge describes", () => {
 	assert.ok(!card(client, BASE).includes("worktree"));
 });
 
+test("the chip puts a compact full-colour tree between the branch name and the sync suffix", () => {
+	// The tree says THAT the checkout is a linked worktree. The name stays out of
+	// the chip text; it is the accessible label and the hover card's job.
+	const client = createClient();
+	const tree = {
+		...BASE,
+		branch: "feat/auth-fix",
+		mainAhead: 3,
+		mainBehind: 1,
+		isWorktree: true,
+		worktreeName: "auth-fix"
+	};
+	const raw = client.rawChip(tree);
+	const branchSpan = raw.props.children[0].props.children[1];
+	assert.equal(branchSpan.props.style.display, "inline-flex", "the branch is a flex row");
+	assert.equal(branchSpan.props.style.alignItems, "center", "the tree centres with the text");
+	assert.equal(branchSpan.props.style.gap, "4px", "a small gap separates branch, tree and sync");
+	const contents = branchSpan.props.children;
+	assert.equal(contents[0], "feat/auth-fix", "the branch name comes first");
+	const mark = contents[1];
+	assert.equal(mark?.props?.role, "img", "the tree follows the branch name");
+	assert.equal(mark.props["aria-label"], "linked worktree auth-fix");
+	assert.equal(mark.props.title, "linked worktree auth-fix");
+	assert.match(contents[2], /↑3 ↓1/, "the sync suffix follows the tree, not the branch");
+	// The 15px box matches the action glyph and the workspace chip's lock icon.
+	// The 120-unit viewBox draws the 90-unit tree at 75% inside that box.
+	assert.equal(mark.props.children.props.width, 15);
+	assert.equal(mark.props.children.props.height, 15);
+	assert.equal(mark.props.children.props.viewBox, "-9 -12 120 120");
+	const drawn = elements(mark);
+	const strokes = new Set(drawn.map((element) => element.props?.stroke).filter(Boolean));
+	assert.ok(strokes.has("currentColor"), "the trunk follows the chip colour in both themes");
+	for (const colour of ["#a855f7", "#f97316", "#fb923c", "#22c55e", "#ef4444"]) {
+		assert.ok(strokes.has(colour), `the full-colour tree keeps ${colour}`);
+	}
+});
+
+test("a main checkout has no worktree mark", () => {
+	const client = createClient();
+	const raw = client.rawChip(BASE);
+	const marks = elements(raw).filter((element) => typeof element.props?.["aria-label"] === "string" && element.props["aria-label"].startsWith("linked worktree"));
+	assert.deepEqual(marks, [], "no tree for the main checkout");
+});
+
+test("the branch link keeps the tree spaced and centred", () => {
+	// The detail payload turns the branch into a compare link. The tree stays
+	// between the name and the sync suffix, and the anchor carries the same flex
+	// row so the spacing and centring survive the link.
+	const client = createClient({ tooltip: true, hover: true });
+	const detail = {
+		...BASE,
+		branch: "feat/auth-fix",
+		mainAhead: 3,
+		mainBehind: 1,
+		isWorktree: true,
+		worktreeName: "auth-fix",
+		compareUrl: "https://github.com/owner/repo/compare/main...feat/auth-fix"
+	};
+	const raw = client.rawChip(detail, detail);
+	const anchor = elements(raw).find((element) => element.type === "a" && element.props.href === detail.compareUrl);
+	assert.ok(anchor !== void 0, "the branch is a compare anchor");
+	assert.equal(anchor.props.style.display, "inline-flex");
+	assert.equal(anchor.props.style.alignItems, "center");
+	assert.equal(anchor.props.style.gap, "4px");
+	const contents = anchor.props.children;
+	assert.equal(contents[0], "feat/auth-fix");
+	assert.equal(contents[1].props["aria-label"], "linked worktree auth-fix");
+	assert.match(contents[2], /↑3 ↓1/);
+});
+
 test("the card names the conversation's OWN checkout when the badge followed a worktree", () => {
 	// Once the chip's branch and counts describe a followed worktree, the
 	// checkout's own state is nowhere else on screen — that is the whole reason

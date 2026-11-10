@@ -165,7 +165,9 @@ test("the chip still carries the branch, operation token and counts", () => {
 	// (main), so they render before the operation token
 	const client = createClient();
 	const line = text(client.chip({ ...WORKTREE, operation: "rebase", mainAhead: 0, mainBehind: 2, changedFiles: 3, dirty: true }));
-	assert.equal(line, "feat/hotfix ↑0 ↓2 main ⚔rebase ✎3");
+	// text() concatenates the flex children. The 4px gap supplies the visible
+	// space between the branch and its base arrows; the tree itself has no text.
+	assert.equal(line, "feat/hotfix↑0 ↓2 main ⚔rebase ✎3");
 });
 
 test("the base arrows ride the branch's hover and link; the file count does not", () => {
@@ -180,7 +182,9 @@ test("the base arrows ride the branch's hover and link; the file count does not"
 	});
 	const anchor = elements(chip).find((el) => el.type === "a");
 	assert.ok(anchor !== void 0, "the branch is the anchor when a compare URL is present");
-	assert.equal(text(anchor), "feat/hotfix \u21911 \u21932 main", "the arrows and the base name are inside the branch's link");
+	// text() concatenates the flex children. The 4px gap supplies the visible
+	// space between the branch and its base arrows.
+	assert.equal(text(anchor), "feat/hotfix\u21911 \u21932 main", "the arrows and the base name are inside the branch's link");
 	assert.match(anchor.props["aria-label"], /1 ahead and 2 behind main/, "and the accessible name says them");
 	// ✎n answers a different question and stays outside the link
 	assert.ok(!text(anchor).includes("\u270E"), "the file count is not part of the branch link");

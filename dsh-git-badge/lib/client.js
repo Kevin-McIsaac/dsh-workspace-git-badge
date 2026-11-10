@@ -368,10 +368,11 @@ window.__ModuleLoader__.load({
 
 		/**
 		 * NOTE: a worktree's NAME is deliberately NOT part of the chip's text. It is
-		 * long, it competes with the branch for the same glance, and the chip already
-		 * says THAT the checkout is a worktree through the mark's shape. WHICH tree it
-		 * is belongs to the hover card's `worktree` row — see worktreeDetail. (The
-		 * old append-unless-redundant rule lived here; it is gone with the name.)
+		 * long, it competes with the branch for the same glance, and the full-colour
+		 * tree beside the branch (chipWorktreeMark) already says THAT the checkout is
+		 * a linked worktree. WHICH tree it is belongs to the hover card's `worktree`
+		 * row — see worktreeDetail. (The old append-unless-redundant rule lived here;
+		 * it is gone with the name.)
 		 */
 
 		const META_STYLE = {
@@ -1000,8 +1001,8 @@ window.__ModuleLoader__.load({
 		/**
 		 * The `worktree` row: WHICH linked worktree the badge is describing. The chip
 		 * names only the branch (see the note above formatOperationToken), so the
-		 * card is the one place a tree is identified — the mark's shape can only say
-		 * *that* the checkout is a worktree, never which.
+		 * card is the one place a tree is identified — the tree beside the branch
+		 * can only say *that* the checkout is a worktree, never which.
 		 */
 		function worktreeDetail(info) {
 			if (info === void 0 || info === null || info.isWorktree !== true) return void 0;
@@ -1389,7 +1390,8 @@ window.__ModuleLoader__.load({
 				style: {
 					color: "inherit",
 					textDecoration: props.underline ? "underline" : "none",
-					cursor: "pointer"
+					cursor: "pointer",
+					...props.style
 				},
 				children: props.children
 			});
@@ -1397,13 +1399,18 @@ window.__ModuleLoader__.load({
 
 		/**
 		 * The branch name, as a compare anchor when the detail payload vouches an
-		 * http(s) URL. The sync arrows ride WITH the branch: they are the branch's
-		 * standing against its upstream, so the same hover and the same link cover
-		 * them. The ✎n count keeps its own surface.
+		 * http(s) URL. The worktree tree sits between the branch name and the sync
+		 * suffix, so it reads with the branch and not with the upstream. The sync
+		 * arrows ride WITH the branch: they are the branch's standing against its
+		 * upstream, so the same hover and the same link cover them. The ✎n count
+		 * keeps its own surface.
 		 */
-		function chipBranchInner(info, detail, isBranchLink, hoveredLink, setHovered, setHoveredLink) {
+		function chipBranchInner(info, detail, isBranchLink, hoveredLink, setHovered, setHoveredLink, worktreeMark) {
 			const sync = formatBaseSync(info);
-			const branchLabel = info.branch + sync;
+			// With a tree, the container's 4px gap supplies the separation. Trim the
+			// sync string's leading space so the tree does not get two gaps.
+			const syncText = worktreeMark === null ? sync : sync.trimStart();
+			const branchLabel = worktreeMark === null ? info.branch + sync : [info.branch, worktreeMark, syncText];
 			if (!isBranchLink) return branchLabel;
 			return chipAnchor({
 				href: detail.compareUrl,
@@ -1413,6 +1420,7 @@ window.__ModuleLoader__.load({
 				onPointerLeave: () => setHoveredLink(null),
 				onFocus: () => { setHovered(true); setHoveredLink("branch"); },
 				onBlur: () => setHoveredLink(null),
+				style: { display: "inline-flex", alignItems: "center", gap: "4px" },
 				children: branchLabel
 			});
 		}
@@ -1427,7 +1435,14 @@ window.__ModuleLoader__.load({
 				react_jsx_runtime.jsx("span", {
 					onPointerEnter: () => setHovered(true),
 					style: { display: "inline-flex", alignItems: "center", gap: "6px", flex: "none", cursor: isBranchLink ? "pointer" : "default" },
-					children: [tokenGlyph, react_jsx_runtime.jsx("span", { key: "branch", children: branchInner })]
+					children: [tokenGlyph, react_jsx_runtime.jsx("span", {
+						key: "branch",
+						// A flex row aligns the branch name, the worktree tree and the sync
+						// suffix on one centre line. The 4px gap is the small breath before
+						// the tree; without it the tree touches the branch text.
+						style: { display: "inline-flex", alignItems: "center", gap: "4px" },
+						children: branchInner
+					})]
 				}),
 				() => react_jsx_runtime.jsx(ChipCard, { info, detail }),
 				600
@@ -1489,6 +1504,77 @@ window.__ModuleLoader__.load({
 			});
 		}
 
+		/**
+		 * The WORKTREE mark: a compact full-colour tree between the branch name
+		 * and the sync suffix. It sits with the branch it describes, before the
+		 * upstream arrows, the file count and the PR token. WHICH tree it is stays
+		 * in the hover card's `worktree` row; the name is only the accessible label
+		 * and the native title here.
+		 *
+		 * The trunk uses `currentColor`, so it follows the chip's secondary text
+		 * colour in both themes. The branch nodes keep their hues. The 15px box
+		 * stays, so the tree aligns with the status icons; a wider viewBox scales
+		 * the drawing to 75% inside that box.
+		 */
+		function chipWorktreeMark(info) {
+			if (info === void 0 || info === null || info.isWorktree !== true) return null;
+			const name = typeof info.worktreeName === "string" ? info.worktreeName : "";
+			const label = name === "" ? "linked worktree" : "linked worktree " + name;
+			const ink = "currentColor";
+			const path = (key, d, stroke, width = 4) =>
+				react_jsx_runtime.jsx("path", {
+					d,
+					fill: "none",
+					stroke,
+					strokeWidth: width,
+					strokeLinecap: "round",
+					strokeLinejoin: "round"
+				}, key);
+			const node = (key, cx, cy, r, stroke) =>
+				react_jsx_runtime.jsx("circle", {
+					cx,
+					cy,
+					r,
+					fill: "none",
+					stroke,
+					strokeWidth: 4
+				}, key);
+			return react_jsx_runtime.jsx("span", {
+				role: "img",
+				"aria-label": label,
+				title: label,
+				style: { display: "inline-flex", alignItems: "center", flex: "none", color: "inherit" },
+				children: react_jsx_runtime.jsxs("svg", {
+					// The 90-unit drawing centred in a 120-unit viewBox is drawn at
+					// 75% inside the same 15px box: a 25% reduction that keeps the
+					// icon's top and bottom aligned with the status icons.
+					viewBox: "-9 -12 120 120",
+					width: 15,
+					height: 15,
+					"aria-hidden": "true",
+					focusable: "false",
+					style: { display: "block", overflow: "visible" },
+					children: [
+						path("trunk", "M50 90V40", ink, 5),
+						path("left-stem", "M50 70C45 70 40 70 35 70", ink),
+						path("left-branch", "M35 70H22", "#a855f7"),
+						node("left-node", 15, 70, 7, "#a855f7"),
+						path("upper-stem", "M50 52L40 42H28", ink),
+						path("upper-left-branch", "M28 42V34H20", "#f97316"),
+						node("upper-left-node", 14, 34, 6, "#f97316"),
+						path("top-branch", "M50 40V22", "#fb923c"),
+						node("top-node", 50, 14, 8, "#fb923c"),
+						path("right-stem", "M50 60L58 52H66L74 46", ink),
+						path("upper-right-branch", "M62 46L70 34H78", "#22c55e"),
+						node("upper-right-node", 86, 34, 8, "#22c55e"),
+						path("lower-stem", "M50 78C55 78 60 78 65 78", ink),
+						path("lower-right-branch", "M65 78H76", "#ef4444"),
+						node("lower-right-node", 84, 78, 8, "#ef4444")
+					]
+				}, "tree")
+			}, "worktree");
+		}
+
 		/** The chip row itself: leading cluster, operation text, count and PR token. */
 		function chipAssemble(leadingHover, text, countHover, prTokenHover) {
 			return react_jsx_runtime.jsxs("span", {
@@ -1547,7 +1633,8 @@ window.__ModuleLoader__.load({
 			// The branch name links to the compare view (base...branch). Vouched http(s)
 			// only; new tab, never navigating the conversation away.
 			const isBranchLink = typeof detail?.compareUrl === "string" && detail.compareUrl.startsWith("https://");
-			const branchInner = chipBranchInner(info, detail, isBranchLink, hoveredLink, setHovered, setHoveredLink);
+			const worktreeMark = chipWorktreeMark(info);
+			const branchInner = chipBranchInner(info, detail, isBranchLink, hoveredLink, setHovered, setHoveredLink, worktreeMark);
 			// The Tooltip's CHILD must not change element type once the detail payload
 			// lands, so the cluster span is the stable hover surface. ALWAYS wrapped.
 			const leadingHover = chipLeadingHover(info, detail, tokenGlyph, branchInner, isBranchLink, setHovered);
