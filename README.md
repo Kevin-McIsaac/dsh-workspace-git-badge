@@ -66,7 +66,7 @@ the `create_worktree` tool commit the change, and the badge reads that
 projection on every request. When the projection changes, the plugin pushes a
 refresh over SSE, so the badge follows within about one second. Enter the
 worktree with the tool (or `cd`) and the badge follows it. A full-colour tree at
-the end of the chip marks a linked worktree. No plugin registration and no file
+the start of the chip marks a linked worktree. No plugin registration and no file
 on disk are involved. A workspace-targeted row still reports the checkout the
 registry owns.
 

@@ -368,7 +368,7 @@ window.__ModuleLoader__.load({
 
 		/**
 		 * NOTE: a worktree's NAME is deliberately NOT part of the chip's text. It is
-		 * long, it competes with the branch for the same glance, and the trailing
+		 * long, it competes with the branch for the same glance, and the leading
 		 * full-colour tree (chipWorktreeMark) already says THAT the checkout is a
 		 * linked worktree. WHICH tree it is belongs to the hover card's `worktree`
 		 * row — see worktreeDetail. (The old append-unless-redundant rule lived here;
@@ -1001,7 +1001,7 @@ window.__ModuleLoader__.load({
 		/**
 		 * The `worktree` row: WHICH linked worktree the badge is describing. The chip
 		 * names only the branch (see the note above formatOperationToken), so the
-		 * card is the one place a tree is identified — the trailing tree can only
+		 * card is the one place a tree is identified — the leading tree can only
 		 * say *that* the checkout is a worktree, never which.
 		 */
 		function worktreeDetail(info) {
@@ -1491,11 +1491,11 @@ window.__ModuleLoader__.load({
 		}
 
 		/**
-		 * The trailing WORKTREE mark: a full-colour tree at the end of the chip.
-		 * It says THAT the checkout is a linked worktree without competing with
-		 * the action glyph's severity colour at the head of the line. WHICH tree
-		 * it is stays in the hover card's `worktree` row; the name is only the
-		 * accessible label and the native title here.
+		 * The leading WORKTREE mark: a full-colour tree at the start of the chip.
+		 * It says THAT the checkout is a linked worktree before the status
+		 * cluster, so the action glyph keeps its own place inside that cluster.
+		 * WHICH tree it is stays in the hover card's `worktree` row; the name is
+		 * only the accessible label and the native title here.
 		 *
 		 * The trunk uses `currentColor`, so it follows the chip's secondary text
 		 * colour in both themes. The branch nodes keep their hues.
@@ -1555,7 +1555,7 @@ window.__ModuleLoader__.load({
 			}, "worktree");
 		}
 
-		/** The chip row itself: leading cluster, operation text, count, PR token and worktree mark. */
+		/** The chip row itself: worktree mark, leading cluster, operation text, count and PR token. */
 		function chipAssemble(leadingHover, text, countHover, prTokenHover, worktreeMark) {
 			return react_jsx_runtime.jsxs("span", {
 				style: {
@@ -1573,11 +1573,11 @@ window.__ModuleLoader__.load({
 					cursor: "default"
 				},
 				children: [
+					worktreeMark,
 					leadingHover,
 					react_jsx_runtime.jsx("span", { key: "text", children: text }),
 					countHover,
-					prTokenHover,
-					worktreeMark
+					prTokenHover
 				]
 			});
 		}
