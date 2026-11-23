@@ -129,9 +129,7 @@ export function createClient({ tooltip = false, hover = false } = {}) {
 			return [{ key: initial.key, data }, () => {}];
 		},
 		useEffect: () => {},
-		// The fallback marker holds a ref and writes in a layout effect. Both are
-		// inert here, so the marker's DOM work is exercised through its exported
-		// pure helpers (`__internals.syncRowFallback`) against a fake row instead.
+		// Effects are inert here. The hooks exist because the bundle declares them.
 		useRef: (initial) => ({ current: initial }),
 		useLayoutEffect: () => {}
 	};
@@ -191,24 +189,21 @@ export function createClient({ tooltip = false, hover = false } = {}) {
 	return {
 		/** Test-only exports from the bundle: the request contract, not the DOM. */
 		internals: client.__internals,
+		/** Every slot the bundle registered, so a test can assert the seats. */
+		slots: Object.keys(registered),
 		/** The boot diagnostics apply() emitted, one string per console.info call. */
 		logs,
 		/** Every status-slot fetch key the bundle asked for, in render order. */
 		requests,
-		/** Render the row's leading token glyph; `props` adds kit. */
-		leading(data, props) {
+		/** Render the row's trailing token glyph; `props` adds kit. */
+		rowToken(data, props) {
 			feed(data);
-			return capture(() => expand(registered["sidebar.session.row.leading"]({ sessionId: "s-1", ...props })));
+			return capture(() => expand(registered["sidebar.session.row.trailing"]({ sessionId: "s-1", ...props })));
 		},
 		/** Render the session row's hover-card detail line (the glyph's explanation). */
 		rowDetail(data, props) {
 			feed(data);
 			return capture(() => expand(registered["sidebar.session.row.hover"]({ sessionId: "s-1", ...props })));
-		},
-		/** Render the always-mounted row marker that carries the fallback overlay. */
-		fallback(data, props) {
-			feed(data);
-			return capture(() => expand(registered["sidebar.workspaces.session.row.action"]({ sessionId: "s-1", ...props })));
 		},
 		/** Render the composer chip. */
 		chip(data, detail) {

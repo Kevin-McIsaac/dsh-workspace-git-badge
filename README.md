@@ -16,7 +16,7 @@ awareness directly into your workflow:
 
 2. **Actionable session overview**: pinpoints the session requiring attention. The session row status icon is extended to show what git actions are needed, e.g., push, merge. The row's hover card lists this icon, the action and the reason (`↑ push — no upstream configured`). The chip leads with the same icon, and a checkout with nothing to do shows an `in sync` disc — green when nothing is outstanding, amber when commits are not yet merged — so a session is never iconless.
 
-![Dark-mode sidebar session rows: a green tick in the leading cell for a merge-ready pull request, a red cross for failing CI, and an in-sync disc when there is nothing to do](docs/images/session-rows.svg)
+![Dark-mode sidebar session rows: a green tick in the trailing strip for a merge-ready pull request, a red cross for failing CI, and an in-sync disc when there is nothing to do](docs/images/session-rows.svg)
 
 Both are updated within seconds of any commit, checkout, stage or file
 edit — including inside a linked  [worktree](#Worktrees) for safe isolation of parallel dhs working session.
@@ -36,10 +36,12 @@ no second step.
 
 ## Sidebar technical details
 
-The status icon renders using the upstream 
-`sidebar.session.row.leading` seat — a 16px cell in the row's leading cluster,
-rendered only while the session is idle. The hover-card provenance line rides
-upstream's own `sidebar.session.row.hover` seat as well. 
+The status icon renders using the upstream
+`sidebar.session.row.trailing` seat — the row's icon strip after the time label,
+before the pin marker. It stays mounted in every non-blank row state, so a
+status dot never hides it, and the strip hides while the row is hovered. The
+hover-card provenance line rides upstream's own `sidebar.session.row.hover` seat
+as well.
 
 
 ## Testing
@@ -72,8 +74,8 @@ registry owns.
 
 ## Requirements
 
-- Node.js ≥ 20, `git` on PATH
-- DSH 0.2.1 or newer with the `web` profile
+- Node.js ≥ 24.9, `git` on PATH
+- DSH 0.2.2-rc.1 or newer with the `web` profile
 - `gh` on PATH, authenticated, for the PR/CI token and the row's `merge`/`review`
   actions — otherwise those are silently absent and everything else still works
 

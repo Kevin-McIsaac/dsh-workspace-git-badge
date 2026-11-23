@@ -596,7 +596,7 @@ test("the session row shows a GLYPH, never a PR token or a branch", () => {
 	// The row's job is triage, so it shows the node half's token as one glyph. The
 	// PR number and CI state live on the row's hover line; the chip keeps both.
 	const client = createClient();
-	const rendered = text(client.leading({ branch: "SECRET/BRANCH", dirty: false, rowToken: "fix CI", rowSeverity: "error", pr: { number: 142, state: "failing" } }));
+	const rendered = text(client.rowToken({ branch: "SECRET/BRANCH", dirty: false, rowToken: "fix CI", rowSeverity: "error", pr: { number: 142, state: "failing" } }));
 	assert.equal(rendered, "\u2717", `expected the glyph alone: ${rendered}`);
 	assert.ok(!rendered.includes("PR#"), "the token belongs to the chip now");
 	assert.ok(!rendered.includes("SECRET/BRANCH"), `the row must not name the branch: ${rendered}`);
@@ -612,9 +612,9 @@ test("the row's token glyph hides while the session is running a turn", () => {
 	// is how a row can tell an idle session from one mid-turn. A turn in flight is
 	// exactly when a suggestion is noise: the checkout is still moving.
 	const client = createClient();
-	const idle = client.leading(ROW_AHEAD, { useSessions: sessionsWithRunning(false) });
+	const idle = client.rowToken(ROW_AHEAD, { useSessions: sessionsWithRunning(false) });
 	assert.ok(elements(idle).some((el) => el.type === "svg"), `expected the arrow while idle: ${text(idle)}`);
-	const busy = client.leading(ROW_AHEAD, { useSessions: sessionsWithRunning(true) });
+	const busy = client.rowToken(ROW_AHEAD, { useSessions: sessionsWithRunning(true) });
 	assert.equal(busy, null, "no icon while a turn is running");
 });
 
@@ -622,7 +622,7 @@ test("without the standard-kit hook the row is unchanged, and the console says s
 	// Absent means "cannot know", never "running": a shell that seeds no useSessions
 	// must keep the glyph exactly as it was rather than blanking it.
 	const client = createClient();
-	const rendered = client.leading(ROW_AHEAD);
+	const rendered = client.rowToken(ROW_AHEAD);
 	assert.ok(elements(rendered).some((el) => el.type === "svg"), `expected the icon unchanged: ${text(rendered)}`);
 	assert.ok(
 		client.logs.some((line) => line.includes("session-row idle gate = off")),
@@ -632,7 +632,7 @@ test("without the standard-kit hook the row is unchanged, and the console says s
 
 test("the idle gate reports ON when the shell supplies the hook", () => {
 	const client = createClient();
-	client.leading(ROW_AHEAD, { useSessions: sessionsWithRunning(false) });
+	client.rowToken(ROW_AHEAD, { useSessions: sessionsWithRunning(false) });
 	assert.ok(
 		client.logs.some((line) => line.includes("session-row idle gate = on")),
 		`expected the on report: ${JSON.stringify(client.logs)}`
