@@ -22,7 +22,7 @@ const FLAT = (text) => text.replace(/\s+/gu, " ");
 /** [what the claim is, how to recognise it] — must appear in BOTH files. */
 const CLAIMS = [
 	["the install command", /dsh plugin --profile web add dsh-git-badge/],
-	["the leading-cell seat", /sidebar\.session\.row\.leading/],
+	["the trailing-strip seat", /sidebar\.session\.row\.trailing/],
 	["the hover-card seat", /sidebar\.session\.row\.hover/],
 	["the hover example", /↑ push — no upstream configured/],
 	["the no-patch statement", /(no|nothing to) (seam )?patch/i],

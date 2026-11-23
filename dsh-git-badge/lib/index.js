@@ -1679,7 +1679,7 @@ async function sessionWorkingDirectory(ctx, sessionId) {
 	const controller = ctx.get("sessionController");
 	if (controller !== void 0 && typeof controller.projections === "function") {
 		try {
-			const signal = typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(config.projectionTimeoutMs) : new AbortController().signal;
+			const signal = AbortSignal.timeout(config.projectionTimeoutMs);
 			const value = await controller.projections({ sessionId }, signal);
 			const cwd = value?.values?.workingDirectory;
 			if (typeof cwd === "string" && cwd !== "") return cwd;

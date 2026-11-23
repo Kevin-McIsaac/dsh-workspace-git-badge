@@ -207,7 +207,7 @@ curl -s -b /tmp/jar "http://127.0.0.1:3100/api/git-badge?session=__no_such_sessi
 
 Then in a browser: the input chip and the session-row action glyph are both
 present, and the console shows
-`[dsh-git-badge] surfaces: input chip = on; sidebar row token = on (upstream leading seat).`
+`[dsh-git-badge] surfaces: input chip = on; sidebar row token = on (upstream trailing seat).`
 Open the URL the server printed (the one carrying `?token=`) — a bare
 `http://127.0.0.1:3000`-style URL will not authenticate, and the launch token is
 per-process, so it cannot be recovered from the boot log after the fact.
@@ -217,8 +217,11 @@ prints both commands with the real paths.
 
 ## Row surfaces (no patch)
 
-The action token renders on each session row as a glyph in the leading cell
-(`merge`, `fix CI`, …), through upstream's `sidebar.session.row.leading` seat.
+The action token renders on each session row as a glyph in the trailing icon
+strip, after the time label (`merge`, `fix CI`, …), through upstream's
+`sidebar.session.row.trailing` seat. It stays mounted in every non-blank row
+state, so a status dot never hides it, and the strip hides while the row is
+hovered.
 The **project** rows stay bare — by design, since a workspace cannot know which
 worktree its sessions use. The **search** list stays bare too: it renders a
 different component without that seat. The flat "all sessions" list reuses
@@ -233,7 +236,7 @@ the checkout and the pull request rides upstream's own
   repos, resolution, SSE, the watcher, and every PR/CI degradation path through
   the `prRunner` seam — so a `gh`-less CI box still tests the feature).
 - **Client half changed** → `npm test` covers the rendering rules (glyph and
-  severity colour, the leading glyph, row/chip composition, the hover card's contents, and
+  severity colour, the trailing glyph, row/chip composition, the hover card's contents, and
   the PR token); a browser refresh is then only needed to see it live. After
   bundle-graph changes, restart first (see above).
 - **Hover card / PR token changed** → two things to know when testing by hand.

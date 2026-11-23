@@ -8,7 +8,24 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 Versions before 0.6.0 predate this file; their history is in `git log` and on
 npm. 0.6.0 is the first release recorded here.
 
-## [Unreleased]
+## [0.23.0] - 2026-11-23
+
+### Changed
+
+- **The row token rides upstream's trailing seat.** The sidebar glyph now
+  renders in `sidebar.session.row.trailing`, after the time label and before the
+  pin marker. The strip stays mounted in every non-blank row state, so a status
+  dot never hides the token, and it hides while the row is hovered. The row's
+  own hover card still explains the action.
+- **Requires Node 24.9 and DSH 0.2.2-rc.1.** `engines.node` matches DSH's floor,
+  the `AbortSignal.timeout` feature test is gone, and `engines.dsh` refuses DSH
+  releases without the trailing seat.
+
+### Removed
+
+- **The status-dot fallback.** The action-strip marker, the injected stylesheet,
+  the `MutationObserver`, and the CSS mask copy of the icon are gone. The row's
+  leading cell belongs to upstream again.
 
 ## [0.22.0] - 2026-11-10
 
